@@ -3,7 +3,14 @@
 // Client-side game logic
 // ============================================
 
-const socket = io();
+// Connect to backend server - update this URL when you deploy the server!
+const BACKEND_URL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
+  ? window.location.origin  // Local development
+  : 'https://your-server-here.onrender.com'; // Replace with your deployed server URL
+
+const socket = io(BACKEND_URL, {
+  transports: ['websocket', 'polling']
+});
 
 // DOM Elements
 const screens = {
@@ -833,6 +840,18 @@ function handleNextPsychicRound(data) {
 socket.on('connect', () => {
   state.playerId = socket.id;
   console.log('🔌 Connected:', socket.id);
+  // Hide connection error if shown
+  const connError = document.getElementById('connectionError');
+  if (connError) connError.style.display = 'none';
+});
+
+socket.on('connect_error', (error) => {
+  console.error('❌ Connection error:', error);
+  showError('Cannot connect to game server. Make sure the backend is running!');
+});
+
+socket.on('disconnect', () => {
+  console.log('🔌 Disconnected from server');
 });
 
 socket.on('roomCreated', (data) => {
