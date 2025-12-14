@@ -845,19 +845,26 @@ function handleNextPsychicRound(data) {
 socket.on('connect', () => {
   state.playerId = socket.id;
   console.log('🔌 Connected:', socket.id);
-  // Hide connection error if shown
-  const connError = document.getElementById('connectionError');
-  if (connError) connError.style.display = 'none';
+  updateConnectionStatus('connected', '✅', 'Connected! Ready to play!');
 });
 
 socket.on('connect_error', (error) => {
   console.error('❌ Connection error:', error);
-  showError('Cannot connect to game server. Make sure the backend is running!');
+  updateConnectionStatus('disconnected', '❌', 'Server offline - <a href="https://render.com/deploy" target="_blank">Deploy backend first</a>');
 });
 
 socket.on('disconnect', () => {
   console.log('🔌 Disconnected from server');
+  updateConnectionStatus('disconnected', '🔌', 'Disconnected from server');
 });
+
+function updateConnectionStatus(status, icon, text) {
+  const statusEl = document.getElementById('connectionStatus');
+  if (statusEl) {
+    statusEl.className = 'connection-status ' + status;
+    statusEl.innerHTML = `<span class="status-icon">${icon}</span><span class="status-text">${text}</span>`;
+  }
+}
 
 socket.on('roomCreated', (data) => {
   state.roomId = data.roomId;

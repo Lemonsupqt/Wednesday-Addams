@@ -1257,3 +1257,42 @@ input[type="text"]::placeholder {
 .mb-20 {
   margin-bottom: 20px;
 }
+
+/* Connection Status */
+.connection-status {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 15px;
+  border-radius: 10px;
+  margin-bottom: 20px;
+  font-size: 0.95rem;
+}
+
+.connection-status.connecting {
+  background: rgba(234, 179, 8, 0.2);
+  border: 1px solid #eab308;
+  color: #eab308;
+}
+
+.connection-status.connected {
+  background: rgba(34, 197, 94, 0.2);
+  border: 1px solid #22c55e;
+  color: #22c55e;
+}
+
+.connection-status.disconnected {
+  background: rgba(239, 68, 68, 0.2);
+  border: 1px solid #ef4444;
+  color: #ef4444;
+}
+
+.connection-status .status-icon {
+  font-size: 1.2rem;
+}
+
+.connection-status a {
+  color: #3b82f6;
+  text-decoration: underline;
+}

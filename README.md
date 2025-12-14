@@ -8,6 +8,12 @@
 ![Multiplayer](https://img.shields.io/badge/Multiplayer-Real--time-purple?style=for-the-badge)
 ![Games](https://img.shields.io/badge/Games-5%20Goated-gold?style=for-the-badge)
 
+## 🚀 ONE-CLICK DEPLOY BACKEND
+
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/lemonsupqt/Wednesday-Addams)
+
+👆 **Click this button to deploy the multiplayer server for FREE!**
+
 ---
 
 ## 🎮 Features
