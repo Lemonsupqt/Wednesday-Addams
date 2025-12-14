@@ -71,15 +71,12 @@ let state = {
   gameState: {}
 };
 
-// Drawing state
-let drawingState = {
-  canvas: null,
-  ctx: null,
-  isDrawing: false,
-  currentColor: '#000000',
-  brushSize: 5,
-  lastX: 0,
-  lastY: 0
+// Chess state
+let chessState = {
+  selectedSquare: null,
+  validMoves: [],
+  isMyTurn: false,
+  myColor: null
 };
 
 // ============================================
@@ -244,10 +241,10 @@ function updatePlayersList(players) {
           <span class="game-name">Vecna's<br>Memory Match</span>
           <span class="game-players">2+ players</span>
         </button>
-        <button class="game-card" data-game="drawing">
-          <span class="game-icon">🖐️✏️</span>
-          <span class="game-name">Thing's<br>Drawing Duel</span>
-          <span class="game-players">3+ players</span>
+        <button class="game-card" data-game="chess">
+          <span class="game-icon">♟️👑</span>
+          <span class="game-name">Vecna's<br>Chess</span>
+          <span class="game-players">2 players</span>
         </button>
         <button class="game-card" data-game="psychic">
           <span class="game-icon">🔮⚡</span>
@@ -285,12 +282,7 @@ function sendChat() {
 function sendGameChat() {
   const message = elements.gameChatInput.value.trim();
   if (!message) return;
-  
-  if (state.currentGame === 'drawing') {
-    socket.emit('drawingGuess', message);
-  } else {
-    socket.emit('chatMessage', message);
-  }
+  socket.emit('chatMessage', message);
   elements.gameChatInput.value = '';
 }
 
@@ -563,195 +555,189 @@ function handleNextTriviaQuestion(data) {
 }
 
 // ============================================
-// DRAWING GAME
+// CHESS GAME
 // ============================================
 
-function initDrawingGame(gameState, players) {
+const CHESS_PIECES = {
+  'K': '♔', 'Q': '♕', 'R': '♖', 'B': '♗', 'N': '♘', 'P': '♙',
+  'k': '♚', 'q': '♛', 'r': '♜', 'b': '♝', 'n': '♞', 'p': '♟'
+};
+
+function initChessGame(gameState, players) {
   state.gameState = gameState;
-  elements.gameTitle.textContent = '🖐️ Thing\'s Drawing Duel ✏️';
+  elements.gameTitle.textContent = '♟️ Vecna\'s Chess 👑';
   
-  const isDrawer = gameState.currentDrawer === state.playerId;
-  const drawerName = players.find(p => p.id === gameState.currentDrawer)?.name || 'Unknown';
+  const isWhitePlayer = gameState.whitePlayer === state.playerId;
+  const isBlackPlayer = gameState.blackPlayer === state.playerId;
+  chessState.myColor = isWhitePlayer ? 'white' : (isBlackPlayer ? 'black' : null);
+  chessState.isMyTurn = gameState.currentPlayer === state.playerId;
+  chessState.selectedSquare = null;
+  
+  const whiteName = players.find(p => p.id === gameState.whitePlayer)?.name || 'White';
+  const blackName = players.find(p => p.id === gameState.blackPlayer)?.name || 'Black';
+  
+  renderChessBoard(gameState.board, gameState.isWhiteTurn, whiteName, blackName);
+  updateScoreBoard(players, gameState.currentPlayer);
+}
+
+function renderChessBoard(board, isWhiteTurn, whiteName, blackName) {
+  const isSpectator = !chessState.myColor;
+  const flipBoard = chessState.myColor === 'black';
+  
+  let statusText = '';
+  if (state.gameState.gameOver) {
+    statusText = `👑 ${state.gameState.winnerName} wins!`;
+  } else if (state.gameState.inCheck) {
+    statusText = `⚠️ ${isWhiteTurn ? whiteName : blackName} is in CHECK!`;
+  } else {
+    statusText = chessState.isMyTurn ? "🎯 Your turn!" : "⏳ Opponent's turn...";
+  }
   
   elements.gameContent.innerHTML = `
-    <div class="drawing-container">
-      <div class="drawing-info">
-        <div class="drawing-prompt ${isDrawer ? '' : 'hidden'}">
-          ${isDrawer ? `Draw: ${gameState.currentPrompt}` : `${drawerName} is drawing...`}
-        </div>
-        <div class="drawing-status">Round ${gameState.roundsPlayed + 1}/${gameState.maxRounds}</div>
+    <div class="chess-container">
+      <div class="chess-status" id="chessStatus">${statusText}</div>
+      <div class="chess-players">
+        <span class="chess-player ${!isWhiteTurn ? 'active' : ''}">⚫ ${escapeHtml(blackName)}</span>
+        <span class="chess-vs">vs</span>
+        <span class="chess-player ${isWhiteTurn ? 'active' : ''}">⚪ ${escapeHtml(whiteName)}</span>
       </div>
-      <div class="drawing-canvas-container">
-        <canvas id="drawingCanvas" width="600" height="400"></canvas>
+      <div class="chess-board ${flipBoard ? 'flipped' : ''}" id="chessBoard">
+        ${renderChessBoardSquares(board, flipBoard)}
       </div>
-      ${isDrawer ? `
-        <div class="drawing-tools">
-          <div class="color-picker">
-            ${['#000000', '#ffffff', '#e50914', '#9333ea', '#22c55e', '#3b82f6', '#eab308', '#f97316'].map(color => `
-              <button class="color-btn ${color === '#000000' ? 'active' : ''}" style="background: ${color}" data-color="${color}"></button>
-            `).join('')}
-          </div>
-          <div class="brush-sizes">
-            <button class="size-btn small" data-size="3"></button>
-            <button class="size-btn medium active" data-size="8"></button>
-            <button class="size-btn large" data-size="15"></button>
-          </div>
-          <button id="clearCanvasBtn">🗑️ Clear</button>
-        </div>
-      ` : ''}
+      <div class="chess-info">
+        ${isSpectator ? '👁️ Spectating' : `You are playing as ${chessState.myColor === 'white' ? '⚪ White' : '⚫ Black'}`}
+      </div>
     </div>
   `;
   
-  initCanvas(isDrawer);
-  updateScoreBoard(players, gameState.currentDrawer);
-}
-
-function initCanvas(isDrawer) {
-  const canvas = document.getElementById('drawingCanvas');
-  const ctx = canvas.getContext('2d');
-  
-  drawingState.canvas = canvas;
-  drawingState.ctx = ctx;
-  drawingState.isDrawing = false;
-  drawingState.currentColor = '#000000';
-  drawingState.brushSize = 8;
-  
-  // White background
-  ctx.fillStyle = '#ffffff';
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
-  
-  if (isDrawer) {
-    canvas.addEventListener('mousedown', startDrawing);
-    canvas.addEventListener('mousemove', draw);
-    canvas.addEventListener('mouseup', stopDrawing);
-    canvas.addEventListener('mouseout', stopDrawing);
-    
-    // Touch support
-    canvas.addEventListener('touchstart', (e) => {
-      e.preventDefault();
-      const touch = e.touches[0];
-      const rect = canvas.getBoundingClientRect();
-      startDrawing({
-        offsetX: touch.clientX - rect.left,
-        offsetY: touch.clientY - rect.top
-      });
+  // Add click handlers
+  if (!state.gameState.gameOver) {
+    document.querySelectorAll('.chess-square').forEach(square => {
+      square.addEventListener('click', () => handleChessSquareClick(
+        parseInt(square.dataset.row),
+        parseInt(square.dataset.col)
+      ));
     });
-    
-    canvas.addEventListener('touchmove', (e) => {
-      e.preventDefault();
-      const touch = e.touches[0];
-      const rect = canvas.getBoundingClientRect();
-      draw({
-        offsetX: touch.clientX - rect.left,
-        offsetY: touch.clientY - rect.top
-      });
-    });
-    
-    canvas.addEventListener('touchend', stopDrawing);
-    
-    // Color picker
-    document.querySelectorAll('.color-btn').forEach(btn => {
-      btn.addEventListener('click', () => {
-        document.querySelectorAll('.color-btn').forEach(b => b.classList.remove('active'));
-        btn.classList.add('active');
-        drawingState.currentColor = btn.dataset.color;
-      });
-    });
-    
-    // Brush size
-    document.querySelectorAll('.size-btn').forEach(btn => {
-      btn.addEventListener('click', () => {
-        document.querySelectorAll('.size-btn').forEach(b => b.classList.remove('active'));
-        btn.classList.add('active');
-        drawingState.brushSize = parseInt(btn.dataset.size);
-      });
-    });
-    
-    // Clear
-    document.getElementById('clearCanvasBtn')?.addEventListener('click', () => {
-      ctx.fillStyle = '#ffffff';
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-      socket.emit('drawingData', { type: 'clear' });
-    });
-  } else {
-    canvas.style.cursor = 'default';
   }
 }
 
-function startDrawing(e) {
-  drawingState.isDrawing = true;
-  drawingState.lastX = e.offsetX;
-  drawingState.lastY = e.offsetY;
+function renderChessBoardSquares(board, flipBoard) {
+  let html = '';
+  
+  for (let displayRow = 0; displayRow < 8; displayRow++) {
+    for (let displayCol = 0; displayCol < 8; displayCol++) {
+      const row = flipBoard ? 7 - displayRow : displayRow;
+      const col = flipBoard ? 7 - displayCol : displayCol;
+      const piece = board[row][col];
+      const isLight = (row + col) % 2 === 0;
+      const squareClass = isLight ? 'light' : 'dark';
+      const pieceHtml = piece ? CHESS_PIECES[piece] : '';
+      const isSelected = chessState.selectedSquare && 
+                         chessState.selectedSquare[0] === row && 
+                         chessState.selectedSquare[1] === col;
+      const isLastMove = state.gameState.lastMove && (
+        (state.gameState.lastMove.from[0] === row && state.gameState.lastMove.from[1] === col) ||
+        (state.gameState.lastMove.to[0] === row && state.gameState.lastMove.to[1] === col)
+      );
+      
+      html += `
+        <div class="chess-square ${squareClass} ${isSelected ? 'selected' : ''} ${isLastMove ? 'last-move' : ''}" 
+             data-row="${row}" data-col="${col}">
+          <span class="chess-piece ${piece && piece === piece.toUpperCase() ? 'white-piece' : 'black-piece'}">
+            ${pieceHtml}
+          </span>
+        </div>
+      `;
+    }
+  }
+  
+  return html;
 }
 
-function draw(e) {
-  if (!drawingState.isDrawing) return;
+function handleChessSquareClick(row, col) {
+  if (!chessState.isMyTurn || !chessState.myColor) return;
   
-  const ctx = drawingState.ctx;
-  ctx.beginPath();
-  ctx.strokeStyle = drawingState.currentColor;
-  ctx.lineWidth = drawingState.brushSize;
-  ctx.lineCap = 'round';
-  ctx.lineJoin = 'round';
-  ctx.moveTo(drawingState.lastX, drawingState.lastY);
-  ctx.lineTo(e.offsetX, e.offsetY);
-  ctx.stroke();
+  const board = state.gameState.board;
+  const piece = board[row][col];
+  const isWhiteTurn = state.gameState.isWhiteTurn;
   
-  // Send to others
-  socket.emit('drawingData', {
-    type: 'draw',
-    x1: drawingState.lastX,
-    y1: drawingState.lastY,
-    x2: e.offsetX,
-    y2: e.offsetY,
-    color: drawingState.currentColor,
-    size: drawingState.brushSize
+  // If we have a selected piece, try to move
+  if (chessState.selectedSquare) {
+    const [fromRow, fromCol] = chessState.selectedSquare;
+    
+    // Clicking same square deselects
+    if (fromRow === row && fromCol === col) {
+      chessState.selectedSquare = null;
+      updateChessBoardUI();
+      return;
+    }
+    
+    // Try to make the move
+    socket.emit('chessMove', {
+      from: [fromRow, fromCol],
+      to: [row, col]
+    });
+    
+    chessState.selectedSquare = null;
+    return;
+  }
+  
+  // Select a piece if it's our color
+  if (piece) {
+    const isPieceWhite = piece === piece.toUpperCase();
+    const canSelect = (chessState.myColor === 'white' && isPieceWhite && isWhiteTurn) ||
+                      (chessState.myColor === 'black' && !isPieceWhite && !isWhiteTurn);
+    
+    if (canSelect) {
+      chessState.selectedSquare = [row, col];
+      updateChessBoardUI();
+    }
+  }
+}
+
+function updateChessBoardUI() {
+  document.querySelectorAll('.chess-square').forEach(square => {
+    const row = parseInt(square.dataset.row);
+    const col = parseInt(square.dataset.col);
+    const isSelected = chessState.selectedSquare && 
+                       chessState.selectedSquare[0] === row && 
+                       chessState.selectedSquare[1] === col;
+    square.classList.toggle('selected', isSelected);
   });
-  
-  drawingState.lastX = e.offsetX;
-  drawingState.lastY = e.offsetY;
 }
 
-function stopDrawing() {
-  drawingState.isDrawing = false;
-}
-
-function handleDrawingData(data) {
-  if (state.gameState.currentDrawer === state.playerId) return;
+function handleChessUpdate(data) {
+  state.gameState.board = data.board;
+  state.gameState.currentPlayer = data.currentPlayer;
+  state.gameState.isWhiteTurn = data.isWhiteTurn;
+  state.gameState.inCheck = data.inCheck;
+  state.gameState.gameOver = data.gameOver;
+  state.gameState.winner = data.winner;
+  state.gameState.winnerName = data.winnerName;
+  state.gameState.lastMove = data.lastMove;
   
-  const ctx = drawingState.ctx;
-  if (!ctx) return;
+  chessState.isMyTurn = data.currentPlayer === state.playerId;
+  chessState.selectedSquare = null;
   
-  if (data.data.type === 'clear') {
-    ctx.fillStyle = '#ffffff';
-    ctx.fillRect(0, 0, drawingState.canvas.width, drawingState.canvas.height);
-  } else if (data.data.type === 'draw') {
-    ctx.beginPath();
-    ctx.strokeStyle = data.data.color;
-    ctx.lineWidth = data.data.size;
-    ctx.lineCap = 'round';
-    ctx.lineJoin = 'round';
-    ctx.moveTo(data.data.x1, data.data.y1);
-    ctx.lineTo(data.data.x2, data.data.y2);
-    ctx.stroke();
+  const whiteName = state.players.find(p => p.id === state.gameState.whitePlayer)?.name || 'White';
+  const blackName = state.players.find(p => p.id === state.gameState.blackPlayer)?.name || 'Black';
+  
+  renderChessBoard(data.board, data.isWhiteTurn, whiteName, blackName);
+  updateScoreBoard(data.players, data.currentPlayer);
+  
+  if (data.inCheck && !data.gameOver) {
+    addChatMessage({
+      system: true,
+      message: `⚠️ ${data.isWhiteTurn ? blackName : whiteName} is in check!`
+    }, elements.gameChatMessages);
   }
-}
-
-function handleCorrectGuess(data) {
-  addChatMessage({
-    system: true,
-    message: `🎉 ${data.playerName} guessed correctly!`
-  }, elements.gameChatMessages);
-  updateScoreBoard(data.players);
-}
-
-function handleNewDrawingRound(data) {
-  state.gameState.currentDrawer = data.currentDrawer;
-  state.gameState.currentPrompt = data.prompt;
-  state.gameState.roundsPlayed = data.roundsPlayed;
-  state.gameState.guessedPlayers = [];
   
-  initDrawingGame(state.gameState, state.players);
+  if (data.gameOver) {
+    addChatMessage({
+      system: true,
+      message: `👑 ${data.winnerName} wins the game!`
+    }, elements.gameChatMessages);
+  }
 }
 
 // ============================================
@@ -923,8 +909,8 @@ socket.on('gameStarted', (data) => {
     case 'trivia':
       initTrivia(data.gameState, data.players);
       break;
-    case 'drawing':
-      initDrawingGame(data.gameState, data.players);
+    case 'chess':
+      initChessGame(data.gameState, data.players);
       break;
     case 'psychic':
       initPsychicGame(data.gameState, data.players);
@@ -958,10 +944,9 @@ socket.on('playerAnswered', handlePlayerAnswered);
 socket.on('triviaReveal', handleTriviaReveal);
 socket.on('nextTriviaQuestion', handleNextTriviaQuestion);
 
-// Drawing
-socket.on('drawingData', handleDrawingData);
-socket.on('correctGuess', handleCorrectGuess);
-socket.on('newDrawingRound', handleNewDrawingRound);
+// Chess
+socket.on('chessUpdate', handleChessUpdate);
+socket.on('invalidMove', (data) => showError(data.message));
 
 // Psychic
 socket.on('playerChose', handlePlayerChose);

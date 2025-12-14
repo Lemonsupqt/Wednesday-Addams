@@ -24,7 +24,7 @@
 |------|-------------|---------|
 | ⭕❌ **Upside Down Tic-Tac-Toe** | Classic game with Demogorgon vs Eleven vibes | 2 |
 | 🃏 **Vecna's Memory Match** | Match cards featuring characters & items from both universes | 2+ |
-| 🖐️✏️ **Thing's Drawing Duel** | Draw & guess themed prompts (like Pictionary) | 3+ |
+| ♟️👑 **Vecna's Chess** | Full chess with gothic dark/light board | 2 |
 | 🔮⚡ **Psychic Showdown** | Vision vs Mind vs Power (Rock-Paper-Scissors reimagined) | 2+ |
 | 🧠📺 **Nevermore Trivia** | Test your knowledge of Stranger Things & Wednesday | 2+ |
 
@@ -82,10 +82,8 @@ Flip cards to find matching pairs of iconic items and characters. Take turns - m
 
 **Cards include:** Demogorgon, Eleven, Wednesday, Thing, Eggo Waffles, Cello, Spider, Christmas Lights, and more!
 
-### 🖐️✏️ Thing's Drawing Duel
-One player draws a themed prompt while others guess. Correct guessers and the artist both score points!
-
-**Prompts include:** "Demogorgon", "Wednesday dancing", "Steve's hair", "The Upside Down", "Nevermore Academy", etc.
+### ♟️👑 Vecna's Chess
+Full chess game with a dark gothic aesthetic! Play as White or Black on a beautifully styled board. Standard chess rules apply - capture the opponent's King to win!
 
 ### 🔮⚡ Psychic Showdown
 Choose your power each round:

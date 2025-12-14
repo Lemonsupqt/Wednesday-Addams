@@ -58,17 +58,148 @@ const triviaQuestions = [
   { q: "What color is Enid's side of the room?", options: ["Black", "Purple", "Pink/Colorful", "Gray"], correct: 2 }
 ];
 
-// Drawing prompts for the drawing game
-const drawingPrompts = [
-  "Demogorgon", "Thing (the hand)", "Eleven's nosebleed", "Wednesday's braids",
-  "The Upside Down", "Nevermore Academy", "Eggo waffle", "Cello",
-  "Christmas lights message", "Wednesday dancing", "Mind Flayer", "Enid as a werewolf",
-  "Hawkins Lab", "Uncle Fester", "Vecna", "Morticia Addams",
-  "Steve's hair", "Thing typing", "Dustin's hat", "Wednesday fencing",
-  "The Byers' house", "Gothic mansion", "Demobat", "Edgar Allan Poe statue",
-  "Eleven in the void", "Hyde monster", "Max floating", "Pugsley explosion",
-  "Russian base", "Nevermore gates", "Hopper's cabin", "Wednesday's uniform"
-];
+// Chess helper functions
+function getInitialChessBoard() {
+  return [
+    ['r', 'n', 'b', 'q', 'k', 'b', 'n', 'r'],
+    ['p', 'p', 'p', 'p', 'p', 'p', 'p', 'p'],
+    [null, null, null, null, null, null, null, null],
+    [null, null, null, null, null, null, null, null],
+    [null, null, null, null, null, null, null, null],
+    [null, null, null, null, null, null, null, null],
+    ['P', 'P', 'P', 'P', 'P', 'P', 'P', 'P'],
+    ['R', 'N', 'B', 'Q', 'K', 'B', 'N', 'R']
+  ];
+}
+
+function isWhitePiece(piece) {
+  return piece && piece === piece.toUpperCase();
+}
+
+function isBlackPiece(piece) {
+  return piece && piece === piece.toLowerCase();
+}
+
+function isValidChessMove(board, from, to, isWhiteTurn) {
+  const [fromRow, fromCol] = from;
+  const [toRow, toCol] = to;
+  const piece = board[fromRow][fromCol];
+  const target = board[toRow][toCol];
+  
+  if (!piece) return false;
+  
+  // Check if moving own piece
+  if (isWhiteTurn && !isWhitePiece(piece)) return false;
+  if (!isWhiteTurn && !isBlackPiece(piece)) return false;
+  
+  // Can't capture own piece
+  if (target) {
+    if (isWhiteTurn && isWhitePiece(target)) return false;
+    if (!isWhiteTurn && isBlackPiece(target)) return false;
+  }
+  
+  const pieceType = piece.toLowerCase();
+  const rowDiff = toRow - fromRow;
+  const colDiff = toCol - fromCol;
+  const absRowDiff = Math.abs(rowDiff);
+  const absColDiff = Math.abs(colDiff);
+  
+  switch (pieceType) {
+    case 'p': // Pawn
+      const direction = isWhitePiece(piece) ? -1 : 1;
+      const startRow = isWhitePiece(piece) ? 6 : 1;
+      
+      // Move forward
+      if (colDiff === 0 && !target) {
+        if (rowDiff === direction) return true;
+        if (fromRow === startRow && rowDiff === 2 * direction && !board[fromRow + direction][fromCol]) return true;
+      }
+      // Capture diagonally
+      if (absColDiff === 1 && rowDiff === direction && target) return true;
+      return false;
+      
+    case 'r': // Rook
+      if (fromRow !== toRow && fromCol !== toCol) return false;
+      return isPathClear(board, from, to);
+      
+    case 'n': // Knight
+      return (absRowDiff === 2 && absColDiff === 1) || (absRowDiff === 1 && absColDiff === 2);
+      
+    case 'b': // Bishop
+      if (absRowDiff !== absColDiff) return false;
+      return isPathClear(board, from, to);
+      
+    case 'q': // Queen
+      if (fromRow !== toRow && fromCol !== toCol && absRowDiff !== absColDiff) return false;
+      return isPathClear(board, from, to);
+      
+    case 'k': // King
+      return absRowDiff <= 1 && absColDiff <= 1;
+      
+    default:
+      return false;
+  }
+}
+
+function isPathClear(board, from, to) {
+  const [fromRow, fromCol] = from;
+  const [toRow, toCol] = to;
+  
+  const rowStep = toRow > fromRow ? 1 : (toRow < fromRow ? -1 : 0);
+  const colStep = toCol > fromCol ? 1 : (toCol < fromCol ? -1 : 0);
+  
+  let row = fromRow + rowStep;
+  let col = fromCol + colStep;
+  
+  while (row !== toRow || col !== toCol) {
+    if (board[row][col]) return false;
+    row += rowStep;
+    col += colStep;
+  }
+  
+  return true;
+}
+
+function findKing(board, isWhite) {
+  const king = isWhite ? 'K' : 'k';
+  for (let row = 0; row < 8; row++) {
+    for (let col = 0; col < 8; col++) {
+      if (board[row][col] === king) return [row, col];
+    }
+  }
+  return null;
+}
+
+function isInCheck(board, isWhiteKing) {
+  const kingPos = findKing(board, isWhiteKing);
+  if (!kingPos) return false;
+  
+  // Check if any opponent piece can capture the king
+  for (let row = 0; row < 8; row++) {
+    for (let col = 0; col < 8; col++) {
+      const piece = board[row][col];
+      if (piece && isWhitePiece(piece) !== isWhiteKing) {
+        if (isValidChessMove(board, [row, col], kingPos, !isWhiteKing)) {
+          return true;
+        }
+      }
+    }
+  }
+  return false;
+}
+
+function makeMove(board, from, to) {
+  const newBoard = board.map(row => [...row]);
+  newBoard[to[0]][to[1]] = newBoard[from[0]][from[1]];
+  newBoard[from[0]][from[1]] = null;
+  
+  // Pawn promotion (auto-queen)
+  const piece = newBoard[to[0]][to[1]];
+  if (piece === 'P' && to[0] === 0) newBoard[to[0]][to[1]] = 'Q';
+  if (piece === 'p' && to[0] === 7) newBoard[to[0]][to[1]] = 'q';
+  
+  return newBoard;
+}
 
 // Room class to manage game state
 class GameRoom {
@@ -191,49 +322,64 @@ io.on('connection', (socket) => {
     }
   });
 
-  // Drawing game specific
-  socket.on('drawingData', (data) => {
-    const roomId = players.get(socket.id);
-    if (roomId) {
-      socket.to(roomId).emit('drawingData', { playerId: socket.id, data });
-    }
-  });
-
-  socket.on('drawingGuess', (guess) => {
+  // Chess game
+  socket.on('chessMove', ({ from, to }) => {
     const roomId = players.get(socket.id);
     const room = rooms.get(roomId);
-    if (!room || room.currentGame !== 'drawing') return;
+    if (!room || room.currentGame !== 'chess') return;
 
     const state = room.gameState;
-    if (socket.id === state.currentDrawer) return;
+    if (state.gameOver) return;
+    if (socket.id !== state.currentPlayer) return;
 
-    const player = room.players.get(socket.id);
-    const isCorrect = guess.toLowerCase().trim() === state.currentPrompt.toLowerCase();
+    const isWhiteTurn = state.isWhiteTurn;
+    
+    // Validate the move
+    if (!isValidChessMove(state.board, from, to, isWhiteTurn)) {
+      socket.emit('invalidMove', { message: 'Invalid move' });
+      return;
+    }
 
-    if (isCorrect && !state.guessedPlayers.includes(socket.id)) {
-      state.guessedPlayers.push(socket.id);
-      player.score += 10;
-      room.players.get(state.currentDrawer).score += 5;
+    // Make the move
+    const newBoard = makeMove(state.board, from, to);
+    
+    // Check if this move puts own king in check (illegal)
+    if (isInCheck(newBoard, isWhiteTurn)) {
+      socket.emit('invalidMove', { message: 'Cannot move into check' });
+      return;
+    }
 
-      io.to(roomId).emit('correctGuess', {
-        playerId: socket.id,
-        playerName: player.name,
-        players: room.getPlayerList()
-      });
+    // Update state
+    state.board = newBoard;
+    state.moveHistory.push({ from, to, piece: state.board[to[0]][to[1]] });
+    state.isWhiteTurn = !isWhiteTurn;
+    state.currentPlayer = isWhiteTurn ? state.blackPlayer : state.whitePlayer;
+    
+    // Check if opponent is in check
+    state.inCheck = isInCheck(state.board, !isWhiteTurn);
+    
+    // Check for king capture (simplified win condition)
+    const opponentKing = findKing(state.board, !isWhiteTurn);
+    if (!opponentKing) {
+      state.gameOver = true;
+      state.winner = socket.id;
+      room.players.get(socket.id).score += 10;
+    }
 
-      // Check if round should end
-      if (state.guessedPlayers.length >= room.players.size - 1) {
-        nextDrawingRound(room, roomId);
-      }
-    } else {
-      io.to(roomId).emit('chatMessage', {
-        id: uuidv4(),
-        playerId: socket.id,
-        playerName: player.name,
-        message: guess,
-        timestamp: Date.now(),
-        isGuess: true
-      });
+    io.to(roomId).emit('chessUpdate', {
+      board: state.board,
+      currentPlayer: state.currentPlayer,
+      isWhiteTurn: state.isWhiteTurn,
+      inCheck: state.inCheck,
+      gameOver: state.gameOver,
+      winner: state.winner,
+      winnerName: state.winner ? room.players.get(state.winner).name : null,
+      lastMove: { from, to },
+      players: room.getPlayerList()
+    });
+
+    if (state.gameOver) {
+      setTimeout(() => endGame(room, roomId), 2000);
     }
   });
 
@@ -490,17 +636,19 @@ function initializeGame(gameType, room) {
         revealed: false
       };
 
-    case 'drawing':
-      const shuffledPrompts = [...drawingPrompts].sort(() => Math.random() - 0.5);
+    case 'chess':
+      const chessPlayers = playerIds.slice(0, 2);
       return {
-        prompts: shuffledPrompts,
-        currentPromptIndex: 0,
-        currentPrompt: shuffledPrompts[0],
-        currentDrawer: playerIds[0],
-        drawerIndex: 0,
-        guessedPlayers: [],
-        roundsPlayed: 0,
-        maxRounds: Math.min(playerIds.length * 2, 10)
+        board: getInitialChessBoard(),
+        currentPlayer: chessPlayers[0],
+        whitePlayer: chessPlayers[0],
+        blackPlayer: chessPlayers[1],
+        isWhiteTurn: true,
+        selectedPiece: null,
+        moveHistory: [],
+        gameOver: false,
+        winner: null,
+        inCheck: false
       };
 
     case 'psychic':
@@ -533,32 +681,6 @@ function checkTTTWinner(board) {
     }
   }
   return null;
-}
-
-function nextDrawingRound(room, roomId) {
-  const state = room.gameState;
-  state.roundsPlayed++;
-
-  if (state.roundsPlayed >= state.maxRounds) {
-    endGame(room, roomId);
-    return;
-  }
-
-  // Next drawer
-  const playerIds = Array.from(room.players.keys());
-  state.drawerIndex = (state.drawerIndex + 1) % playerIds.length;
-  state.currentDrawer = playerIds[state.drawerIndex];
-  state.currentPromptIndex++;
-  state.currentPrompt = state.prompts[state.currentPromptIndex];
-  state.guessedPlayers = [];
-
-  io.to(roomId).emit('newDrawingRound', {
-    currentDrawer: state.currentDrawer,
-    drawerName: room.players.get(state.currentDrawer).name,
-    prompt: state.currentPrompt,
-    roundsPlayed: state.roundsPlayed,
-    maxRounds: state.maxRounds
-  });
 }
 
 function revealTriviaAnswer(room, roomId) {
