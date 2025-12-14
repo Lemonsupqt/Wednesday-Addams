@@ -3,10 +3,15 @@
 // Client-side game logic
 // ============================================
 
-// Connect to backend server - update this URL when you deploy the server!
+// ============================================
+// 🔧 BACKEND SERVER URL - UPDATE THIS! 🔧
+// ============================================
+// After deploying to Render, replace the URL below with your Render URL
+// Example: 'https://upside-down-nevermore-games.onrender.com'
+// ============================================
 const BACKEND_URL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
   ? window.location.origin  // Local development
-  : 'https://your-server-here.onrender.com'; // Replace with your deployed server URL
+  : 'https://upside-down-nevermore-games.onrender.com'; // ← UPDATE THIS after Render deploy!
 
 const socket = io(BACKEND_URL, {
   transports: ['websocket', 'polling']

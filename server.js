@@ -5,12 +5,27 @@ const { v4: uuidv4 } = require('uuid');
 const path = require('path');
 
 const app = express();
+
+// CORS for GitHub Pages frontend
+app.use((req, res, next) => {
+  res.header('Access-Control-Allow-Origin', 'https://lemonsupqt.github.io');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Content-Type');
+  res.header('Access-Control-Allow-Credentials', 'true');
+  if (req.method === 'OPTIONS') {
+    return res.sendStatus(200);
+  }
+  next();
+});
+
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
-    origin: "*",
-    methods: ["GET", "POST"]
-  }
+    origin: ["https://lemonsupqt.github.io", "http://localhost:3000", "http://127.0.0.1:3000"],
+    methods: ["GET", "POST"],
+    credentials: true
+  },
+  transports: ['websocket', 'polling']
 });
 
 app.use(express.static(path.join(__dirname)));
