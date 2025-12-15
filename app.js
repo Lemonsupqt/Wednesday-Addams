@@ -86,6 +86,7 @@ let chessState = {
 document.addEventListener('DOMContentLoaded', () => {
   initParticles();
   setupEventListeners();
+  setupFullscreenToggle();
   
   // Load saved name
   const savedName = localStorage.getItem('playerName');
@@ -93,6 +94,70 @@ document.addEventListener('DOMContentLoaded', () => {
     elements.playerName.value = savedName;
   }
 });
+
+// ============================================
+// FULLSCREEN TOGGLE
+// ============================================
+
+function setupFullscreenToggle() {
+  const toggleBtn = document.getElementById('fullscreenToggle');
+  const icon = document.getElementById('fullscreenIcon');
+  
+  if (!toggleBtn) return;
+  
+  // Update button state based on fullscreen status
+  function updateFullscreenButton() {
+    const isFullscreen = !!(document.fullscreenElement || document.webkitFullscreenElement || document.mozFullScreenElement || document.msFullscreenElement);
+    toggleBtn.classList.toggle('is-fullscreen', isFullscreen);
+    icon.textContent = isFullscreen ? '⛶' : '⛶';
+    toggleBtn.title = isFullscreen ? 'Exit Fullscreen' : 'Enter Fullscreen';
+  }
+  
+  // Toggle fullscreen
+  toggleBtn.addEventListener('click', async () => {
+    try {
+      const isFullscreen = !!(document.fullscreenElement || document.webkitFullscreenElement || document.mozFullScreenElement || document.msFullscreenElement);
+      
+      if (!isFullscreen) {
+        // Enter fullscreen
+        const elem = document.documentElement;
+        if (elem.requestFullscreen) {
+          await elem.requestFullscreen();
+        } else if (elem.webkitRequestFullscreen) {
+          await elem.webkitRequestFullscreen();
+        } else if (elem.mozRequestFullScreen) {
+          await elem.mozRequestFullScreen();
+        } else if (elem.msRequestFullscreen) {
+          await elem.msRequestFullscreen();
+        }
+      } else {
+        // Exit fullscreen
+        if (document.exitFullscreen) {
+          await document.exitFullscreen();
+        } else if (document.webkitExitFullscreen) {
+          await document.webkitExitFullscreen();
+        } else if (document.mozCancelFullScreen) {
+          await document.mozCancelFullScreen();
+        } else if (document.msExitFullscreen) {
+          await document.msExitFullscreen();
+        }
+      }
+    } catch (err) {
+      console.log('Fullscreen error:', err);
+      // Fallback: Show message that fullscreen is not supported
+      showError('Fullscreen not supported on this device. Try "Add to Home Screen" for full app experience.');
+    }
+  });
+  
+  // Listen for fullscreen changes
+  document.addEventListener('fullscreenchange', updateFullscreenButton);
+  document.addEventListener('webkitfullscreenchange', updateFullscreenButton);
+  document.addEventListener('mozfullscreenchange', updateFullscreenButton);
+  document.addEventListener('MSFullscreenChange', updateFullscreenButton);
+  
+  // Initial state
+  updateFullscreenButton();
+}
 
 function initParticles() {
   const container = document.getElementById('particles');

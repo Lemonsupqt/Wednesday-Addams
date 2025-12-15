@@ -89,14 +89,27 @@ body {
 
 .screen.active {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: center;
+  padding-top: 20px;
+  padding-bottom: 20px;
+}
+
+#mainMenu.active {
+  align-items: center;
 }
 
 .container {
   width: 100%;
   max-width: 1200px;
   padding: 20px;
+  box-sizing: border-box;
+}
+
+/* Ensure body and html allow scrolling */
+html, body {
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 
 /* ============================================
@@ -3292,16 +3305,42 @@ input[type="text"]::placeholder {
    MOBILE FULL PAGE / PWA SUPPORT
    ============================================ */
 
-/* Ensure full viewport height on mobile */
-html {
-  height: 100%;
-  height: -webkit-fill-available;
+/* Fullscreen toggle button */
+.fullscreen-toggle {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  width: 50px;
+  height: 50px;
+  border-radius: 50%;
+  background: var(--bg-card);
+  border: 2px solid var(--border-color);
+  color: var(--text-primary);
+  font-size: 1.5rem;
+  cursor: pointer;
+  z-index: 999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5);
+  transition: all 0.3s ease;
 }
 
-body {
-  min-height: 100%;
-  min-height: -webkit-fill-available;
-  overscroll-behavior-y: contain;
+.fullscreen-toggle:hover {
+  border-color: var(--st-red);
+  transform: scale(1.1);
+}
+
+.fullscreen-toggle.is-fullscreen {
+  background: var(--st-red);
+  border-color: var(--st-red);
+}
+
+/* Hide on desktop */
+@media (min-width: 769px) {
+  .fullscreen-toggle {
+    display: none;
+  }
 }
 
 /* iOS safe area support for notched devices */
@@ -3312,22 +3351,35 @@ body {
     padding-right: env(safe-area-inset-right);
   }
   
-  .game-chat {
-    padding-bottom: env(safe-area-inset-bottom);
+  .fullscreen-toggle {
+    bottom: max(20px, env(safe-area-inset-bottom));
+    right: max(20px, env(safe-area-inset-right));
   }
-  
-  #mainMenu .container,
-  #lobby .container {
-    padding-left: max(20px, env(safe-area-inset-left));
-    padding-right: max(20px, env(safe-area-inset-right));
-    padding-bottom: env(safe-area-inset-bottom);
-  }
+}
+
+/* Fix lobby scrolling on mobile */
+#lobby .container {
+  max-height: none;
+  overflow: visible;
+}
+
+#lobby {
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.game-selection {
+  padding-bottom: 100px; /* Space for fullscreen button */
 }
 
 /* Standalone PWA mode adjustments */
 @media (display-mode: standalone) {
   body {
     padding-top: env(safe-area-inset-top, 0);
+  }
+  
+  .fullscreen-toggle {
+    display: none; /* Already fullscreen in PWA mode */
   }
 }
 
