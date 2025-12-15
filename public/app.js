@@ -247,6 +247,11 @@ function updatePlayersList(players) {
           <span class="game-name">Nevermore<br>Trivia</span>
           <span class="game-players">2+ players</span>
         </button>
+        <button class="game-card" data-game="chess">
+          <span class="game-icon">♟️♔</span>
+          <span class="game-name">Nevermore<br>Chess</span>
+          <span class="game-players">2 players</span>
+        </button>
       </div>
     `;
     // Re-attach event listeners for game cards
@@ -382,11 +387,29 @@ function updateTicTacToe(data) {
     });
   }
   
-  if (data.winner) {
-    status.innerHTML = `🏆 ${escapeHtml(data.winnerName)} wins! 🏆`;
-    updateScoreBoard(data.players);
-  } else if (data.draw) {
-    status.innerHTML = "🤝 It's a draw! 🤝";
+  if (data.winner || data.draw) {
+    if (data.winner) {
+      status.innerHTML = `🏆 ${escapeHtml(data.winnerName)} wins! 🏆`;
+      updateScoreBoard(data.players);
+    } else {
+      status.innerHTML = "🤝 It's a draw! 🤝";
+    }
+    
+    // Add play again buttons
+    const container = document.querySelector('.ttt-container');
+    if (container && !document.getElementById('tttPlayAgainBtns')) {
+      const actionsDiv = document.createElement('div');
+      actionsDiv.id = 'tttPlayAgainBtns';
+      actionsDiv.className = 'game-over-actions';
+      actionsDiv.innerHTML = `
+        <button class="btn btn-primary game-rematch-btn">🔄 Play Again</button>
+        <button class="btn btn-secondary game-lobby-btn">🏠 Back to Lobby</button>
+      `;
+      container.appendChild(actionsDiv);
+      
+      actionsDiv.querySelector('.game-rematch-btn').addEventListener('click', () => socket.emit('gameRematch'));
+      actionsDiv.querySelector('.game-lobby-btn').addEventListener('click', () => socket.emit('endGame'));
+    }
   } else if (data.currentPlayer) {
     state.gameState.currentPlayer = data.currentPlayer;
     status.innerHTML = data.currentPlayer === state.playerId ? "🔴 Your turn!" : "Waiting for opponent...";
@@ -448,6 +471,29 @@ function handleMemoryMatch(data) {
   });
   state.gameState.matched = data.matched;
   updateScoreBoard(data.players);
+  
+  // Check if game is over (all cards matched)
+  if (data.matched.length === state.gameState.cards.length) {
+    const container = document.querySelector('.memory-container');
+    const status = document.getElementById('memoryStatus');
+    if (status) {
+      status.innerHTML = "🎉 All matches found! 🎉";
+    }
+    
+    if (container && !document.getElementById('memoryPlayAgainBtns')) {
+      const actionsDiv = document.createElement('div');
+      actionsDiv.id = 'memoryPlayAgainBtns';
+      actionsDiv.className = 'game-over-actions';
+      actionsDiv.innerHTML = `
+        <button class="btn btn-primary game-rematch-btn">🔄 Play Again</button>
+        <button class="btn btn-secondary game-lobby-btn">🏠 Back to Lobby</button>
+      `;
+      container.appendChild(actionsDiv);
+      
+      actionsDiv.querySelector('.game-rematch-btn').addEventListener('click', () => socket.emit('gameRematch'));
+      actionsDiv.querySelector('.game-lobby-btn').addEventListener('click', () => socket.emit('endGame'));
+    }
+  }
 }
 
 function handleMemoryMismatch(data) {
@@ -544,6 +590,25 @@ function handleTriviaReveal(data) {
     }
   });
   updateScoreBoard(data.players);
+  
+  // Check if this is the last question
+  const isLastQuestion = state.gameState.currentQuestion >= state.gameState.questions.length - 1;
+  if (isLastQuestion) {
+    const container = document.querySelector('.trivia-container');
+    if (container && !document.getElementById('triviaPlayAgainBtns')) {
+      const actionsDiv = document.createElement('div');
+      actionsDiv.id = 'triviaPlayAgainBtns';
+      actionsDiv.className = 'game-over-actions';
+      actionsDiv.innerHTML = `
+        <button class="btn btn-primary game-rematch-btn">🔄 Play Again</button>
+        <button class="btn btn-secondary game-lobby-btn">🏠 Back to Lobby</button>
+      `;
+      container.appendChild(actionsDiv);
+      
+      actionsDiv.querySelector('.game-rematch-btn').addEventListener('click', () => socket.emit('gameRematch'));
+      actionsDiv.querySelector('.game-lobby-btn').addEventListener('click', () => socket.emit('endGame'));
+    }
+  }
 }
 
 function handleNextTriviaQuestion(data) {
@@ -737,9 +802,618 @@ function handleNewDrawingRound(data) {
   state.gameState.currentDrawer = data.currentDrawer;
   state.gameState.currentPrompt = data.prompt;
   state.gameState.roundsPlayed = data.roundsPlayed;
+  state.gameState.maxRounds = data.maxRounds || state.gameState.maxRounds;
   state.gameState.guessedPlayers = [];
   
   initDrawingGame(state.gameState, state.players);
+  
+  // Show play again buttons if this is the last round
+  if (data.roundsPlayed >= data.maxRounds - 1) {
+    const container = document.querySelector('.drawing-container');
+    if (container && !document.getElementById('drawingPlayAgainBtns')) {
+      const actionsDiv = document.createElement('div');
+      actionsDiv.id = 'drawingPlayAgainBtns';
+      actionsDiv.className = 'game-over-actions';
+      actionsDiv.style.marginTop = '20px';
+      actionsDiv.innerHTML = `
+        <button class="btn btn-primary game-rematch-btn">🔄 Play Again</button>
+        <button class="btn btn-secondary game-lobby-btn">🏠 Back to Lobby</button>
+      `;
+      container.appendChild(actionsDiv);
+      
+      actionsDiv.querySelector('.game-rematch-btn').addEventListener('click', () => socket.emit('gameRematch'));
+      actionsDiv.querySelector('.game-lobby-btn').addEventListener('click', () => socket.emit('endGame'));
+    }
+  }
+}
+
+// ============================================
+// CHESS GAME (Inspired by Lichess Chessground)
+// ============================================
+
+const CHESS_PIECES = {
+  'K': '♔', 'Q': '♕', 'R': '♖', 'B': '♗', 'N': '♘', 'P': '♙',
+  'k': '♚', 'q': '♛', 'r': '♜', 'b': '♝', 'n': '♞', 'p': '♟'
+};
+
+let chessState = {
+  selectedSquare: null,
+  validMoves: [],
+  playerColor: null,
+  isDragging: false,
+  dragPiece: null,
+  dragElement: null
+};
+
+function initChessGame(gameState, players) {
+  state.gameState = gameState;
+  elements.gameTitle.textContent = '♟️ Nevermore Chess ♟️';
+  
+  // Determine player's color
+  chessState.playerColor = gameState.whitePlayer === state.playerId ? 'white' : 
+                           gameState.blackPlayer === state.playerId ? 'black' : null;
+  chessState.selectedSquare = null;
+  chessState.validMoves = [];
+  
+  renderChessBoard(gameState);
+  updateScoreBoard(players, gameState.currentTurn === 'white' ? gameState.whitePlayer : gameState.blackPlayer);
+}
+
+function renderChessBoard(gameState) {
+  const isFlipped = chessState.playerColor === 'black';
+  const currentPlayerTurn = (gameState.currentTurn === 'white' && gameState.whitePlayer === state.playerId) ||
+                            (gameState.currentTurn === 'black' && gameState.blackPlayer === state.playerId);
+  
+  let statusText = '';
+  if (gameState.gameOver) {
+    if (gameState.checkmate) {
+      statusText = `♚ Checkmate! ${gameState.winnerName} wins! ♚`;
+    } else if (gameState.stalemate) {
+      statusText = "🤝 Stalemate - It's a draw! 🤝";
+    }
+  } else if (gameState.check) {
+    statusText = currentPlayerTurn ? "⚠️ You're in check! Your move." : "⚠️ Check! Opponent's move.";
+  } else {
+    statusText = currentPlayerTurn ? "♟️ Your turn!" : "⏳ Opponent's turn...";
+  }
+  
+  const whitePlayerName = state.players.find(p => p.id === gameState.whitePlayer)?.name || 'White';
+  const blackPlayerName = state.players.find(p => p.id === gameState.blackPlayer)?.name || 'Black';
+  
+  elements.gameContent.innerHTML = `
+    <div class="chess-container">
+      <div class="chess-status" id="chessStatus">${statusText}</div>
+      <div class="chess-players">
+        <div class="chess-player ${gameState.currentTurn === 'black' ? 'active' : ''} ${isFlipped ? 'bottom' : 'top'}">
+          <span class="player-color black-indicator">●</span>
+          <span>${escapeHtml(blackPlayerName)}</span>
+          <div class="captured-pieces" id="capturedByBlack">${renderCapturedPieces(gameState.capturedPieces.black)}</div>
+        </div>
+      </div>
+      <div class="chess-board-wrapper">
+        <div class="chess-board ${isFlipped ? 'flipped' : ''}" id="chessBoard">
+          ${renderChessSquares(gameState.board, isFlipped, gameState.lastMove)}
+        </div>
+        <div class="chess-coordinates">
+          <div class="files">${(isFlipped ? 'hgfedcba' : 'abcdefgh').split('').map(f => `<span>${f}</span>`).join('')}</div>
+          <div class="ranks">${(isFlipped ? '12345678' : '87654321').split('').map(r => `<span>${r}</span>`).join('')}</div>
+        </div>
+      </div>
+      <div class="chess-players">
+        <div class="chess-player ${gameState.currentTurn === 'white' ? 'active' : ''} ${isFlipped ? 'top' : 'bottom'}">
+          <span class="player-color white-indicator">○</span>
+          <span>${escapeHtml(whitePlayerName)}</span>
+          <div class="captured-pieces" id="capturedByWhite">${renderCapturedPieces(gameState.capturedPieces.white)}</div>
+        </div>
+      </div>
+      ${gameState.gameOver ? `
+        <div class="chess-game-over-actions">
+          <button class="btn btn-primary chess-rematch-btn" id="chessRematchBtn">🔄 Play Again</button>
+          <button class="btn btn-secondary chess-lobby-btn" id="chessLobbyBtn">🏠 Back to Lobby</button>
+        </div>
+      ` : ''}
+    </div>
+  `;
+  
+  attachChessEventListeners(gameState);
+  
+  if (gameState.gameOver) {
+    document.getElementById('chessRematchBtn')?.addEventListener('click', () => {
+      socket.emit('gameRematch');
+    });
+    document.getElementById('chessLobbyBtn')?.addEventListener('click', () => {
+      socket.emit('endGame');
+    });
+  }
+}
+
+function renderChessSquares(board, isFlipped, lastMove) {
+  let html = '';
+  const rows = isFlipped ? [0, 1, 2, 3, 4, 5, 6, 7] : [0, 1, 2, 3, 4, 5, 6, 7];
+  const cols = isFlipped ? [7, 6, 5, 4, 3, 2, 1, 0] : [0, 1, 2, 3, 4, 5, 6, 7];
+  
+  for (let displayRow = 0; displayRow < 8; displayRow++) {
+    for (let displayCol = 0; displayCol < 8; displayCol++) {
+      const row = isFlipped ? 7 - displayRow : displayRow;
+      const col = isFlipped ? 7 - displayCol : displayCol;
+      const piece = board[row][col];
+      const isLight = (row + col) % 2 === 0;
+      const isSelected = chessState.selectedSquare && 
+                         chessState.selectedSquare.row === row && 
+                         chessState.selectedSquare.col === col;
+      const isValidMove = chessState.validMoves.some(m => m.row === row && m.col === col);
+      const isLastMove = lastMove && 
+                         ((lastMove.from.row === row && lastMove.from.col === col) ||
+                          (lastMove.to.row === row && lastMove.to.col === col));
+      
+      const pieceHtml = piece ? `<span class="chess-piece ${piece === piece.toUpperCase() ? 'white-piece' : 'black-piece'}">${CHESS_PIECES[piece]}</span>` : '';
+      
+      html += `
+        <div class="chess-square ${isLight ? 'light' : 'dark'} ${isSelected ? 'selected' : ''} ${isValidMove ? 'valid-move' : ''} ${isLastMove ? 'last-move' : ''}" 
+             data-row="${row}" data-col="${col}">
+          ${pieceHtml}
+          ${isValidMove && piece ? '<div class="capture-indicator"></div>' : ''}
+          ${isValidMove && !piece ? '<div class="move-indicator"></div>' : ''}
+        </div>
+      `;
+    }
+  }
+  return html;
+}
+
+function renderCapturedPieces(pieces) {
+  return pieces.map(p => `<span class="captured-piece ${p === p.toUpperCase() ? 'white-piece' : 'black-piece'}">${CHESS_PIECES[p]}</span>`).join('');
+}
+
+function attachChessEventListeners(gameState) {
+  const board = document.getElementById('chessBoard');
+  if (!board) return;
+  
+  // Prevent text selection and context menu on the board
+  board.addEventListener('selectstart', (e) => e.preventDefault());
+  board.addEventListener('contextmenu', (e) => e.preventDefault());
+  
+  document.querySelectorAll('.chess-square').forEach(square => {
+    const row = parseInt(square.dataset.row);
+    const col = parseInt(square.dataset.col);
+    
+    // Click handler
+    square.addEventListener('click', (e) => {
+      e.preventDefault();
+      handleChessSquareClick(row, col, gameState);
+    });
+    
+    // Touch handlers for mobile drag
+    square.addEventListener('touchstart', (e) => {
+      handleChessTouchStart(e, row, col, gameState);
+    }, { passive: false });
+    
+    square.addEventListener('touchmove', (e) => {
+      handleChessTouchMove(e);
+    }, { passive: false });
+    
+    square.addEventListener('touchend', (e) => {
+      handleChessTouchEnd(e, gameState);
+    }, { passive: false });
+    
+    // Mouse drag handlers
+    square.addEventListener('mousedown', (e) => {
+      handleChessMouseDown(e, row, col, gameState);
+    });
+  });
+  
+  // Global mouse handlers for drag
+  document.addEventListener('mousemove', handleChessMouseMove);
+  document.addEventListener('mouseup', (e) => handleChessMouseUp(e, gameState));
+}
+
+function handleChessSquareClick(row, col, gameState) {
+  if (gameState.gameOver) return;
+  
+  const isMyTurn = (gameState.currentTurn === 'white' && gameState.whitePlayer === state.playerId) ||
+                   (gameState.currentTurn === 'black' && gameState.blackPlayer === state.playerId);
+  if (!isMyTurn) return;
+  
+  const piece = gameState.board[row][col];
+  const isMyPiece = piece && ((gameState.currentTurn === 'white' && piece === piece.toUpperCase()) ||
+                              (gameState.currentTurn === 'black' && piece === piece.toLowerCase()));
+  
+  if (chessState.selectedSquare) {
+    // Check if clicking on a valid move destination
+    const isValidMove = chessState.validMoves.some(m => m.row === row && m.col === col);
+    
+    if (isValidMove) {
+      // Make the move
+      const from = chessState.selectedSquare;
+      const to = { row, col };
+      
+      // Check for pawn promotion
+      const movingPiece = gameState.board[from.row][from.col];
+      let promotion = null;
+      if (movingPiece && movingPiece.toLowerCase() === 'p' && (row === 0 || row === 7)) {
+        promotion = 'q'; // Auto-promote to queen for simplicity
+      }
+      
+      socket.emit('chessMove', { from, to, promotion });
+      chessState.selectedSquare = null;
+      chessState.validMoves = [];
+    } else if (isMyPiece) {
+      // Select different piece
+      chessState.selectedSquare = { row, col };
+      chessState.validMoves = getValidMoves(gameState, row, col);
+      renderChessBoard(gameState);
+    } else {
+      // Deselect
+      chessState.selectedSquare = null;
+      chessState.validMoves = [];
+      renderChessBoard(gameState);
+    }
+  } else if (isMyPiece) {
+    // Select piece
+    chessState.selectedSquare = { row, col };
+    chessState.validMoves = getValidMoves(gameState, row, col);
+    renderChessBoard(gameState);
+  }
+}
+
+function handleChessTouchStart(e, row, col, gameState) {
+  e.preventDefault();
+  
+  if (gameState.gameOver) return;
+  
+  const isMyTurn = (gameState.currentTurn === 'white' && gameState.whitePlayer === state.playerId) ||
+                   (gameState.currentTurn === 'black' && gameState.blackPlayer === state.playerId);
+  if (!isMyTurn) return;
+  
+  const piece = gameState.board[row][col];
+  const isMyPiece = piece && ((gameState.currentTurn === 'white' && piece === piece.toUpperCase()) ||
+                              (gameState.currentTurn === 'black' && piece === piece.toLowerCase()));
+  
+  if (isMyPiece) {
+    chessState.selectedSquare = { row, col };
+    chessState.validMoves = getValidMoves(gameState, row, col);
+    chessState.isDragging = true;
+    chessState.dragPiece = piece;
+    
+    // Create drag element
+    const touch = e.touches[0];
+    createDragElement(piece, touch.clientX, touch.clientY);
+    
+    renderChessBoard(gameState);
+  } else if (chessState.selectedSquare) {
+    handleChessSquareClick(row, col, gameState);
+  }
+}
+
+function handleChessTouchMove(e) {
+  if (!chessState.isDragging || !chessState.dragElement) return;
+  e.preventDefault();
+  
+  const touch = e.touches[0];
+  chessState.dragElement.style.left = (touch.clientX - 30) + 'px';
+  chessState.dragElement.style.top = (touch.clientY - 30) + 'px';
+}
+
+function handleChessTouchEnd(e, gameState) {
+  if (!chessState.isDragging) return;
+  e.preventDefault();
+  
+  const touch = e.changedTouches[0];
+  const targetSquare = getSquareFromPoint(touch.clientX, touch.clientY);
+  
+  if (targetSquare && chessState.selectedSquare) {
+    const isValidMove = chessState.validMoves.some(m => m.row === targetSquare.row && m.col === targetSquare.col);
+    
+    if (isValidMove) {
+      const from = chessState.selectedSquare;
+      const to = targetSquare;
+      
+      const movingPiece = gameState.board[from.row][from.col];
+      let promotion = null;
+      if (movingPiece && movingPiece.toLowerCase() === 'p' && (to.row === 0 || to.row === 7)) {
+        promotion = 'q';
+      }
+      
+      socket.emit('chessMove', { from, to, promotion });
+    }
+  }
+  
+  removeDragElement();
+  chessState.isDragging = false;
+  chessState.dragPiece = null;
+  chessState.selectedSquare = null;
+  chessState.validMoves = [];
+  renderChessBoard(gameState);
+}
+
+function handleChessMouseDown(e, row, col, gameState) {
+  if (e.button !== 0) return; // Left click only
+  
+  if (gameState.gameOver) return;
+  
+  const isMyTurn = (gameState.currentTurn === 'white' && gameState.whitePlayer === state.playerId) ||
+                   (gameState.currentTurn === 'black' && gameState.blackPlayer === state.playerId);
+  if (!isMyTurn) return;
+  
+  const piece = gameState.board[row][col];
+  const isMyPiece = piece && ((gameState.currentTurn === 'white' && piece === piece.toUpperCase()) ||
+                              (gameState.currentTurn === 'black' && piece === piece.toLowerCase()));
+  
+  if (isMyPiece) {
+    chessState.selectedSquare = { row, col };
+    chessState.validMoves = getValidMoves(gameState, row, col);
+    chessState.isDragging = true;
+    chessState.dragPiece = piece;
+    
+    createDragElement(piece, e.clientX, e.clientY);
+    renderChessBoard(gameState);
+  }
+}
+
+function handleChessMouseMove(e) {
+  if (!chessState.isDragging || !chessState.dragElement) return;
+  
+  chessState.dragElement.style.left = (e.clientX - 30) + 'px';
+  chessState.dragElement.style.top = (e.clientY - 30) + 'px';
+}
+
+function handleChessMouseUp(e, gameState) {
+  if (!chessState.isDragging) return;
+  
+  const targetSquare = getSquareFromPoint(e.clientX, e.clientY);
+  
+  if (targetSquare && chessState.selectedSquare) {
+    const isValidMove = chessState.validMoves.some(m => m.row === targetSquare.row && m.col === targetSquare.col);
+    
+    if (isValidMove && (targetSquare.row !== chessState.selectedSquare.row || targetSquare.col !== chessState.selectedSquare.col)) {
+      const from = chessState.selectedSquare;
+      const to = targetSquare;
+      
+      const movingPiece = state.gameState.board[from.row][from.col];
+      let promotion = null;
+      if (movingPiece && movingPiece.toLowerCase() === 'p' && (to.row === 0 || to.row === 7)) {
+        promotion = 'q';
+      }
+      
+      socket.emit('chessMove', { from, to, promotion });
+      
+      removeDragElement();
+      chessState.isDragging = false;
+      chessState.dragPiece = null;
+      chessState.selectedSquare = null;
+      chessState.validMoves = [];
+      return;
+    }
+  }
+  
+  removeDragElement();
+  chessState.isDragging = false;
+  chessState.dragPiece = null;
+}
+
+function createDragElement(piece, x, y) {
+  removeDragElement();
+  
+  const el = document.createElement('div');
+  el.className = 'chess-drag-piece';
+  el.innerHTML = `<span class="chess-piece ${piece === piece.toUpperCase() ? 'white-piece' : 'black-piece'}">${CHESS_PIECES[piece]}</span>`;
+  el.style.left = (x - 30) + 'px';
+  el.style.top = (y - 30) + 'px';
+  document.body.appendChild(el);
+  chessState.dragElement = el;
+}
+
+function removeDragElement() {
+  if (chessState.dragElement) {
+    chessState.dragElement.remove();
+    chessState.dragElement = null;
+  }
+}
+
+function getSquareFromPoint(x, y) {
+  const board = document.getElementById('chessBoard');
+  if (!board) return null;
+  
+  const squares = document.querySelectorAll('.chess-square');
+  for (const square of squares) {
+    const rect = square.getBoundingClientRect();
+    if (x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom) {
+      return {
+        row: parseInt(square.dataset.row),
+        col: parseInt(square.dataset.col)
+      };
+    }
+  }
+  return null;
+}
+
+function getValidMoves(gameState, row, col) {
+  const piece = gameState.board[row][col];
+  if (!piece) return [];
+  
+  const moves = [];
+  const isWhite = piece === piece.toUpperCase();
+  
+  // Generate all potential moves and filter
+  for (let toRow = 0; toRow < 8; toRow++) {
+    for (let toCol = 0; toCol < 8; toCol++) {
+      if (row === toRow && col === toCol) continue;
+      
+      const targetPiece = gameState.board[toRow][toCol];
+      if (targetPiece) {
+        const targetIsWhite = targetPiece === targetPiece.toUpperCase();
+        if (isWhite === targetIsWhite) continue; // Can't capture own piece
+      }
+      
+      if (isValidMoveClient(gameState, row, col, toRow, toCol, piece)) {
+        // Simulate move to check if it leaves king in check
+        const testBoard = gameState.board.map(r => [...r]);
+        testBoard[toRow][toCol] = piece;
+        testBoard[row][col] = null;
+        
+        if (!isKingInCheckClient(testBoard, isWhite ? 'white' : 'black')) {
+          moves.push({ row: toRow, col: toCol });
+        }
+      }
+    }
+  }
+  
+  return moves;
+}
+
+function isValidMoveClient(gameState, fromRow, fromCol, toRow, toCol, piece) {
+  const isWhite = piece === piece.toUpperCase();
+  const rowDiff = toRow - fromRow;
+  const colDiff = toCol - fromCol;
+  const absRowDiff = Math.abs(rowDiff);
+  const absColDiff = Math.abs(colDiff);
+  const board = gameState.board;
+  
+  switch (piece.toLowerCase()) {
+    case 'p':
+      const direction = isWhite ? -1 : 1;
+      const startRow = isWhite ? 6 : 1;
+      const targetPiece = board[toRow][toCol];
+      
+      if (colDiff === 0 && !targetPiece) {
+        if (rowDiff === direction) return true;
+        if (fromRow === startRow && rowDiff === 2 * direction && !board[fromRow + direction][fromCol]) return true;
+      }
+      if (absColDiff === 1 && rowDiff === direction) {
+        if (targetPiece) return true;
+        // En passant
+        if (gameState.enPassantTarget && toRow === gameState.enPassantTarget.row && toCol === gameState.enPassantTarget.col) return true;
+      }
+      return false;
+      
+    case 'r':
+      if (rowDiff !== 0 && colDiff !== 0) return false;
+      return isPathClearClient(board, fromRow, fromCol, toRow, toCol);
+      
+    case 'n':
+      return (absRowDiff === 2 && absColDiff === 1) || (absRowDiff === 1 && absColDiff === 2);
+      
+    case 'b':
+      if (absRowDiff !== absColDiff) return false;
+      return isPathClearClient(board, fromRow, fromCol, toRow, toCol);
+      
+    case 'q':
+      if (rowDiff !== 0 && colDiff !== 0 && absRowDiff !== absColDiff) return false;
+      return isPathClearClient(board, fromRow, fromCol, toRow, toCol);
+      
+    case 'k':
+      // Castling
+      if (absRowDiff === 0 && absColDiff === 2) {
+        const canCastle = gameState.canCastle;
+        const kingMoved = isWhite ? !canCastle.whiteKing : !canCastle.blackKing;
+        if (kingMoved) return false;
+        
+        const isKingside = toCol > fromCol;
+        const rookCol = isKingside ? 7 : 0;
+        const rook = board[fromRow][rookCol];
+        if (!rook || rook.toLowerCase() !== 'r') return false;
+        
+        if (isKingside) {
+          if (isWhite && !canCastle.whiteKingside) return false;
+          if (!isWhite && !canCastle.blackKingside) return false;
+        } else {
+          if (isWhite && !canCastle.whiteQueenside) return false;
+          if (!isWhite && !canCastle.blackQueenside) return false;
+        }
+        
+        const pathCols = isKingside ? [5, 6] : [1, 2, 3];
+        for (const col of pathCols) {
+          if (board[fromRow][col]) return false;
+        }
+        return true;
+      }
+      return absRowDiff <= 1 && absColDiff <= 1;
+  }
+  return false;
+}
+
+function isPathClearClient(board, fromRow, fromCol, toRow, toCol) {
+  const rowDir = Math.sign(toRow - fromRow);
+  const colDir = Math.sign(toCol - fromCol);
+  let row = fromRow + rowDir;
+  let col = fromCol + colDir;
+  
+  while (row !== toRow || col !== toCol) {
+    if (board[row][col]) return false;
+    row += rowDir;
+    col += colDir;
+  }
+  return true;
+}
+
+function isKingInCheckClient(board, turn) {
+  const isWhite = turn === 'white';
+  const king = isWhite ? 'K' : 'k';
+  let kingRow, kingCol;
+  
+  for (let r = 0; r < 8; r++) {
+    for (let c = 0; c < 8; c++) {
+      if (board[r][c] === king) {
+        kingRow = r;
+        kingCol = c;
+        break;
+      }
+    }
+  }
+  
+  if (kingRow === undefined) return false;
+  
+  // Check if any opponent piece can attack the king
+  for (let r = 0; r < 8; r++) {
+    for (let c = 0; c < 8; c++) {
+      const piece = board[r][c];
+      if (!piece) continue;
+      const pieceIsWhite = piece === piece.toUpperCase();
+      if (pieceIsWhite === isWhite) continue;
+      
+      if (canAttackSquare(board, r, c, kingRow, kingCol, piece)) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+function canAttackSquare(board, fromRow, fromCol, toRow, toCol, piece) {
+  const rowDiff = toRow - fromRow;
+  const colDiff = toCol - fromCol;
+  const absRowDiff = Math.abs(rowDiff);
+  const absColDiff = Math.abs(colDiff);
+  const isWhite = piece === piece.toUpperCase();
+  
+  switch (piece.toLowerCase()) {
+    case 'p':
+      const direction = isWhite ? -1 : 1;
+      return absColDiff === 1 && rowDiff === direction;
+    case 'r':
+      if (rowDiff !== 0 && colDiff !== 0) return false;
+      return isPathClearClient(board, fromRow, fromCol, toRow, toCol);
+    case 'n':
+      return (absRowDiff === 2 && absColDiff === 1) || (absRowDiff === 1 && absColDiff === 2);
+    case 'b':
+      if (absRowDiff !== absColDiff) return false;
+      return isPathClearClient(board, fromRow, fromCol, toRow, toCol);
+    case 'q':
+      if (rowDiff !== 0 && colDiff !== 0 && absRowDiff !== absColDiff) return false;
+      return isPathClearClient(board, fromRow, fromCol, toRow, toCol);
+    case 'k':
+      return absRowDiff <= 1 && absColDiff <= 1;
+  }
+  return false;
+}
+
+function updateChessGame(data) {
+  state.gameState = { ...state.gameState, ...data };
+  renderChessBoard(state.gameState);
+  
+  if (data.players) {
+    updateScoreBoard(data.players, data.currentTurn === 'white' ? state.gameState.whitePlayer : state.gameState.blackPlayer);
+  }
 }
 
 // ============================================
@@ -800,6 +1474,7 @@ function handlePlayerChose(data) {
 
 function handlePsychicResults(data) {
   const choiceEmojis = { vision: '👁️', mind: '🧠', power: '⚡' };
+  const isLastRound = data.round >= 10;
   
   elements.gameContent.innerHTML = `
     <div class="psychic-container">
@@ -815,10 +1490,21 @@ function handlePsychicResults(data) {
       <div style="margin-top: 20px; color: var(--text-secondary);">
         👁️ Vision beats 🧠 Mind | 🧠 Mind beats ⚡ Power | ⚡ Power beats 👁️ Vision
       </div>
+      ${isLastRound ? `
+        <div class="game-over-actions" style="margin-top: 20px;">
+          <button class="btn btn-primary game-rematch-btn">🔄 Play Again</button>
+          <button class="btn btn-secondary game-lobby-btn">🏠 Back to Lobby</button>
+        </div>
+      ` : ''}
     </div>
   `;
   
   updateScoreBoard(data.players);
+  
+  if (isLastRound) {
+    document.querySelector('.game-rematch-btn')?.addEventListener('click', () => socket.emit('gameRematch'));
+    document.querySelector('.game-lobby-btn')?.addEventListener('click', () => socket.emit('endGame'));
+  }
 }
 
 function handleNextPsychicRound(data) {
@@ -898,6 +1584,9 @@ socket.on('gameStarted', (data) => {
     case 'psychic':
       initPsychicGame(data.gameState, data.players);
       break;
+    case 'chess':
+      initChessGame(data.gameState, data.players);
+      break;
   }
 });
 
@@ -937,6 +1626,9 @@ socket.on('playerChose', handlePlayerChose);
 socket.on('psychicResults', handlePsychicResults);
 socket.on('nextPsychicRound', handleNextPsychicRound);
 
+// Chess
+socket.on('chessUpdate', updateChessGame);
+
 // Game end
 socket.on('gameEnded', (data) => {
   elements.resultsTitle.textContent = '🏆 Game Over! 🏆';
@@ -953,9 +1645,21 @@ socket.on('gameEnded', (data) => {
         </div>
       `).join('')}
     </div>
+    <div class="results-actions">
+      <button class="btn btn-primary results-rematch-btn">🔄 Play Again</button>
+    </div>
   `;
   elements.resultsModal.classList.add('active');
   state.players = data.players;
+  
+  // Add play again button handler
+  const rematchBtn = elements.resultsContent.querySelector('.results-rematch-btn');
+  if (rematchBtn) {
+    rematchBtn.addEventListener('click', () => {
+      elements.resultsModal.classList.remove('active');
+      socket.emit('gameRematch');
+    });
+  }
 });
 
 // ============================================

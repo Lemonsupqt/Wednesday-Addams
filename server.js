@@ -43,6 +43,18 @@ const triviaQuestions = [
   { q: "What color is Enid's side of the room?", options: ["Black", "Purple", "Pink/Colorful", "Gray"], correct: 2 }
 ];
 
+// Chess initial setup
+const INITIAL_CHESS_BOARD = [
+  ['r', 'n', 'b', 'q', 'k', 'b', 'n', 'r'],
+  ['p', 'p', 'p', 'p', 'p', 'p', 'p', 'p'],
+  [null, null, null, null, null, null, null, null],
+  [null, null, null, null, null, null, null, null],
+  [null, null, null, null, null, null, null, null],
+  [null, null, null, null, null, null, null, null],
+  ['P', 'P', 'P', 'P', 'P', 'P', 'P', 'P'],
+  ['R', 'N', 'B', 'Q', 'K', 'B', 'N', 'R']
+];
+
 // Drawing prompts for the drawing game
 const drawingPrompts = [
   "Demogorgon", "Thing (the hand)", "Eleven's nosebleed", "Wednesday's braids",
@@ -330,6 +342,161 @@ io.on('connection', (socket) => {
     }
   });
 
+  // Chess move
+  socket.on('chessMove', ({ from, to, promotion }) => {
+    const roomId = players.get(socket.id);
+    const room = rooms.get(roomId);
+    if (!room || room.currentGame !== 'chess') return;
+
+    const state = room.gameState;
+    if (state.gameOver) return;
+
+    // Check if it's this player's turn
+    const isWhitePlayer = state.whitePlayer === socket.id;
+    const isBlackPlayer = state.blackPlayer === socket.id;
+    if (!isWhitePlayer && !isBlackPlayer) return;
+    if ((state.currentTurn === 'white' && !isWhitePlayer) || (state.currentTurn === 'black' && !isBlackPlayer)) return;
+
+    const piece = state.board[from.row][from.col];
+    if (!piece) return;
+
+    // Validate piece belongs to current player
+    const isWhitePiece = piece === piece.toUpperCase();
+    if ((state.currentTurn === 'white' && !isWhitePiece) || (state.currentTurn === 'black' && isWhitePiece)) return;
+
+    // Validate move (basic validation - can be expanded)
+    if (!isValidChessMove(state, from, to, piece)) return;
+
+    // Execute move
+    const capturedPiece = state.board[to.row][to.col];
+    
+    // Handle en passant capture
+    if (piece.toLowerCase() === 'p' && state.enPassantTarget && 
+        to.row === state.enPassantTarget.row && to.col === state.enPassantTarget.col) {
+      const capturedPawnRow = state.currentTurn === 'white' ? to.row + 1 : to.row - 1;
+      const capturedPawn = state.board[capturedPawnRow][to.col];
+      if (capturedPawn) {
+        state.capturedPieces[state.currentTurn].push(capturedPawn);
+        state.board[capturedPawnRow][to.col] = null;
+      }
+    }
+    
+    // Handle castling
+    if (piece.toLowerCase() === 'k' && Math.abs(to.col - from.col) === 2) {
+      const isKingside = to.col > from.col;
+      const rookFromCol = isKingside ? 7 : 0;
+      const rookToCol = isKingside ? 5 : 3;
+      state.board[from.row][rookToCol] = state.board[from.row][rookFromCol];
+      state.board[from.row][rookFromCol] = null;
+    }
+
+    state.board[to.row][to.col] = piece;
+    state.board[from.row][from.col] = null;
+
+    // Handle pawn promotion
+    if (piece.toLowerCase() === 'p' && (to.row === 0 || to.row === 7)) {
+      const promotedPiece = promotion || 'q';
+      state.board[to.row][to.col] = state.currentTurn === 'white' ? promotedPiece.toUpperCase() : promotedPiece.toLowerCase();
+    }
+
+    if (capturedPiece) {
+      state.capturedPieces[state.currentTurn].push(capturedPiece);
+    }
+
+    // Update castling rights
+    if (piece.toLowerCase() === 'k') {
+      if (state.currentTurn === 'white') {
+        state.canCastle.whiteKing = false;
+        state.canCastle.whiteKingside = false;
+        state.canCastle.whiteQueenside = false;
+      } else {
+        state.canCastle.blackKing = false;
+        state.canCastle.blackKingside = false;
+        state.canCastle.blackQueenside = false;
+      }
+    }
+    if (piece.toLowerCase() === 'r') {
+      if (from.row === 0 && from.col === 0) state.canCastle.blackQueenside = false;
+      if (from.row === 0 && from.col === 7) state.canCastle.blackKingside = false;
+      if (from.row === 7 && from.col === 0) state.canCastle.whiteQueenside = false;
+      if (from.row === 7 && from.col === 7) state.canCastle.whiteKingside = false;
+    }
+
+    // Update en passant target
+    if (piece.toLowerCase() === 'p' && Math.abs(to.row - from.row) === 2) {
+      state.enPassantTarget = { row: (from.row + to.row) / 2, col: from.col };
+    } else {
+      state.enPassantTarget = null;
+    }
+
+    state.lastMove = { from, to };
+    state.moveHistory.push({ from, to, piece, captured: capturedPiece });
+
+    // Switch turn
+    state.currentTurn = state.currentTurn === 'white' ? 'black' : 'white';
+
+    // Check for check, checkmate, stalemate
+    state.check = isKingInCheck(state.board, state.currentTurn);
+    
+    if (!hasLegalMoves(state, state.currentTurn)) {
+      state.gameOver = true;
+      if (state.check) {
+        state.checkmate = true;
+        state.winner = state.currentTurn === 'white' ? state.blackPlayer : state.whitePlayer;
+        room.players.get(state.winner).score += 10;
+      } else {
+        state.stalemate = true;
+      }
+    }
+
+    io.to(roomId).emit('chessUpdate', {
+      board: state.board,
+      currentTurn: state.currentTurn,
+      lastMove: state.lastMove,
+      capturedPieces: state.capturedPieces,
+      check: state.check,
+      checkmate: state.checkmate,
+      stalemate: state.stalemate,
+      gameOver: state.gameOver,
+      winner: state.winner,
+      winnerName: state.winner ? room.players.get(state.winner).name : null,
+      players: room.getPlayerList()
+    });
+  });
+
+  // Chess rematch request
+  socket.on('chessRematch', () => {
+    const roomId = players.get(socket.id);
+    const room = rooms.get(roomId);
+    if (!room || room.currentGame !== 'chess') return;
+
+    // Reset the chess game
+    const playerIds = Array.from(room.players.keys());
+    room.gameState = initializeGame('chess', room);
+    
+    io.to(roomId).emit('gameStarted', { 
+      gameType: 'chess', 
+      gameState: room.gameState,
+      players: room.getPlayerList()
+    });
+  });
+
+  // Game rematch/replay request (generic for all games)
+  socket.on('gameRematch', () => {
+    const roomId = players.get(socket.id);
+    const room = rooms.get(roomId);
+    if (!room || !room.currentGame) return;
+
+    // Reset the current game
+    room.gameState = initializeGame(room.currentGame, room);
+    
+    io.to(roomId).emit('gameStarted', { 
+      gameType: room.currentGame, 
+      gameState: room.gameState,
+      players: room.getPlayerList()
+    });
+  });
+
   // Tic Tac Toe move
   socket.on('tttMove', (cellIndex) => {
     const roomId = players.get(socket.id);
@@ -495,6 +662,27 @@ function initializeGame(gameType, room) {
         maxRounds: 10
       };
 
+    case 'chess':
+      const chessPlayerIds = playerIds.slice(0, 2);
+      const whitePlayer = chessPlayerIds[Math.random() < 0.5 ? 0 : 1];
+      const blackPlayer = chessPlayerIds.find(id => id !== whitePlayer);
+      return {
+        board: JSON.parse(JSON.stringify(INITIAL_CHESS_BOARD)),
+        currentTurn: 'white',
+        whitePlayer,
+        blackPlayer,
+        moveHistory: [],
+        capturedPieces: { white: [], black: [] },
+        gameOver: false,
+        winner: null,
+        check: false,
+        checkmate: false,
+        stalemate: false,
+        lastMove: null,
+        canCastle: { whiteKing: true, whiteQueenside: true, whiteKingside: true, blackKing: true, blackQueenside: true, blackKingside: true },
+        enPassantTarget: null
+      };
+
     default:
       return {};
   }
@@ -503,6 +691,198 @@ function initializeGame(gameType, room) {
 function processGameMove(room, playerId, moveData) {
   // Generic game move processor - specific games use their own events
   return null;
+}
+
+// Chess helper functions
+function isValidChessMove(state, from, to, piece) {
+  const board = state.board;
+  const isWhite = piece === piece.toUpperCase();
+  const targetPiece = board[to.row][to.col];
+  
+  // Can't capture own piece
+  if (targetPiece) {
+    const targetIsWhite = targetPiece === targetPiece.toUpperCase();
+    if (isWhite === targetIsWhite) return false;
+  }
+  
+  const rowDiff = to.row - from.row;
+  const colDiff = to.col - from.col;
+  const absRowDiff = Math.abs(rowDiff);
+  const absColDiff = Math.abs(colDiff);
+  
+  switch (piece.toLowerCase()) {
+    case 'p': // Pawn
+      const direction = isWhite ? -1 : 1;
+      const startRow = isWhite ? 6 : 1;
+      
+      // Normal move
+      if (colDiff === 0 && !targetPiece) {
+        if (rowDiff === direction) return true;
+        if (from.row === startRow && rowDiff === 2 * direction && !board[from.row + direction][from.col]) return true;
+      }
+      // Capture
+      if (absColDiff === 1 && rowDiff === direction) {
+        if (targetPiece) return true;
+        // En passant
+        if (state.enPassantTarget && to.row === state.enPassantTarget.row && to.col === state.enPassantTarget.col) return true;
+      }
+      return false;
+      
+    case 'r': // Rook
+      if (rowDiff !== 0 && colDiff !== 0) return false;
+      return isPathClear(board, from, to);
+      
+    case 'n': // Knight
+      return (absRowDiff === 2 && absColDiff === 1) || (absRowDiff === 1 && absColDiff === 2);
+      
+    case 'b': // Bishop
+      if (absRowDiff !== absColDiff) return false;
+      return isPathClear(board, from, to);
+      
+    case 'q': // Queen
+      if (rowDiff !== 0 && colDiff !== 0 && absRowDiff !== absColDiff) return false;
+      return isPathClear(board, from, to);
+      
+    case 'k': // King
+      // Castling
+      if (absRowDiff === 0 && absColDiff === 2) {
+        const canCastle = isWhite ? state.canCastle : state.canCastle;
+        const kingMoved = isWhite ? !state.canCastle.whiteKing : !state.canCastle.blackKing;
+        if (kingMoved) return false;
+        
+        const isKingside = to.col > from.col;
+        const rookCol = isKingside ? 7 : 0;
+        const rook = board[from.row][rookCol];
+        if (!rook || rook.toLowerCase() !== 'r') return false;
+        
+        if (isKingside) {
+          if (isWhite && !state.canCastle.whiteKingside) return false;
+          if (!isWhite && !state.canCastle.blackKingside) return false;
+        } else {
+          if (isWhite && !state.canCastle.whiteQueenside) return false;
+          if (!isWhite && !state.canCastle.blackQueenside) return false;
+        }
+        
+        // Check if path is clear and not in check
+        const pathCols = isKingside ? [5, 6] : [1, 2, 3];
+        for (const col of pathCols) {
+          if (board[from.row][col]) return false;
+        }
+        
+        // Check if king passes through or lands on attacked square
+        const checkCols = isKingside ? [4, 5, 6] : [2, 3, 4];
+        for (const col of checkCols) {
+          if (isSquareAttacked(board, from.row, col, !isWhite)) return false;
+        }
+        
+        return true;
+      }
+      return absRowDiff <= 1 && absColDiff <= 1;
+  }
+  return false;
+}
+
+function isPathClear(board, from, to) {
+  const rowDir = Math.sign(to.row - from.row);
+  const colDir = Math.sign(to.col - from.col);
+  let row = from.row + rowDir;
+  let col = from.col + colDir;
+  
+  while (row !== to.row || col !== to.col) {
+    if (board[row][col]) return false;
+    row += rowDir;
+    col += colDir;
+  }
+  return true;
+}
+
+function isSquareAttacked(board, row, col, byWhite) {
+  for (let r = 0; r < 8; r++) {
+    for (let c = 0; c < 8; c++) {
+      const piece = board[r][c];
+      if (!piece) continue;
+      const isWhite = piece === piece.toUpperCase();
+      if (isWhite !== byWhite) continue;
+      
+      const absRowDiff = Math.abs(row - r);
+      const absColDiff = Math.abs(col - c);
+      
+      switch (piece.toLowerCase()) {
+        case 'p':
+          const direction = isWhite ? -1 : 1;
+          if (absColDiff === 1 && row - r === direction) return true;
+          break;
+        case 'r':
+          if ((row === r || col === c) && isPathClear(board, {row: r, col: c}, {row, col})) return true;
+          break;
+        case 'n':
+          if ((absRowDiff === 2 && absColDiff === 1) || (absRowDiff === 1 && absColDiff === 2)) return true;
+          break;
+        case 'b':
+          if (absRowDiff === absColDiff && absRowDiff > 0 && isPathClear(board, {row: r, col: c}, {row, col})) return true;
+          break;
+        case 'q':
+          if ((row === r || col === c || absRowDiff === absColDiff) && isPathClear(board, {row: r, col: c}, {row, col})) return true;
+          break;
+        case 'k':
+          if (absRowDiff <= 1 && absColDiff <= 1) return true;
+          break;
+      }
+    }
+  }
+  return false;
+}
+
+function findKing(board, isWhite) {
+  const king = isWhite ? 'K' : 'k';
+  for (let r = 0; r < 8; r++) {
+    for (let c = 0; c < 8; c++) {
+      if (board[r][c] === king) return { row: r, col: c };
+    }
+  }
+  return null;
+}
+
+function isKingInCheck(board, turn) {
+  const isWhite = turn === 'white';
+  const kingPos = findKing(board, isWhite);
+  if (!kingPos) return false;
+  return isSquareAttacked(board, kingPos.row, kingPos.col, !isWhite);
+}
+
+function hasLegalMoves(state, turn) {
+  const isWhite = turn === 'white';
+  const board = state.board;
+  
+  for (let fromRow = 0; fromRow < 8; fromRow++) {
+    for (let fromCol = 0; fromCol < 8; fromCol++) {
+      const piece = board[fromRow][fromCol];
+      if (!piece) continue;
+      const pieceIsWhite = piece === piece.toUpperCase();
+      if (pieceIsWhite !== isWhite) continue;
+      
+      for (let toRow = 0; toRow < 8; toRow++) {
+        for (let toCol = 0; toCol < 8; toCol++) {
+          if (fromRow === toRow && fromCol === toCol) continue;
+          
+          const from = { row: fromRow, col: fromCol };
+          const to = { row: toRow, col: toCol };
+          
+          if (isValidChessMove(state, from, to, piece)) {
+            // Simulate move and check if king is still in check
+            const testBoard = board.map(r => [...r]);
+            testBoard[toRow][toCol] = piece;
+            testBoard[fromRow][fromCol] = null;
+            
+            if (!isKingInCheck(testBoard, turn)) {
+              return true;
+            }
+          }
+        }
+      }
+    }
+  }
+  return false;
 }
 
 function checkTTTWinner(board) {
