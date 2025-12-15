@@ -539,6 +539,24 @@ io.on('connection', (socket) => {
     handleDisconnect(socket);
   });
 
+  // Restart game (play again)
+  socket.on('restartGame', (gameType) => {
+    const roomId = players.get(socket.id);
+    const room = rooms.get(roomId);
+    if (!room || room.hostId !== socket.id) return;
+    
+    // Re-initialize the game
+    room.currentGame = gameType;
+    room.gameState = initializeGame(gameType, room);
+    
+    io.to(roomId).emit('gameRestarted', {
+      gameType,
+      gameState: room.gameState,
+      players: room.getPlayerList()
+    });
+    console.log(`🔄 Game restarted: ${gameType} in room ${roomId}`);
+  });
+
   // End game and return to lobby
   socket.on('endGame', () => {
     const roomId = players.get(socket.id);
