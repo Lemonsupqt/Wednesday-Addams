@@ -266,6 +266,11 @@ function updatePlayersList(players) {
           <span class="game-name">Word<br>Chain</span>
           <span class="game-players">2+ players</span>
         </button>
+        <button class="game-card" data-game="sudoku">
+          <span class="game-icon">🔢🧩</span>
+          <span class="game-name">Vecna's<br>Sudoku</span>
+          <span class="game-players">2+ players</span>
+        </button>
       </div>
     `;
     // Re-attach event listeners for game cards
@@ -282,6 +287,8 @@ function updatePlayersList(players) {
 function handleGameSelection(gameType) {
   if (gameType === 'memory') {
     showMemoryDifficultyModal();
+  } else if (gameType === 'sudoku') {
+    showSudokuDifficultyModal();
   } else {
     startGame(gameType);
   }
@@ -299,17 +306,22 @@ function showMemoryDifficultyModal() {
         <button class="difficulty-btn" data-difficulty="easy">
           <span class="diff-icon">😊</span>
           <span class="diff-name">Easy</span>
-          <span class="diff-desc">4×3 Grid (6 pairs)</span>
+          <span class="diff-desc">4×3 Grid (6 pairs, 12 cards)</span>
         </button>
         <button class="difficulty-btn" data-difficulty="hard">
           <span class="diff-icon">😈</span>
           <span class="diff-name">Hard</span>
-          <span class="diff-desc">4×4 Grid (8 pairs)</span>
+          <span class="diff-desc">4×4 Grid (8 pairs, 16 cards)</span>
         </button>
         <button class="difficulty-btn" data-difficulty="insane">
           <span class="diff-icon">💀</span>
           <span class="diff-name">Insane</span>
-          <span class="diff-desc">6×4 Grid (12 pairs)</span>
+          <span class="diff-desc">6×4 Grid (12 pairs, 24 cards)</span>
+        </button>
+        <button class="difficulty-btn impossible" data-difficulty="impossible">
+          <span class="diff-icon">☠️</span>
+          <span class="diff-name">IMPOSSIBLE</span>
+          <span class="diff-desc">10×5 Grid (25 pairs, 50 cards)</span>
         </button>
       </div>
       <button class="btn btn-secondary" id="cancelDifficultyBtn" style="margin-top: 20px;">Cancel</button>
@@ -322,6 +334,54 @@ function showMemoryDifficultyModal() {
       const difficulty = btn.dataset.difficulty;
       modal.remove();
       startGame({ type: 'memory', options: { difficulty } });
+    });
+  });
+  
+  document.getElementById('cancelDifficultyBtn').addEventListener('click', () => {
+    modal.remove();
+  });
+}
+
+// Show sudoku difficulty selection modal
+function showSudokuDifficultyModal() {
+  const modal = document.createElement('div');
+  modal.className = 'modal active';
+  modal.id = 'difficultyModal';
+  modal.innerHTML = `
+    <div class="modal-content">
+      <h2>🔢 Select Difficulty 🔢</h2>
+      <div class="difficulty-options">
+        <button class="difficulty-btn" data-difficulty="easy">
+          <span class="diff-icon">😊</span>
+          <span class="diff-name">Easy</span>
+          <span class="diff-desc">~35 empty cells</span>
+        </button>
+        <button class="difficulty-btn" data-difficulty="medium">
+          <span class="diff-icon">🤔</span>
+          <span class="diff-name">Medium</span>
+          <span class="diff-desc">~45 empty cells</span>
+        </button>
+        <button class="difficulty-btn" data-difficulty="hard">
+          <span class="diff-icon">😈</span>
+          <span class="diff-name">Hard</span>
+          <span class="diff-desc">~55 empty cells</span>
+        </button>
+        <button class="difficulty-btn impossible" data-difficulty="evil">
+          <span class="diff-icon">👁️</span>
+          <span class="diff-name">EVIL</span>
+          <span class="diff-desc">~60 empty cells (Vecna mode)</span>
+        </button>
+      </div>
+      <button class="btn btn-secondary" id="cancelDifficultyBtn" style="margin-top: 20px;">Cancel</button>
+    </div>
+  `;
+  document.body.appendChild(modal);
+  
+  modal.querySelectorAll('.difficulty-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const difficulty = btn.dataset.difficulty;
+      modal.remove();
+      startGame({ type: 'sudoku', options: { difficulty } });
     });
   });
   
@@ -375,6 +435,8 @@ function startGame(gameType) {
 }
 
 function endGame() {
+  // Clean up any game-specific listeners
+  document.removeEventListener('keydown', handleSudokuKeypress);
   socket.emit('endGame');
 }
 
@@ -487,6 +549,8 @@ function showPlayAgainButton(gameType) {
       // For memory game, preserve the difficulty
       if (state.currentGame === 'memory' && state.gameState.difficulty) {
         socket.emit('restartGame', { type: 'memory', options: { difficulty: state.gameState.difficulty } });
+      } else if (state.currentGame === 'sudoku' && state.gameState.difficulty) {
+        socket.emit('restartGame', { type: 'sudoku', options: { difficulty: state.gameState.difficulty } });
       } else {
         socket.emit('restartGame', state.currentGame);
       }
@@ -1600,6 +1664,9 @@ socket.on('gameStarted', (data) => {
     case 'wordchain':
       initWordChainGame(data.gameState, data.players);
       break;
+    case 'sudoku':
+      initSudokuGame(data.gameState, data.players);
+      break;
   }
 });
 
@@ -1648,6 +1715,10 @@ socket.on('wordchainUpdate', handleWordchainUpdate);
 socket.on('wordchainError', (data) => showError(data.message));
 socket.on('wordchainTimeout', handleWordchainTimeout);
 
+// Sudoku
+socket.on('sudokuUpdate', handleSudokuUpdate);
+socket.on('sudokuComplete', handleSudokuComplete);
+
 // Game end
 socket.on('gameEnded', (data) => {
   elements.resultsTitle.textContent = '🏆 Game Over! 🏆';
@@ -1679,9 +1750,11 @@ socket.on('gameEnded', (data) => {
   const modalPlayAgainBtn = document.getElementById('modalPlayAgainBtn');
   if (modalPlayAgainBtn) {
     modalPlayAgainBtn.addEventListener('click', () => {
-      // For memory game, preserve the difficulty
+      // For memory and sudoku games, preserve the difficulty
       if (state.currentGame === 'memory' && state.gameState.difficulty) {
         socket.emit('restartGame', { type: 'memory', options: { difficulty: state.gameState.difficulty } });
+      } else if (state.currentGame === 'sudoku' && state.gameState.difficulty) {
+        socket.emit('restartGame', { type: 'sudoku', options: { difficulty: state.gameState.difficulty } });
       } else {
         socket.emit('restartGame', state.currentGame);
       }
@@ -1717,8 +1790,164 @@ socket.on('gameRestarted', (data) => {
     case 'wordchain':
       initWordChainGame(data.gameState, data.players);
       break;
+    case 'sudoku':
+      initSudokuGame(data.gameState, data.players);
+      break;
   }
 });
+
+// ============================================
+// SUDOKU GAME
+// ============================================
+
+function initSudokuGame(gameState, players) {
+  state.gameState = gameState;
+  state.gameState.selectedCell = null;
+  
+  const difficultyLabel = gameState.difficulty ? gameState.difficulty.charAt(0).toUpperCase() + gameState.difficulty.slice(1) : 'Medium';
+  elements.gameTitle.textContent = `🔢 Vecna's Sudoku (${difficultyLabel}) 🧩`;
+  
+  renderSudokuBoard(gameState);
+  updateScoreBoard(players);
+}
+
+function renderSudokuBoard(gameState) {
+  const selectedCell = state.gameState.selectedCell;
+  
+  elements.gameContent.innerHTML = `
+    <div class="sudoku-container">
+      <div class="sudoku-info">
+        <p>🧠 Work together to solve the puzzle!</p>
+        <p>✅ Correct = +5 points | ❌ Wrong = -2 points</p>
+      </div>
+      <div class="sudoku-board" id="sudokuBoard">
+        ${gameState.currentBoard.map((row, rowIndex) => 
+          row.map((cell, colIndex) => {
+            const isOriginal = gameState.puzzle[rowIndex][colIndex] !== 0;
+            const isSelected = selectedCell && selectedCell[0] === rowIndex && selectedCell[1] === colIndex;
+            const isWrong = cell !== 0 && cell !== gameState.solution[rowIndex][colIndex];
+            const cellKey = `${rowIndex}-${colIndex}`;
+            const filledBy = gameState.playerMoves[cellKey];
+            const playerName = filledBy ? state.players.find(p => p.id === filledBy)?.name : null;
+            
+            // Highlight same number
+            const selectedValue = selectedCell ? gameState.currentBoard[selectedCell[0]][selectedCell[1]] : 0;
+            const isSameNumber = cell !== 0 && cell === selectedValue;
+            
+            return `
+              <div class="sudoku-cell ${isOriginal ? 'original' : 'editable'} ${isSelected ? 'selected' : ''} ${isWrong ? 'wrong' : ''} ${isSameNumber ? 'same-number' : ''}"
+                   data-row="${rowIndex}" data-col="${colIndex}"
+                   ${playerName ? `title="Filled by ${playerName}"` : ''}>
+                ${cell !== 0 ? cell : ''}
+              </div>
+            `;
+          }).join('')
+        ).join('')}
+      </div>
+      <div class="sudoku-numpad" id="sudokuNumpad">
+        ${[1,2,3,4,5,6,7,8,9].map(num => `
+          <button class="numpad-btn" data-num="${num}">${num}</button>
+        `).join('')}
+        <button class="numpad-btn erase" data-num="0">✕</button>
+      </div>
+    </div>
+  `;
+  
+  // Add cell click handlers
+  document.querySelectorAll('.sudoku-cell.editable').forEach(cell => {
+    cell.addEventListener('click', () => {
+      const row = parseInt(cell.dataset.row);
+      const col = parseInt(cell.dataset.col);
+      selectSudokuCell(row, col);
+    });
+  });
+  
+  // Add numpad handlers
+  document.querySelectorAll('.numpad-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const num = parseInt(btn.dataset.num);
+      if (state.gameState.selectedCell) {
+        const [row, col] = state.gameState.selectedCell;
+        socket.emit('sudokuMove', { row, col, value: num });
+      }
+    });
+  });
+  
+  // Add keyboard support
+  document.addEventListener('keydown', handleSudokuKeypress);
+}
+
+function selectSudokuCell(row, col) {
+  state.gameState.selectedCell = [row, col];
+  renderSudokuBoard(state.gameState);
+}
+
+function handleSudokuKeypress(e) {
+  if (state.currentGame !== 'sudoku') return;
+  if (!state.gameState.selectedCell) return;
+  
+  const [row, col] = state.gameState.selectedCell;
+  
+  // Number keys 1-9
+  if (e.key >= '1' && e.key <= '9') {
+    socket.emit('sudokuMove', { row, col, value: parseInt(e.key) });
+  }
+  // Delete or backspace to erase
+  else if (e.key === 'Delete' || e.key === 'Backspace' || e.key === '0') {
+    socket.emit('sudokuMove', { row, col, value: 0 });
+  }
+  // Arrow keys to move selection
+  else if (e.key === 'ArrowUp' && row > 0) {
+    selectSudokuCell(row - 1, col);
+  }
+  else if (e.key === 'ArrowDown' && row < 8) {
+    selectSudokuCell(row + 1, col);
+  }
+  else if (e.key === 'ArrowLeft' && col > 0) {
+    selectSudokuCell(row, col - 1);
+  }
+  else if (e.key === 'ArrowRight' && col < 8) {
+    selectSudokuCell(row, col + 1);
+  }
+}
+
+function handleSudokuUpdate(data) {
+  state.gameState.currentBoard = data.currentBoard;
+  state.gameState.playerMoves = data.playerMoves;
+  
+  // Show feedback
+  if (data.value !== 0) {
+    const feedbackClass = data.isCorrect ? 'correct' : 'wrong';
+    addChatMessage({
+      system: true,
+      message: `${data.playerName} placed ${data.value} - ${data.isCorrect ? '✅ Correct!' : '❌ Wrong!'}`
+    }, elements.gameChatMessages);
+  }
+  
+  renderSudokuBoard(state.gameState);
+  updateScoreBoard(data.players);
+}
+
+function handleSudokuComplete(data) {
+  const minutes = Math.floor(data.completionTime / 60);
+  const seconds = data.completionTime % 60;
+  
+  elements.gameContent.innerHTML = `
+    <div class="sudoku-container">
+      <div class="sudoku-complete">
+        <h2>🎉 Puzzle Solved! 🎉</h2>
+        <div class="completion-time">
+          <span class="time-icon">⏱️</span>
+          <span class="time-value">${minutes}:${seconds.toString().padStart(2, '0')}</span>
+        </div>
+        <p>All players receive +20 bonus points!</p>
+      </div>
+    </div>
+  `;
+  
+  updateScoreBoard(data.players);
+  showPlayAgainButton('sudoku');
+}
 
 // ============================================
 // UTILITIES

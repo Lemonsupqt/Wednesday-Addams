@@ -2404,6 +2404,289 @@ input[type="text"]::placeholder {
   }
 }
 
+/* ============================================
+   SUDOKU GAME
+   ============================================ */
+
+.sudoku-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 100%;
+  max-width: 500px;
+}
+
+.sudoku-info {
+  text-align: center;
+  color: var(--text-secondary);
+  margin-bottom: 20px;
+}
+
+.sudoku-info p {
+  margin: 5px 0;
+}
+
+.sudoku-board {
+  display: grid;
+  grid-template-columns: repeat(9, 1fr);
+  gap: 1px;
+  background: var(--wed-gold);
+  padding: 3px;
+  border-radius: 8px;
+  width: min(450px, 90vw);
+  aspect-ratio: 1;
+  /* Prevent text selection */
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+  user-select: none;
+}
+
+.sudoku-cell {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: 'Cinzel', serif;
+  font-size: min(2rem, 5vw);
+  font-weight: bold;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  background: var(--bg-card);
+  color: var(--text-primary);
+  position: relative;
+}
+
+/* 3x3 box borders */
+.sudoku-cell:nth-child(3n) {
+  border-right: 2px solid var(--wed-gold);
+}
+
+.sudoku-cell:nth-child(n+19):nth-child(-n+27),
+.sudoku-cell:nth-child(n+46):nth-child(-n+54) {
+  border-bottom: 2px solid var(--wed-gold);
+}
+
+.sudoku-cell.original {
+  background: rgba(147, 51, 234, 0.2);
+  color: var(--accent-secondary);
+  cursor: default;
+}
+
+.sudoku-cell.editable:hover {
+  background: rgba(229, 9, 20, 0.2);
+}
+
+.sudoku-cell.selected {
+  background: rgba(212, 175, 55, 0.3) !important;
+  box-shadow: inset 0 0 10px rgba(212, 175, 55, 0.5);
+}
+
+.sudoku-cell.wrong {
+  color: var(--danger) !important;
+  animation: wrongPulse 0.5s ease;
+}
+
+@keyframes wrongPulse {
+  0%, 100% { background: rgba(239, 68, 68, 0.2); }
+  50% { background: rgba(239, 68, 68, 0.4); }
+}
+
+.sudoku-cell.same-number {
+  background: rgba(5, 217, 232, 0.15);
+}
+
+.sudoku-numpad {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 10px;
+  margin-top: 25px;
+  width: 100%;
+  max-width: 350px;
+}
+
+.numpad-btn {
+  padding: 15px;
+  font-family: 'Cinzel', serif;
+  font-size: 1.5rem;
+  font-weight: bold;
+  background: var(--bg-card);
+  border: 2px solid var(--border-color);
+  border-radius: 10px;
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.numpad-btn:hover {
+  border-color: var(--st-red);
+  transform: scale(1.05);
+}
+
+.numpad-btn:active {
+  transform: scale(0.95);
+}
+
+.numpad-btn.erase {
+  background: rgba(239, 68, 68, 0.2);
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+.sudoku-complete {
+  text-align: center;
+  padding: 40px;
+  background: var(--bg-card);
+  border-radius: 20px;
+  border: 2px solid var(--wed-gold);
+}
+
+.sudoku-complete h2 {
+  font-family: 'Creepster', cursive;
+  font-size: 2.5rem;
+  color: var(--wed-gold);
+  text-shadow: 0 0 20px rgba(212, 175, 55, 0.5);
+  margin-bottom: 20px;
+}
+
+.completion-time {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 15px;
+  font-size: 2rem;
+  margin: 20px 0;
+}
+
+.time-icon {
+  font-size: 2.5rem;
+}
+
+.time-value {
+  font-family: 'Creepster', cursive;
+  color: var(--st-neon-blue);
+  text-shadow: 0 0 15px rgba(5, 217, 232, 0.5);
+}
+
+/* Sudoku Mobile */
+@media (max-width: 600px) {
+  .sudoku-board {
+    width: 95vw;
+    gap: 1px;
+    padding: 2px;
+  }
+  
+  .sudoku-cell {
+    font-size: min(1.3rem, 4vw);
+  }
+  
+  .sudoku-numpad {
+    grid-template-columns: repeat(5, 1fr);
+    gap: 6px;
+    max-width: 100%;
+  }
+  
+  .numpad-btn {
+    padding: 12px 8px;
+    font-size: 1.2rem;
+  }
+  
+  .sudoku-complete h2 {
+    font-size: 1.8rem;
+  }
+  
+  .completion-time {
+    font-size: 1.5rem;
+  }
+}
+
+/* ============================================
+   MEMORY IMPOSSIBLE MODE
+   ============================================ */
+
+.memory-board[style*="repeat(10"] {
+  max-width: 100%;
+  width: 95vw;
+  gap: 8px;
+}
+
+.memory-board[style*="repeat(10"] .memory-card {
+  min-width: 50px;
+  border-radius: 6px;
+}
+
+.memory-board[style*="repeat(10"] .memory-card::before {
+  font-size: 1rem;
+}
+
+.memory-board[style*="repeat(10"] .memory-card .card-emoji {
+  font-size: 1.3rem;
+}
+
+.memory-board[style*="repeat(10"] .memory-card .card-name {
+  font-size: 0.45rem;
+}
+
+/* Impossible difficulty button styling */
+.difficulty-btn.impossible {
+  background: linear-gradient(135deg, rgba(229, 9, 20, 0.3), rgba(147, 51, 234, 0.3));
+  border-color: var(--st-red);
+  animation: impossibleGlow 2s infinite;
+}
+
+.difficulty-btn.impossible:hover {
+  border-color: var(--wed-gold);
+  box-shadow: 0 5px 30px rgba(229, 9, 20, 0.5);
+}
+
+.difficulty-btn.impossible .diff-name {
+  color: var(--st-red);
+  text-shadow: 0 0 10px var(--st-red-glow);
+}
+
+@keyframes impossibleGlow {
+  0%, 100% { box-shadow: 0 0 10px rgba(229, 9, 20, 0.3); }
+  50% { box-shadow: 0 0 25px rgba(229, 9, 20, 0.6); }
+}
+
+/* Memory board mobile for impossible mode */
+@media (max-width: 768px) {
+  .memory-board[style*="repeat(10"] {
+    grid-template-columns: repeat(5, 1fr) !important;
+    gap: 6px;
+  }
+  
+  .memory-board[style*="repeat(10"] .memory-card {
+    min-width: 40px;
+  }
+  
+  .memory-board[style*="repeat(10"] .memory-card .card-emoji {
+    font-size: 1.1rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .memory-board[style*="repeat(10"] {
+    gap: 4px;
+  }
+  
+  .memory-board[style*="repeat(10"] .memory-card {
+    min-width: 35px;
+    border-radius: 4px;
+  }
+  
+  .memory-board[style*="repeat(10"] .memory-card::before {
+    font-size: 0.8rem;
+  }
+  
+  .memory-board[style*="repeat(10"] .memory-card .card-emoji {
+    font-size: 0.9rem;
+  }
+  
+  .memory-board[style*="repeat(10"] .memory-card .card-name {
+    display: none;
+  }
+}
+
 /* Connection Status */
 .connection-status {
   display: flex;

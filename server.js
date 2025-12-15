@@ -310,6 +310,10 @@ io.on('connection', (socket) => {
     if (gameType === 'memory' && options.difficulty) {
       room.lastMemoryDifficulty = options.difficulty;
     }
+    // Save sudoku difficulty for future restarts
+    if (gameType === 'sudoku' && options.difficulty) {
+      room.lastSudokuDifficulty = options.difficulty;
+    }
     
     io.to(roomId).emit('gameStarted', { 
       gameType, 
@@ -578,6 +582,10 @@ io.on('connection', (socket) => {
     if (gameType === 'memory' && !options.difficulty && room.lastMemoryDifficulty) {
       options.difficulty = room.lastMemoryDifficulty;
     }
+    // For sudoku game, preserve the difficulty from the previous game if not specified
+    if (gameType === 'sudoku' && !options.difficulty && room.lastSudokuDifficulty) {
+      options.difficulty = room.lastSudokuDifficulty;
+    }
     
     // Re-initialize the game
     room.currentGame = gameType;
@@ -586,6 +594,10 @@ io.on('connection', (socket) => {
     // Save memory difficulty for future restarts
     if (gameType === 'memory' && options.difficulty) {
       room.lastMemoryDifficulty = options.difficulty;
+    }
+    // Save sudoku difficulty for future restarts
+    if (gameType === 'sudoku' && options.difficulty) {
+      room.lastSudokuDifficulty = options.difficulty;
     }
     
     io.to(roomId).emit('gameRestarted', {
@@ -742,6 +754,79 @@ io.on('connection', (socket) => {
     }
   });
 
+  // Sudoku move
+  socket.on('sudokuMove', ({ row, col, value }) => {
+    const roomId = players.get(socket.id);
+    const room = rooms.get(roomId);
+    if (!room || room.currentGame !== 'sudoku') return;
+
+    const state = room.gameState;
+    if (state.completed) return;
+    
+    // Can't modify original puzzle cells
+    if (state.puzzle[row][col] !== 0) return;
+    
+    // Update the board
+    const previousValue = state.currentBoard[row][col];
+    state.currentBoard[row][col] = value;
+    
+    // Track who made the move
+    const cellKey = `${row}-${col}`;
+    if (value !== 0) {
+      state.playerMoves[cellKey] = socket.id;
+    } else {
+      delete state.playerMoves[cellKey];
+    }
+    
+    // Check if correct
+    const isCorrect = value === 0 || value === state.solution[row][col];
+    
+    // Award/deduct points
+    const player = room.players.get(socket.id);
+    if (value !== 0) {
+      if (isCorrect) {
+        player.score += 5;
+      } else {
+        player.score = Math.max(0, player.score - 2);
+      }
+    }
+    
+    // Check if puzzle is complete
+    let isComplete = true;
+    for (let i = 0; i < 9 && isComplete; i++) {
+      for (let j = 0; j < 9 && isComplete; j++) {
+        if (state.currentBoard[i][j] !== state.solution[i][j]) {
+          isComplete = false;
+        }
+      }
+    }
+    
+    if (isComplete) {
+      state.completed = true;
+      const completionTime = Math.floor((Date.now() - state.startTime) / 1000);
+      
+      // Bonus points for completion
+      room.players.forEach(p => p.score += 20);
+      
+      io.to(roomId).emit('sudokuComplete', {
+        completionTime,
+        players: room.getPlayerList()
+      });
+    }
+    
+    io.to(roomId).emit('sudokuUpdate', {
+      row,
+      col,
+      value,
+      playerId: socket.id,
+      playerName: player.name,
+      isCorrect,
+      currentBoard: state.currentBoard,
+      playerMoves: state.playerMoves,
+      players: room.getPlayerList()
+    });
+  });
+
   // End game and return to lobby
   socket.on('endGame', () => {
     const roomId = players.get(socket.id);
@@ -816,9 +901,10 @@ function initializeGame(gameType, room, options = {}) {
       };
 
     case 'memory':
-      // Difficulty levels: easy (6 pairs), hard (8 pairs), insane (12 pairs)
+      // Difficulty levels: easy (6 pairs), hard (8 pairs), insane (12 pairs), impossible (25 pairs = 50 cards)
       const difficulty = options.difficulty || 'easy';
       const memoryItemsAll = [
+        // Original items
         { id: 'demogorgon', emoji: '👹', name: 'Demogorgon' },
         { id: 'eleven', emoji: '🔴', name: 'Eleven' },
         { id: 'wednesday', emoji: '🖤', name: 'Wednesday' },
@@ -834,7 +920,38 @@ function initializeGame(gameType, room, options = {}) {
         { id: 'upside', emoji: '🙃', name: 'Upside Down' },
         { id: 'raven', emoji: '🐦‍⬛', name: 'Raven' },
         { id: 'gate', emoji: '🚪', name: 'Gate' },
-        { id: 'lab', emoji: '🔬', name: 'Hawkins Lab' }
+        { id: 'lab', emoji: '🔬', name: 'Hawkins Lab' },
+        // Additional items for impossible mode
+        { id: 'dustin', emoji: '🧢', name: 'Dustin' },
+        { id: 'mike', emoji: '🚲', name: 'Mike' },
+        { id: 'lucas', emoji: '🏹', name: 'Lucas' },
+        { id: 'will', emoji: '🎨', name: 'Will' },
+        { id: 'max', emoji: '🛹', name: 'Max' },
+        { id: 'steve', emoji: '🦇', name: 'Steve' },
+        { id: 'nancy', emoji: '📰', name: 'Nancy' },
+        { id: 'jonathan', emoji: '📷', name: 'Jonathan' },
+        { id: 'joyce', emoji: '🎄', name: 'Joyce' },
+        { id: 'murray', emoji: '📡', name: 'Murray' },
+        { id: 'robin', emoji: '🎬', name: 'Robin' },
+        { id: 'eddie', emoji: '🎸', name: 'Eddie' },
+        { id: 'morticia', emoji: '🥀', name: 'Morticia' },
+        { id: 'gomez', emoji: '⚔️', name: 'Gomez' },
+        { id: 'pugsley', emoji: '💣', name: 'Pugsley' },
+        { id: 'lurch', emoji: '🚪', name: 'Lurch' },
+        { id: 'fester', emoji: '💡', name: 'Fester' },
+        { id: 'bianca', emoji: '🧜‍♀️', name: 'Bianca' },
+        { id: 'xavier', emoji: '🎨', name: 'Xavier' },
+        { id: 'tyler', emoji: '☕', name: 'Tyler' },
+        { id: 'weems', emoji: '👩‍💼', name: 'Weems' },
+        { id: 'demodogs', emoji: '🐕', name: 'Demodogs' },
+        { id: 'demobats', emoji: '🦇', name: 'Demobats' },
+        { id: 'clock', emoji: '🕰️', name: 'Vecna Clock' },
+        { id: 'walkie', emoji: '📻', name: 'Walkie' },
+        { id: 'christmas', emoji: '🎅', name: 'Christmas' },
+        { id: 'arcade', emoji: '🕹️', name: 'Arcade' },
+        { id: 'pool', emoji: '🏊', name: 'Pool' },
+        { id: 'mall', emoji: '🛒', name: 'Starcourt' },
+        { id: 'russia', emoji: '🇷🇺', name: 'Russia' }
       ];
       
       let pairCount;
@@ -851,6 +968,10 @@ function initializeGame(gameType, room, options = {}) {
         case 'insane':
           pairCount = 12;
           gridCols = 6; // 6x4 grid
+          break;
+        case 'impossible':
+          pairCount = 25;
+          gridCols = 10; // 10x5 grid = 50 cards
           break;
         default:
           pairCount = 6;
@@ -938,9 +1059,110 @@ function initializeGame(gameType, room, options = {}) {
         lastWord: null
       };
 
+    case 'sudoku':
+      const sudokuDifficulty = options.difficulty || 'medium';
+      const { puzzle, solution } = generateSudoku(sudokuDifficulty);
+      return {
+        puzzle: puzzle,
+        solution: solution,
+        currentBoard: puzzle.map(row => [...row]),
+        playerMoves: {}, // Track which player filled which cell
+        difficulty: sudokuDifficulty,
+        startTime: Date.now(),
+        completed: false
+      };
+
     default:
       return {};
   }
+}
+
+// Sudoku generator
+function generateSudoku(difficulty) {
+  // Generate a complete valid sudoku
+  const solution = generateCompleteSudoku();
+  const puzzle = solution.map(row => [...row]);
+  
+  // Remove numbers based on difficulty
+  let cellsToRemove;
+  switch (difficulty) {
+    case 'easy': cellsToRemove = 35; break;
+    case 'medium': cellsToRemove = 45; break;
+    case 'hard': cellsToRemove = 55; break;
+    case 'evil': cellsToRemove = 60; break;
+    default: cellsToRemove = 45;
+  }
+  
+  const positions = [];
+  for (let i = 0; i < 9; i++) {
+    for (let j = 0; j < 9; j++) {
+      positions.push([i, j]);
+    }
+  }
+  
+  // Shuffle positions and remove cells
+  positions.sort(() => Math.random() - 0.5);
+  for (let i = 0; i < cellsToRemove && i < positions.length; i++) {
+    const [row, col] = positions[i];
+    puzzle[row][col] = 0;
+  }
+  
+  return { puzzle, solution };
+}
+
+function generateCompleteSudoku() {
+  const board = Array(9).fill(null).map(() => Array(9).fill(0));
+  fillSudoku(board);
+  return board;
+}
+
+function fillSudoku(board) {
+  const empty = findEmpty(board);
+  if (!empty) return true;
+  
+  const [row, col] = empty;
+  const numbers = [1, 2, 3, 4, 5, 6, 7, 8, 9].sort(() => Math.random() - 0.5);
+  
+  for (const num of numbers) {
+    if (isValidSudokuPlacement(board, row, col, num)) {
+      board[row][col] = num;
+      if (fillSudoku(board)) return true;
+      board[row][col] = 0;
+    }
+  }
+  return false;
+}
+
+function findEmpty(board) {
+  for (let i = 0; i < 9; i++) {
+    for (let j = 0; j < 9; j++) {
+      if (board[i][j] === 0) return [i, j];
+    }
+  }
+  return null;
+}
+
+function isValidSudokuPlacement(board, row, col, num) {
+  // Check row
+  for (let j = 0; j < 9; j++) {
+    if (board[row][j] === num) return false;
+  }
+  
+  // Check column
+  for (let i = 0; i < 9; i++) {
+    if (board[i][col] === num) return false;
+  }
+  
+  // Check 3x3 box
+  const boxRow = Math.floor(row / 3) * 3;
+  const boxCol = Math.floor(col / 3) * 3;
+  for (let i = boxRow; i < boxRow + 3; i++) {
+    for (let j = boxCol; j < boxCol + 3; j++) {
+      if (board[i][j] === num) return false;
+    }
+  }
+  
+  return true;
 }
 
 function processGameMove(room, playerId, moveData) {
