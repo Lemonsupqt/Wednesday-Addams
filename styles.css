@@ -914,6 +914,16 @@ input[type="text"]::placeholder {
   grid-template-columns: repeat(4, 1fr);
   gap: 15px;
   margin: 0 auto;
+  max-width: 100%;
+}
+
+/* Insane mode with 6 columns */
+.memory-board[style*="repeat(6"] {
+  max-width: 700px;
+}
+
+.memory-board[style*="repeat(6"] .memory-card {
+  min-width: 60px;
 }
 
 .memory-card {
@@ -1220,8 +1230,9 @@ input[type="text"]::placeholder {
 .chess-board {
   display: grid;
   grid-template-columns: repeat(8, 1fr);
+  grid-template-rows: repeat(8, 1fr);
   width: min(500px, 90vw);
-  height: min(500px, 90vw);
+  aspect-ratio: 1;
   border: 4px solid var(--wed-gold);
   border-radius: 8px;
   overflow: hidden;
@@ -1237,6 +1248,8 @@ input[type="text"]::placeholder {
 
 .chess-square {
   aspect-ratio: 1;
+  width: 100%;
+  height: 100%;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1374,16 +1387,13 @@ input[type="text"]::placeholder {
   }
   
   .chess-board {
-    width: 92vw;
-    height: 92vw;
-    max-width: 380px;
-    max-height: 380px;
+    width: min(92vw, 380px);
+    aspect-ratio: 1;
     border-width: 3px;
   }
   
   .chess-coords-row {
-    width: 92vw;
-    max-width: 380px;
+    width: min(92vw, 380px);
     padding-left: 20px;
   }
   
@@ -1397,7 +1407,7 @@ input[type="text"]::placeholder {
   }
   
   .chess-piece {
-    font-size: 9vw;
+    font-size: min(9vw, 2.5rem);
   }
   
   .move-indicator {
@@ -1884,6 +1894,513 @@ input[type="text"]::placeholder {
   .ttt-board {
     max-height: 70vh;
     max-width: 70vh;
+  }
+}
+
+/* ============================================
+   DIFFICULTY MODAL
+   ============================================ */
+
+.difficulty-options {
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+  margin-top: 20px;
+}
+
+.difficulty-btn {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+  padding: 20px;
+  background: var(--bg-card);
+  border: 2px solid var(--border-color);
+  border-radius: 12px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  text-align: left;
+  color: var(--text-primary);
+  font-family: inherit;
+}
+
+.difficulty-btn:hover {
+  transform: translateX(10px);
+  border-color: var(--st-red);
+  box-shadow: 0 5px 20px rgba(229, 9, 20, 0.3);
+}
+
+.difficulty-btn .diff-icon {
+  font-size: 2.5rem;
+}
+
+.difficulty-btn .diff-name {
+  font-family: 'Cinzel', serif;
+  font-size: 1.3rem;
+  font-weight: bold;
+  color: var(--text-primary);
+  display: block;
+}
+
+.difficulty-btn .diff-desc {
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+  display: block;
+  margin-top: 3px;
+}
+
+/* ============================================
+   PSYCHIC SHOWDOWN RULES
+   ============================================ */
+
+.psychic-rules {
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+  margin: 25px 0;
+  padding: 20px;
+  background: var(--bg-card);
+  border-radius: 15px;
+  border: 1px solid var(--border-color);
+}
+
+.rule-item {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 10px;
+  background: rgba(0, 0, 0, 0.3);
+  border-radius: 8px;
+}
+
+.rule-matchup {
+  font-size: 1.2rem;
+  font-weight: bold;
+  color: var(--text-primary);
+}
+
+.rule-beats {
+  font-family: 'Creepster', cursive;
+  font-size: 1rem;
+  color: var(--st-red);
+  text-shadow: 0 0 10px var(--st-red-glow);
+}
+
+.rule-desc {
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  font-style: italic;
+  width: 100%;
+  text-align: center;
+}
+
+.psychic-rules-info {
+  text-align: center;
+  color: var(--text-secondary);
+  margin-top: 20px;
+}
+
+.psychic-rules-info p {
+  margin: 8px 0;
+}
+
+.psychic-countdown {
+  font-family: 'Creepster', cursive;
+  font-size: 2rem;
+  color: var(--wed-gold);
+  text-shadow: 0 0 15px rgba(212, 175, 55, 0.5);
+  margin-top: 25px;
+  animation: pulse 1s infinite;
+}
+
+.psychic-rules-reminder {
+  margin-top: 20px;
+  padding: 10px;
+  background: rgba(0, 0, 0, 0.3);
+  border-radius: 8px;
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+}
+
+.psychic-result-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 15px 20px;
+  background: var(--bg-card);
+  border-radius: 10px;
+  border: 2px solid transparent;
+  transition: all 0.3s ease;
+}
+
+.psychic-result-item.winner {
+  border-color: var(--wed-gold);
+  background: rgba(212, 175, 55, 0.1);
+}
+
+.result-player {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.result-name {
+  font-weight: bold;
+  color: var(--text-primary);
+}
+
+.result-choice {
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+}
+
+.result-outcome {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.result-status {
+  font-size: 0.9rem;
+}
+
+.result-points {
+  font-weight: bold;
+  color: var(--success);
+}
+
+.psychic-next-round {
+  margin-top: 20px;
+  color: var(--text-secondary);
+  animation: pulse 1s infinite;
+}
+
+/* ============================================
+   DEMOGORGON HUNT (REACTION GAME)
+   ============================================ */
+
+.reaction-container {
+  text-align: center;
+  width: 100%;
+  max-width: 600px;
+}
+
+.reaction-round {
+  font-family: 'Cinzel', serif;
+  font-size: 1.2rem;
+  color: var(--text-secondary);
+  margin-bottom: 10px;
+}
+
+.reaction-title {
+  font-family: 'Creepster', cursive;
+  font-size: 2rem;
+  color: var(--st-red);
+  text-shadow: 0 0 20px var(--st-red-glow);
+  margin-bottom: 15px;
+}
+
+.reaction-instructions {
+  color: var(--text-secondary);
+  margin-bottom: 25px;
+}
+
+.reaction-instructions p {
+  margin: 5px 0;
+}
+
+.reaction-arena {
+  width: 100%;
+  height: 300px;
+  background: linear-gradient(135deg, rgba(20, 15, 30, 0.9), rgba(13, 10, 18, 0.95));
+  border: 3px solid var(--border-color);
+  border-radius: 15px;
+  position: relative;
+  overflow: hidden;
+  box-shadow: inset 0 0 50px rgba(229, 9, 20, 0.1);
+}
+
+.reaction-waiting {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 15px;
+  color: var(--text-secondary);
+}
+
+.waiting-icon {
+  font-size: 3rem;
+  animation: pulse 2s infinite;
+}
+
+.demogorgon-target {
+  position: absolute;
+  font-size: 4rem;
+  cursor: pointer;
+  transform: translate(-50%, -50%);
+  animation: targetAppear 0.2s ease-out;
+  transition: transform 0.1s ease;
+  z-index: 10;
+  /* Prevent text selection */
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.demogorgon-target:hover {
+  transform: translate(-50%, -50%) scale(1.1);
+}
+
+.demogorgon-target.clicked {
+  animation: targetHit 0.3s ease-out forwards;
+}
+
+@keyframes targetAppear {
+  from {
+    transform: translate(-50%, -50%) scale(0);
+    opacity: 0;
+  }
+  to {
+    transform: translate(-50%, -50%) scale(1);
+    opacity: 1;
+  }
+}
+
+@keyframes targetHit {
+  0% {
+    transform: translate(-50%, -50%) scale(1);
+  }
+  50% {
+    transform: translate(-50%, -50%) scale(1.3);
+  }
+  100% {
+    transform: translate(-50%, -50%) scale(0);
+    opacity: 0;
+  }
+}
+
+.reaction-result {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  text-align: center;
+  animation: fadeIn 0.3s ease;
+}
+
+.result-winner-icon {
+  font-size: 4rem;
+  margin-bottom: 10px;
+}
+
+.result-winner-name {
+  font-family: 'Cinzel', serif;
+  font-size: 1.5rem;
+  color: var(--wed-gold);
+  text-shadow: 0 0 15px rgba(212, 175, 55, 0.5);
+}
+
+.result-reaction-time {
+  font-family: 'Creepster', cursive;
+  font-size: 2.5rem;
+  color: var(--st-neon-blue);
+  text-shadow: 0 0 15px rgba(5, 217, 232, 0.5);
+  margin: 10px 0;
+}
+
+.result-caught {
+  color: var(--text-secondary);
+}
+
+/* ============================================
+   WORD CHAIN GAME
+   ============================================ */
+
+.wordchain-container {
+  text-align: center;
+  width: 100%;
+  max-width: 600px;
+}
+
+.wordchain-category {
+  font-family: 'Cinzel', serif;
+  font-size: 1rem;
+  color: var(--text-secondary);
+  margin-bottom: 15px;
+}
+
+.wordchain-letter {
+  font-size: 1.2rem;
+  color: var(--text-primary);
+  margin-bottom: 20px;
+}
+
+.letter-highlight {
+  font-family: 'Creepster', cursive;
+  font-size: 3rem;
+  color: var(--st-red);
+  text-shadow: 0 0 20px var(--st-red-glow);
+  display: inline-block;
+  margin-left: 10px;
+  animation: letterPulse 1s infinite;
+}
+
+@keyframes letterPulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.1); }
+}
+
+.wordchain-turn {
+  font-family: 'Cinzel', serif;
+  font-size: 1.3rem;
+  color: var(--text-primary);
+  margin-bottom: 15px;
+}
+
+.wordchain-timer {
+  font-family: 'Creepster', cursive;
+  font-size: 3rem;
+  color: var(--wed-gold);
+  text-shadow: 0 0 15px rgba(212, 175, 55, 0.5);
+  margin-bottom: 20px;
+}
+
+.wordchain-timer.warning {
+  color: var(--st-red);
+  text-shadow: 0 0 20px var(--st-red-glow);
+  animation: timerPulse 0.5s ease infinite;
+}
+
+.wordchain-input-container {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+  margin-bottom: 25px;
+}
+
+.wordchain-input-container input {
+  max-width: 250px;
+  text-align: center;
+  font-size: 1.2rem;
+}
+
+.wordchain-input-container .btn {
+  width: auto;
+  padding: 15px 25px;
+}
+
+.wordchain-history {
+  background: var(--bg-card);
+  border-radius: 15px;
+  padding: 20px;
+  margin-bottom: 20px;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.wordchain-history h4 {
+  font-family: 'Cinzel', serif;
+  margin-bottom: 15px;
+  color: var(--wed-silver);
+}
+
+.word-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: center;
+}
+
+.used-word {
+  padding: 5px 12px;
+  background: rgba(147, 51, 234, 0.2);
+  border: 1px solid var(--accent-secondary);
+  border-radius: 20px;
+  font-size: 0.9rem;
+  color: var(--text-primary);
+}
+
+.no-words {
+  color: var(--text-secondary);
+  font-style: italic;
+}
+
+.wordchain-rules {
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+}
+
+.wordchain-rules p {
+  margin: 5px 0;
+}
+
+/* Mobile adjustments for new games */
+@media (max-width: 600px) {
+  .reaction-arena {
+    height: 250px;
+  }
+  
+  .demogorgon-target {
+    font-size: 3rem;
+  }
+  
+  .result-reaction-time {
+    font-size: 2rem;
+  }
+  
+  .letter-highlight {
+    font-size: 2.5rem;
+  }
+  
+  .wordchain-timer {
+    font-size: 2.5rem;
+  }
+  
+  .wordchain-input-container {
+    flex-direction: column;
+    align-items: center;
+  }
+  
+  .wordchain-input-container input {
+    max-width: 100%;
+  }
+  
+  .wordchain-input-container .btn {
+    width: 100%;
+    max-width: 250px;
+  }
+  
+  .psychic-rules {
+    padding: 15px;
+  }
+  
+  .rule-item {
+    padding: 8px;
+    font-size: 0.9rem;
+  }
+  
+  .difficulty-options {
+    gap: 10px;
+  }
+  
+  .difficulty-btn {
+    padding: 15px;
+  }
+  
+  .difficulty-btn .diff-icon {
+    font-size: 2rem;
+  }
+  
+  .difficulty-btn .diff-name {
+    font-size: 1.1rem;
   }
 }
 

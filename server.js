@@ -290,7 +290,7 @@ io.on('connection', (socket) => {
   });
 
   // Start game
-  socket.on('startGame', (gameType) => {
+  socket.on('startGame', (gameData) => {
     const roomId = players.get(socket.id);
     const room = rooms.get(roomId);
     if (!room || room.hostId !== socket.id) return;
@@ -299,8 +299,17 @@ io.on('connection', (socket) => {
       return;
     }
 
+    // Support both old format (string) and new format (object with options)
+    const gameType = typeof gameData === 'string' ? gameData : gameData.type;
+    const options = typeof gameData === 'object' ? gameData.options || {} : {};
+
     room.currentGame = gameType;
-    room.gameState = initializeGame(gameType, room);
+    room.gameState = initializeGame(gameType, room, options);
+    
+    // Save memory difficulty for future restarts
+    if (gameType === 'memory' && options.difficulty) {
+      room.lastMemoryDifficulty = options.difficulty;
+    }
     
     io.to(roomId).emit('gameStarted', { 
       gameType, 
@@ -308,6 +317,22 @@ io.on('connection', (socket) => {
       players: room.getPlayerList()
     });
     console.log(`🎮 Game started: ${gameType} in room ${roomId}`);
+    
+    // Start reaction game first round after delay
+    if (gameType === 'reaction') {
+      const delay = 2000 + Math.random() * 3000;
+      setTimeout(() => {
+        if (room.currentGame === 'reaction' && !room.gameState.targetAppears) {
+          room.gameState.targetAppears = true;
+          room.gameState.roundStartTime = Date.now();
+          room.gameState.targetPosition = {
+            x: 10 + Math.random() * 80,
+            y: 10 + Math.random() * 80
+          };
+          io.to(roomId).emit('reactionShowTarget', { position: room.gameState.targetPosition });
+        }
+      }, delay);
+    }
   });
 
   // Game moves
@@ -540,14 +565,28 @@ io.on('connection', (socket) => {
   });
 
   // Restart game (play again)
-  socket.on('restartGame', (gameType) => {
+  socket.on('restartGame', (gameData) => {
     const roomId = players.get(socket.id);
     const room = rooms.get(roomId);
     if (!room || room.hostId !== socket.id) return;
     
+    // Support both old format (string) and new format (object with options)
+    const gameType = typeof gameData === 'string' ? gameData : gameData.type;
+    let options = typeof gameData === 'object' ? gameData.options || {} : {};
+    
+    // For memory game, preserve the difficulty from the previous game if not specified
+    if (gameType === 'memory' && !options.difficulty && room.lastMemoryDifficulty) {
+      options.difficulty = room.lastMemoryDifficulty;
+    }
+    
     // Re-initialize the game
     room.currentGame = gameType;
-    room.gameState = initializeGame(gameType, room);
+    room.gameState = initializeGame(gameType, room, options);
+    
+    // Save memory difficulty for future restarts
+    if (gameType === 'memory' && options.difficulty) {
+      room.lastMemoryDifficulty = options.difficulty;
+    }
     
     io.to(roomId).emit('gameRestarted', {
       gameType,
@@ -555,6 +594,152 @@ io.on('connection', (socket) => {
       players: room.getPlayerList()
     });
     console.log(`🔄 Game restarted: ${gameType} in room ${roomId}`);
+    
+    // Start reaction game first round after delay
+    if (gameType === 'reaction') {
+      const delay = 2000 + Math.random() * 3000;
+      setTimeout(() => {
+        if (room.currentGame === 'reaction' && !room.gameState.targetAppears) {
+          room.gameState.targetAppears = true;
+          room.gameState.roundStartTime = Date.now();
+          room.gameState.targetPosition = {
+            x: 10 + Math.random() * 80,
+            y: 10 + Math.random() * 80
+          };
+          io.to(roomId).emit('reactionShowTarget', { position: room.gameState.targetPosition });
+        }
+      }, delay);
+    }
+  });
+
+  // Reaction game - player clicked target
+  socket.on('reactionClick', (data) => {
+    const roomId = players.get(socket.id);
+    const room = rooms.get(roomId);
+    if (!room || room.currentGame !== 'reaction') return;
+
+    const state = room.gameState;
+    if (!state.targetAppears || state.roundWinner) return;
+    
+    // Record reaction time
+    const reactionTime = Date.now() - state.roundStartTime;
+    state.clickedPlayers.set(socket.id, reactionTime);
+    
+    // First click wins the round
+    if (!state.roundWinner) {
+      state.roundWinner = socket.id;
+      room.players.get(socket.id).score += 10;
+      
+      io.to(roomId).emit('reactionRoundResult', {
+        winnerId: socket.id,
+        winnerName: room.players.get(socket.id).name,
+        reactionTime,
+        round: state.round,
+        players: room.getPlayerList()
+      });
+      
+      // Next round or end game
+      setTimeout(() => {
+        if (state.round >= state.maxRounds) {
+          endGame(room, roomId);
+        } else {
+          state.round++;
+          state.targetAppears = false;
+          state.roundWinner = null;
+          state.clickedPlayers.clear();
+          io.to(roomId).emit('reactionNextRound', { round: state.round });
+          
+          // Random delay before showing target
+          const delay = 2000 + Math.random() * 3000;
+          setTimeout(() => {
+            if (room.currentGame === 'reaction' && !state.targetAppears) {
+              state.targetAppears = true;
+              state.roundStartTime = Date.now();
+              state.targetPosition = {
+                x: 10 + Math.random() * 80,
+                y: 10 + Math.random() * 80
+              };
+              io.to(roomId).emit('reactionShowTarget', { position: state.targetPosition });
+            }
+          }, delay);
+        }
+      }, 2500);
+    }
+  });
+
+  // Word chain game - player submits word
+  socket.on('wordchainSubmit', (word) => {
+    const roomId = players.get(socket.id);
+    const room = rooms.get(roomId);
+    if (!room || room.currentGame !== 'wordchain') return;
+
+    const state = room.gameState;
+    if (state.currentPlayer !== socket.id) return;
+    
+    const normalizedWord = word.toLowerCase().trim();
+    
+    // Validate word
+    if (state.usedWords.includes(normalizedWord)) {
+      socket.emit('wordchainError', { message: 'Word already used!' });
+      return;
+    }
+    
+    if (state.currentLetter && normalizedWord[0].toUpperCase() !== state.currentLetter) {
+      socket.emit('wordchainError', { message: `Word must start with "${state.currentLetter}"!` });
+      return;
+    }
+    
+    // Accept the word
+    state.usedWords.push(normalizedWord);
+    state.lastWord = normalizedWord;
+    state.currentLetter = normalizedWord[normalizedWord.length - 1].toUpperCase();
+    room.players.get(socket.id).score += normalizedWord.length;
+    
+    // Next player
+    const playerIds = Array.from(room.players.keys());
+    const currentIndex = playerIds.indexOf(state.currentPlayer);
+    state.currentPlayer = playerIds[(currentIndex + 1) % playerIds.length];
+    state.timeLeft = 10;
+    
+    io.to(roomId).emit('wordchainUpdate', {
+      word: normalizedWord,
+      playerId: socket.id,
+      playerName: room.players.get(socket.id).name,
+      nextLetter: state.currentLetter,
+      currentPlayer: state.currentPlayer,
+      usedWords: state.usedWords,
+      players: room.getPlayerList()
+    });
+  });
+
+  // Word chain timeout
+  socket.on('wordchainTimeout', () => {
+    const roomId = players.get(socket.id);
+    const room = rooms.get(roomId);
+    if (!room || room.currentGame !== 'wordchain') return;
+    
+    const state = room.gameState;
+    if (state.currentPlayer !== socket.id) return;
+    
+    // Player loses points and turn passes
+    room.players.get(socket.id).score = Math.max(0, room.players.get(socket.id).score - 5);
+    
+    const playerIds = Array.from(room.players.keys());
+    const currentIndex = playerIds.indexOf(state.currentPlayer);
+    state.currentPlayer = playerIds[(currentIndex + 1) % playerIds.length];
+    state.timeLeft = 10;
+    state.round++;
+    
+    if (state.round > 15) {
+      endGame(room, roomId);
+    } else {
+      io.to(roomId).emit('wordchainTimeout', {
+        playerId: socket.id,
+        playerName: room.players.get(socket.id).name,
+        currentPlayer: state.currentPlayer,
+        players: room.getPlayerList()
+      });
+    }
   });
 
   // End game and return to lobby
@@ -607,23 +792,33 @@ io.on('connection', (socket) => {
 });
 
 // Game initialization
-function initializeGame(gameType, room) {
+function initializeGame(gameType, room, options = {}) {
   const playerIds = Array.from(room.players.keys());
+  
+  // Helper to get a random starting player
+  const getRandomStartingPlayer = (ids) => ids[Math.floor(Math.random() * ids.length)];
   
   switch (gameType) {
     case 'tictactoe':
       const symbols = ['🔴', '💀']; // Eleven's nosebleed vs Death
       const symbolMap = new Map();
-      playerIds.slice(0, 2).forEach((id, i) => symbolMap.set(id, symbols[i]));
+      const tttPlayers = playerIds.slice(0, 2);
+      // Shuffle to randomize who gets which symbol
+      const shuffledTttPlayers = [...tttPlayers].sort(() => Math.random() - 0.5);
+      shuffledTttPlayers.forEach((id, i) => symbolMap.set(id, symbols[i]));
+      // Random starting player
+      const tttStartingPlayer = getRandomStartingPlayer(shuffledTttPlayers);
       return {
         board: Array(9).fill(null),
-        currentPlayer: playerIds[0],
+        currentPlayer: tttStartingPlayer,
         playerSymbols: symbolMap,
         winner: null
       };
 
     case 'memory':
-      const memoryItems = [
+      // Difficulty levels: easy (6 pairs), hard (8 pairs), insane (12 pairs)
+      const difficulty = options.difficulty || 'easy';
+      const memoryItemsAll = [
         { id: 'demogorgon', emoji: '👹', name: 'Demogorgon' },
         { id: 'eleven', emoji: '🔴', name: 'Eleven' },
         { id: 'wednesday', emoji: '🖤', name: 'Wednesday' },
@@ -631,17 +826,52 @@ function initializeGame(gameType, room) {
         { id: 'waffle', emoji: '🧇', name: 'Eggo' },
         { id: 'cello', emoji: '🎻', name: 'Cello' },
         { id: 'spider', emoji: '🕷️', name: 'Spider' },
-        { id: 'light', emoji: '💡', name: 'Lights' }
+        { id: 'light', emoji: '💡', name: 'Lights' },
+        { id: 'vecna', emoji: '👁️', name: 'Vecna' },
+        { id: 'mindflayer', emoji: '🌑', name: 'Mind Flayer' },
+        { id: 'hopper', emoji: '🚔', name: 'Hopper' },
+        { id: 'enid', emoji: '🐺', name: 'Enid' },
+        { id: 'upside', emoji: '🙃', name: 'Upside Down' },
+        { id: 'raven', emoji: '🐦‍⬛', name: 'Raven' },
+        { id: 'gate', emoji: '🚪', name: 'Gate' },
+        { id: 'lab', emoji: '🔬', name: 'Hawkins Lab' }
       ];
+      
+      let pairCount;
+      let gridCols;
+      switch (difficulty) {
+        case 'easy':
+          pairCount = 6;
+          gridCols = 4; // 4x3 grid
+          break;
+        case 'hard':
+          pairCount = 8;
+          gridCols = 4; // 4x4 grid
+          break;
+        case 'insane':
+          pairCount = 12;
+          gridCols = 6; // 6x4 grid
+          break;
+        default:
+          pairCount = 6;
+          gridCols = 4;
+      }
+      
+      const memoryItems = memoryItemsAll.slice(0, pairCount);
       const cards = [...memoryItems, ...memoryItems]
         .sort(() => Math.random() - 0.5)
         .map((item, index) => ({ ...item, index }));
+      
+      // Random starting player
+      const memoryStartingPlayer = getRandomStartingPlayer(playerIds);
       return {
         cards,
         flipped: [],
         matched: [],
-        currentPlayer: playerIds[0],
-        checking: false
+        currentPlayer: memoryStartingPlayer,
+        checking: false,
+        difficulty,
+        gridCols
       };
 
     case 'trivia':
@@ -656,11 +886,13 @@ function initializeGame(gameType, room) {
 
     case 'chess':
       const chessPlayers = playerIds.slice(0, 2);
+      // Randomly assign white/black
+      const shuffledChessPlayers = [...chessPlayers].sort(() => Math.random() - 0.5);
       return {
         board: getInitialChessBoard(),
-        currentPlayer: chessPlayers[0],
-        whitePlayer: chessPlayers[0],
-        blackPlayer: chessPlayers[1],
+        currentPlayer: shuffledChessPlayers[0], // White always starts, but who is white is random
+        whitePlayer: shuffledChessPlayers[0],
+        blackPlayer: shuffledChessPlayers[1],
         isWhiteTurn: true,
         selectedPiece: null,
         moveHistory: [],
@@ -674,6 +906,36 @@ function initializeGame(gameType, room) {
         choices: new Map(),
         round: 1,
         maxRounds: 10
+      };
+
+    case 'reaction':
+      return {
+        round: 1,
+        maxRounds: 5,
+        targetAppears: false,
+        targetPosition: null,
+        roundWinner: null,
+        clickedPlayers: new Map(),
+        roundStartTime: null
+      };
+
+    case 'wordchain':
+      const categories = [
+        { name: 'Stranger Things Characters', words: ['eleven', 'mike', 'dustin', 'lucas', 'will', 'hopper', 'joyce', 'nancy', 'jonathan', 'steve', 'robin', 'max', 'eddie', 'vecna', 'brenner'] },
+        { name: 'Wednesday Characters', words: ['wednesday', 'enid', 'thing', 'pugsley', 'morticia', 'gomez', 'lurch', 'bianca', 'ajax', 'tyler', 'weems', 'xavier', 'eugene', 'fester', 'larissa'] },
+        { name: 'Upside Down Creatures', words: ['demogorgon', 'mindflayer', 'demodogs', 'demobats', 'vecna', 'vines', 'particles', 'shadow'] },
+        { name: 'Nevermore Academy', words: ['outcasts', 'nightshades', 'fencing', 'cello', 'poe', 'statue', 'library', 'dorm', 'principal', 'werewolf', 'siren', 'vampire', 'gorgon', 'psychic'] }
+      ];
+      const selectedCategory = categories[Math.floor(Math.random() * categories.length)];
+      return {
+        category: selectedCategory.name,
+        validWords: selectedCategory.words,
+        usedWords: [],
+        currentPlayer: getRandomStartingPlayer(playerIds),
+        timeLeft: 10,
+        round: 1,
+        currentLetter: selectedCategory.words[0][0].toUpperCase(),
+        lastWord: null
       };
 
     default:
@@ -737,6 +999,10 @@ function resolvePsychicRound(room, roomId) {
   const results = [];
   const playerIds = Array.from(room.players.keys());
   
+  // Calculate round results for each player
+  const roundResults = {};
+  playerIds.forEach(id => roundResults[id] = { wins: 0, losses: 0 });
+  
   // Compare each pair
   for (let i = 0; i < playerIds.length; i++) {
     for (let j = i + 1; j < playerIds.length; j++) {
@@ -749,8 +1015,12 @@ function resolvePsychicRound(room, roomId) {
       
       if (beats[c1] === c2) {
         room.players.get(p1).score += 5;
+        roundResults[p1].wins++;
+        roundResults[p2].losses++;
       } else {
         room.players.get(p2).score += 5;
+        roundResults[p2].wins++;
+        roundResults[p1].losses++;
       }
     }
   }
@@ -758,9 +1028,11 @@ function resolvePsychicRound(room, roomId) {
   io.to(roomId).emit('psychicResults', {
     choices: Object.fromEntries(state.choices),
     players: room.getPlayerList(),
-    round: state.round
+    round: state.round,
+    roundResults
   });
 
+  // Increased delay to 5 seconds so players can see results properly
   setTimeout(() => {
     state.round++;
     state.choices.clear();
@@ -770,7 +1042,7 @@ function resolvePsychicRound(room, roomId) {
     } else {
       io.to(roomId).emit('nextPsychicRound', { round: state.round });
     }
-  }, 3000);
+  }, 5000);
 }
 
 function endGame(room, roomId) {
