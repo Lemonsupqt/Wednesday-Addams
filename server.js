@@ -357,11 +357,6 @@ io.on('connection', (socket) => {
     if (gameType === 'molewhack') {
       startMoleWhackRound(room, roomId);
     }
-    
-    // Start air hockey with initial puck velocity
-    if (gameType === 'airhockey') {
-      room.gameState.puckVelocity = { x: (Math.random() > 0.5 ? 5 : -5), y: (Math.random() - 0.5) * 4 };
-    }
   });
 
   // Game moves
@@ -652,11 +647,6 @@ io.on('connection', (socket) => {
     if (gameType === 'molewhack') {
       startMoleWhackRound(room, roomId);
     }
-    
-    // Start air hockey with initial puck velocity
-    if (gameType === 'airhockey') {
-      room.gameState.puckVelocity = { x: (Math.random() > 0.5 ? 5 : -5), y: (Math.random() - 0.5) * 4 };
-    }
   });
 
   // Reaction game - player clicked target
@@ -946,67 +936,113 @@ io.on('connection', (socket) => {
     if (!room || room.currentGame !== 'knife') return;
 
     const state = room.gameState;
-    if (state.currentPlayer !== socket.id) return;
+    if (state.currentPlayer !== socket.id || state.winner) return;
     
-    // Check for collision with existing knives
+    // Normalize angle to 0-360
+    const normalizedAngle = ((angle % 360) + 360) % 360;
+    
+    // Check for collision with existing knives (within 20 degrees)
     const collision = state.thrownKnives.some(k => {
-      const diff = Math.abs(k - angle);
-      return diff < 15 || diff > 345;
+      const diff = Math.abs(k - normalizedAngle);
+      const minDiff = Math.min(diff, 360 - diff);
+      return minDiff < 20;
     });
     
+    const playerIds = Array.from(room.players.keys());
+    const currentIndex = playerIds.indexOf(socket.id);
+    const nextPlayer = playerIds[(currentIndex + 1) % playerIds.length];
+    
     if (collision) {
-      // Game over for this player - they hit another knife
+      // Hit another knife - no points, move to next player
       io.to(roomId).emit('knifeCollision', {
         playerId: socket.id,
         playerName: room.players.get(socket.id).name,
-        angle,
+        angle: normalizedAngle,
         players: room.getPlayerList()
       });
       
-      // Move to next player or end game
-      const playerIds = Array.from(room.players.keys());
-      const currentIndex = playerIds.indexOf(socket.id);
-      state.currentPlayer = playerIds[(currentIndex + 1) % playerIds.length];
+      state.currentPlayer = nextPlayer;
       state.round++;
       
+      // Check if game is over
       if (state.round > state.maxRounds) {
-        endGame(room, roomId);
-      } else {
-        io.to(roomId).emit('knifeNextTurn', {
-          currentPlayer: state.currentPlayer,
-          round: state.round,
-          thrownKnives: state.thrownKnives
-        });
-      }
-    } else {
-      // Successful throw
-      state.thrownKnives.push(angle);
-      room.players.get(socket.id).score += 10;
-      
-      io.to(roomId).emit('knifeThrown', {
-        playerId: socket.id,
-        playerName: room.players.get(socket.id).name,
-        angle,
-        thrownKnives: state.thrownKnives,
-        players: room.getPlayerList()
-      });
-      
-      // Next player
-      const playerIds = Array.from(room.players.keys());
-      const currentIndex = playerIds.indexOf(socket.id);
-      state.currentPlayer = playerIds[(currentIndex + 1) % playerIds.length];
-      state.round++;
-      
-      if (state.round > state.maxRounds) {
-        endGame(room, roomId);
+        // Determine winner by highest score
+        let highestScore = -1;
+        let winner = null;
+        for (const [playerId, player] of room.players) {
+          if (player.score > highestScore) {
+            highestScore = player.score;
+            winner = playerId;
+          }
+        }
+        state.winner = winner;
+        
+        setTimeout(() => {
+          io.to(roomId).emit('knifeNextTurn', {
+            currentPlayer: state.currentPlayer,
+            round: state.round,
+            thrownKnives: state.thrownKnives,
+            winner: state.winner,
+            gameState: state
+          });
+        }, 1500);
       } else {
         setTimeout(() => {
           io.to(roomId).emit('knifeNextTurn', {
             currentPlayer: state.currentPlayer,
             round: state.round,
-            thrownKnives: state.thrownKnives
+            thrownKnives: state.thrownKnives,
+            gameState: state
           });
-        }, 1000);
+        }, 1500);
+      }
+    } else {
+      // Successful throw
+      state.thrownKnives.push(normalizedAngle);
+      room.players.get(socket.id).score += 10;
+      
+      io.to(roomId).emit('knifeThrown', {
+        playerId: socket.id,
+        playerName: room.players.get(socket.id).name,
+        angle: normalizedAngle,
+        thrownKnives: state.thrownKnives,
+        players: room.getPlayerList()
+      });
+      
+      state.currentPlayer = nextPlayer;
+      state.round++;
+      
+      // Check if game is over
+      if (state.round > state.maxRounds) {
+        // Determine winner by highest score
+        let highestScore = -1;
+        let winner = null;
+        for (const [playerId, player] of room.players) {
+          if (player.score > highestScore) {
+            highestScore = player.score;
+            winner = playerId;
+          }
+        }
+        state.winner = winner;
+        
+        setTimeout(() => {
+          io.to(roomId).emit('knifeNextTurn', {
+            currentPlayer: state.currentPlayer,
+            round: state.round,
+            thrownKnives: state.thrownKnives,
+            winner: state.winner,
+            gameState: state
+          });
+        }, 1500);
+      } else {
+        setTimeout(() => {
+          io.to(roomId).emit('knifeNextTurn', {
+            currentPlayer: state.currentPlayer,
+            round: state.round,
+            thrownKnives: state.thrownKnives,
+            gameState: state
+          });
+        }, 1500);
       }
     }
   });
@@ -1052,19 +1088,18 @@ io.on('connection', (socket) => {
     const state = room.gameState;
     if (state.currentPlayer !== socket.id || state.winner) return;
     
-    // Calculate score based on position (distance from center)
-    const dx = position.x - 150; // Center is at 150, 150
-    const dy = position.y - 150;
-    const distance = Math.sqrt(dx * dx + dy * dy);
+    // Calculate score based on normalized position (-1 to 1 from center)
+    // x and y are normalized values from client
+    const distance = Math.sqrt(position.x * position.x + position.y * position.y);
     
     let points = 0;
-    if (distance < 10) points = 50; // Bullseye
-    else if (distance < 25) points = 25; // Inner bull
-    else if (distance < 50) points = 20;
-    else if (distance < 75) points = 15;
-    else if (distance < 100) points = 10;
-    else if (distance < 125) points = 5;
-    else if (distance < 150) points = 1;
+    if (distance < 0.1) points = 50; // Bullseye
+    else if (distance < 0.2) points = 25; // Double bull
+    else if (distance < 0.4) points = 20;
+    else if (distance < 0.6) points = 15;
+    else if (distance < 0.8) points = 10;
+    else if (distance <= 1.0) points = 5;
+    else points = 0; // Missed the board
     
     if (!state.scores[socket.id]) state.scores[socket.id] = 0;
     state.scores[socket.id] += points;
@@ -1074,7 +1109,7 @@ io.on('connection', (socket) => {
     state.throwsThisRound++;
     
     io.to(roomId).emit('dartThrown', {
-      position,
+      position: { x: position.rawX, y: position.rawY },
       points,
       playerId: socket.id,
       playerName: room.players.get(socket.id).name,
@@ -1094,13 +1129,31 @@ io.on('connection', (socket) => {
       }
       
       if (state.round > state.maxRounds) {
-        endGame(room, roomId);
+        // Determine winner
+        let highestScore = -1;
+        let winner = null;
+        for (const [playerId, score] of Object.entries(state.scores)) {
+          if (score > highestScore) {
+            highestScore = score;
+            winner = playerId;
+          }
+        }
+        state.winner = winner;
+        
+        io.to(roomId).emit('dartNextTurn', {
+          currentPlayer: null,
+          round: state.round,
+          throwsRemaining: 0,
+          winner: state.winner,
+          scores: state.scores
+        });
       } else {
         state.currentPlayer = playerIds[nextIndex];
         io.to(roomId).emit('dartNextTurn', {
           currentPlayer: state.currentPlayer,
           round: state.round,
-          throwsRemaining: state.maxThrowsPerRound
+          throwsRemaining: state.maxThrowsPerRound,
+          scores: state.scores
         });
       }
     } else {
@@ -1108,108 +1161,6 @@ io.on('connection', (socket) => {
         throwsRemaining: state.maxThrowsPerRound - state.throwsThisRound
       });
     }
-  });
-
-  // Ludo roll dice
-  socket.on('ludoRoll', () => {
-    const roomId = players.get(socket.id);
-    const room = rooms.get(roomId);
-    if (!room || room.currentGame !== 'ludo') return;
-
-    const state = room.gameState;
-    if (state.currentPlayer !== socket.id || !state.canRoll || state.winner) return;
-    
-    const diceValue = Math.floor(Math.random() * 6) + 1;
-    state.diceValue = diceValue;
-    state.canRoll = false;
-    
-    // Check if player can move any piece
-    const canMove = canMoveLudoPiece(state, socket.id, diceValue);
-    
-    io.to(roomId).emit('ludoDiceRolled', {
-      playerId: socket.id,
-      diceValue,
-      canMove,
-      players: room.getPlayerList()
-    });
-    
-    if (!canMove) {
-      // Auto-skip turn if can't move
-      setTimeout(() => {
-        nextLudoTurn(room, roomId, diceValue !== 6);
-      }, 1500);
-    }
-  });
-
-  // Ludo move piece
-  socket.on('ludoMove', (pieceIndex) => {
-    const roomId = players.get(socket.id);
-    const room = rooms.get(roomId);
-    if (!room || room.currentGame !== 'ludo') return;
-
-    const state = room.gameState;
-    if (state.currentPlayer !== socket.id || state.canRoll || state.winner) return;
-    
-    const piece = state.pieces[socket.id][pieceIndex];
-    const diceValue = state.diceValue;
-    
-    // Validate and execute move
-    const moveResult = executeLudoMove(state, socket.id, pieceIndex, diceValue);
-    
-    if (moveResult.valid) {
-      // Check for captures
-      if (moveResult.captured) {
-        room.players.get(socket.id).score += 5;
-      }
-      
-      // Check for reaching home
-      if (moveResult.reachedHome) {
-        room.players.get(socket.id).score += 20;
-      }
-      
-      // Check for winner
-      if (checkLudoWinner(state, socket.id)) {
-        state.winner = socket.id;
-        room.players.get(socket.id).score += 50;
-      }
-      
-      io.to(roomId).emit('ludoMoved', {
-        playerId: socket.id,
-        pieceIndex,
-        newPosition: piece.position,
-        captured: moveResult.captured,
-        reachedHome: moveResult.reachedHome,
-        pieces: state.pieces,
-        winner: state.winner,
-        winnerName: state.winner ? room.players.get(state.winner).name : null,
-        players: room.getPlayerList()
-      });
-      
-      if (!state.winner) {
-        nextLudoTurn(room, roomId, diceValue !== 6);
-      }
-    }
-  });
-
-  // Air hockey paddle move
-  socket.on('paddleMove', (position) => {
-    const roomId = players.get(socket.id);
-    const room = rooms.get(roomId);
-    if (!room || room.currentGame !== 'airhockey') return;
-
-    const state = room.gameState;
-    if (!state.gameActive) return;
-    
-    if (socket.id === state.player1) {
-      state.paddle1 = { x: Math.min(200, Math.max(50, position.x)), y: Math.min(550, Math.max(50, position.y)) };
-    } else if (socket.id === state.player2) {
-      state.paddle2 = { x: Math.min(750, Math.max(600, position.x)), y: Math.min(550, Math.max(50, position.y)) };
-    }
-    
-    io.to(roomId).emit('paddleUpdate', {
-      paddle1: state.paddle1,
-      paddle2: state.paddle2
-    });
   });
 
   // Player color change
@@ -1527,40 +1478,6 @@ function initializeGame(gameType, room, options = {}) {
         lastThrow: null
       };
 
-    case 'ludo':
-      const ludoColors = ['red', 'blue', 'green', 'yellow'];
-      const ludoPlayers = playerIds.slice(0, 4);
-      const ludoPlayerColors = {};
-      ludoPlayers.forEach((id, i) => {
-        ludoPlayerColors[id] = ludoColors[i];
-      });
-      return {
-        players: ludoPlayers,
-        playerColors: ludoPlayerColors,
-        currentPlayer: ludoPlayers[0],
-        pieces: initLudoPieces(ludoPlayers, ludoColors),
-        diceValue: null,
-        canRoll: true,
-        winner: null
-      };
-
-    case 'airhockey':
-      const ahPlayers = playerIds.slice(0, 2);
-      const shuffledAH = [...ahPlayers].sort(() => Math.random() - 0.5);
-      return {
-        player1: shuffledAH[0],
-        player2: shuffledAH[1],
-        score1: 0,
-        score2: 0,
-        maxScore: 7,
-        puckPosition: { x: 400, y: 300 },
-        puckVelocity: { x: 0, y: 0 },
-        paddle1: { x: 100, y: 300 },
-        paddle2: { x: 700, y: 300 },
-        gameActive: true,
-        winner: null
-      };
-
     default:
       return {};
   }
@@ -1616,21 +1533,6 @@ function generateMathQuestions(count) {
   }
   
   return questions;
-}
-
-// Initialize Ludo pieces
-function initLudoPieces(players, colors) {
-  const pieces = {};
-  players.forEach((playerId, index) => {
-    const color = colors[index];
-    pieces[playerId] = [
-      { position: -1, color }, // -1 means in home
-      { position: -1, color },
-      { position: -1, color },
-      { position: -1, color }
-    ];
-  });
-  return pieces;
 }
 
 // Sudoku generator
@@ -1783,80 +1685,6 @@ function revealMathAnswer(room, roomId) {
   }, 3000);
 }
 
-// Ludo helper functions
-function canMoveLudoPiece(state, playerId, diceValue) {
-  const pieces = state.pieces[playerId];
-  
-  for (let i = 0; i < 4; i++) {
-    const piece = pieces[i];
-    if (piece.position === -1 && diceValue === 6) return true; // Can leave home
-    if (piece.position >= 0 && piece.position < 56) return true; // Can move on board
-  }
-  
-  return false;
-}
-
-function executeLudoMove(state, playerId, pieceIndex, diceValue) {
-  const piece = state.pieces[playerId][pieceIndex];
-  let captured = null;
-  let reachedHome = false;
-  
-  if (piece.position === -1) {
-    // Leaving home - need 6
-    if (diceValue !== 6) return { valid: false };
-    piece.position = 0; // Start position
-  } else {
-    const newPos = piece.position + diceValue;
-    if (newPos > 56) return { valid: false }; // Can't overshoot home
-    
-    if (newPos === 56) {
-      reachedHome = true;
-      piece.position = 56; // Home!
-    } else {
-      piece.position = newPos;
-      
-      // Check for captures (simplified - not on safe squares)
-      const safeSquares = [0, 8, 13, 21, 26, 34, 39, 47];
-      if (!safeSquares.includes(newPos % 52)) {
-        for (const [otherId, otherPieces] of Object.entries(state.pieces)) {
-          if (otherId !== playerId) {
-            for (const otherPiece of otherPieces) {
-              if (otherPiece.position === newPos && otherPiece.position >= 0 && otherPiece.position < 52) {
-                otherPiece.position = -1; // Send back home
-                captured = otherId;
-              }
-            }
-          }
-        }
-      }
-    }
-  }
-  
-  return { valid: true, captured, reachedHome };
-}
-
-function checkLudoWinner(state, playerId) {
-  const pieces = state.pieces[playerId];
-  return pieces.every(p => p.position === 56);
-}
-
-function nextLudoTurn(room, roomId, switchPlayer) {
-  const state = room.gameState;
-  
-  if (switchPlayer) {
-    const playerIndex = state.players.indexOf(state.currentPlayer);
-    state.currentPlayer = state.players[(playerIndex + 1) % state.players.length];
-  }
-  
-  state.canRoll = true;
-  state.diceValue = null;
-  
-  io.to(roomId).emit('ludoNextTurn', {
-    currentPlayer: state.currentPlayer,
-    players: room.getPlayerList()
-  });
-}
-
 function processGameMove(room, playerId, moveData) {
   // Generic game move processor - specific games use their own events
   return null;
@@ -1972,20 +1800,52 @@ function startMoleWhackRound(room, roomId) {
   const state = room.gameState;
   state.roundActive = true;
   state.molePositions = [];
+  state.roundStartTime = Date.now();
   
   io.to(roomId).emit('moleRoundStart', { round: state.round });
   
+  // Spawn moles during the round
+  const moleSpawner = setInterval(() => {
+    if (!room.currentGame || room.currentGame !== 'molewhack' || !state.roundActive) {
+      clearInterval(moleSpawner);
+      return;
+    }
+    
+    // Spawn a mole at random position (0-8)
+    const moleIndex = Math.floor(Math.random() * 9);
+    
+    // Don't spawn at same position if already there
+    if (!state.molePositions.includes(moleIndex)) {
+      state.molePositions.push(moleIndex);
+      io.to(roomId).emit('moleSpawned', { moleIndex });
+      
+      // Hide mole after 1-2 seconds if not whacked
+      const hideDelay = 1000 + Math.random() * 1000;
+      setTimeout(() => {
+        const idx = state.molePositions.indexOf(moleIndex);
+        if (idx !== -1) {
+          state.molePositions.splice(idx, 1);
+          io.to(roomId).emit('moleHidden', { moleIndex });
+        }
+      }, hideDelay);
+    }
+  }, 600); // Spawn every 600ms
+  
   // End round after 10 seconds
   setTimeout(() => {
+    clearInterval(moleSpawner);
+    
     if (room.currentGame === 'molewhack') {
       state.roundActive = false;
-      state.round++;
+      state.molePositions = [];
       
       io.to(roomId).emit('moleRoundEnd', {
-        round: state.round - 1,
+        round: state.round,
         scores: state.scores,
         players: room.getPlayerList()
       });
+      
+      state.round++;
       
       if (state.round > state.maxRounds) {
         endGame(room, roomId);

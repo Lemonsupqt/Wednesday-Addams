@@ -370,16 +370,6 @@ function updatePlayersList(players) {
           <span class="game-name">Darts</span>
           <span class="game-players">2+ players</span>
         </button>
-        <button class="game-card" data-game="ludo">
-          <span class="game-icon">🎲</span>
-          <span class="game-name">Ludo</span>
-          <span class="game-players">2-4 players</span>
-        </button>
-        <button class="game-card" data-game="airhockey">
-          <span class="game-icon">🏒</span>
-          <span class="game-name">Air<br>Hockey</span>
-          <span class="game-players">2 players</span>
-        </button>
       </div>
     `;
     // Re-attach event listeners for game cards
@@ -1838,12 +1828,6 @@ socket.on('gameStarted', (data) => {
     case 'darts':
       initDartsGame(data.gameState, data.players);
       break;
-    case 'ludo':
-      initLudoGame(data.gameState, data.players);
-      break;
-    case 'airhockey':
-      initAirHockeyGame(data.gameState, data.players);
-      break;
   }
 });
 
@@ -1921,16 +1905,6 @@ socket.on('mathNextQuestion', handleMathNextQuestion);
 socket.on('dartThrown', handleDartThrown);
 socket.on('dartNextTurn', handleDartNextTurn);
 socket.on('dartNextThrow', handleDartNextThrow);
-
-// Ludo
-socket.on('ludoDiceRolled', handleLudoDiceRolled);
-socket.on('ludoMoved', handleLudoMoved);
-socket.on('ludoNextTurn', handleLudoNextTurn);
-
-// Air Hockey
-socket.on('puckUpdate', handlePuckUpdate);
-socket.on('paddleUpdate', handlePaddleUpdate);
-socket.on('goalScored', handleGoalScored);
 
 // Player color changed
 socket.on('playerColorChanged', (data) => {
@@ -2027,12 +2001,6 @@ socket.on('gameRestarted', (data) => {
       break;
     case 'darts':
       initDartsGame(data.gameState, data.players);
-      break;
-    case 'ludo':
-      initLudoGame(data.gameState, data.players);
-      break;
-    case 'airhockey':
-      initAirHockeyGame(data.gameState, data.players);
       break;
   }
 });
@@ -2198,21 +2166,29 @@ function initConnect4Game(gameState, players) {
   state.gameState = gameState;
   elements.gameTitle.textContent = '🔴 4 in a Row 🟡';
   
-  const player1 = players.find(p => p.id === gameState.player1);
-  const player2 = players.find(p => p.id === gameState.player2);
-  const isMyTurn = gameState.currentPlayer === state.playerId;
-  
-  renderConnect4Board(gameState, player1, player2, isMyTurn);
+  renderConnect4Board(gameState, players);
   updateScoreBoard(players, gameState.currentPlayer);
 }
 
-function renderConnect4Board(gameState, player1, player2, isMyTurn) {
+function renderConnect4Board(gameState, players) {
+  const player1 = players.find(p => p.id === gameState.player1);
+  const player2 = players.find(p => p.id === gameState.player2);
+  const isMyTurn = gameState.currentPlayer === state.playerId;
+  const myPiece = state.playerId === gameState.player1 ? '🔴' : '🟡';
+  
+  let statusText = '';
+  if (gameState.winner) {
+    const winnerName = players.find(p => p.id === gameState.winner)?.name || 'Winner';
+    statusText = `🏆 ${winnerName} wins!`;
+  } else if (gameState.isDraw) {
+    statusText = "🤝 It's a draw!";
+  } else {
+    statusText = isMyTurn ? `🎯 Your turn! (${myPiece})` : "⏳ Opponent's turn...";
+  }
+  
   elements.gameContent.innerHTML = `
     <div class="connect4-container">
-      <div class="connect4-status" id="connect4Status">
-        ${gameState.winner ? `🏆 ${gameState.currentPlayer === state.playerId ? 'You win!' : 'Opponent wins!'}` : 
-          (isMyTurn ? "🎯 Your turn!" : "⏳ Opponent's turn...")}
-      </div>
+      <div class="connect4-status" id="connect4Status">${statusText}</div>
       <div class="connect4-players">
         <span class="c4-player ${gameState.currentPlayer === gameState.player1 ? 'active' : ''}">
           🔴 ${escapeHtml(player1?.name || 'Player 1')}
@@ -2226,7 +2202,7 @@ function renderConnect4Board(gameState, player1, player2, isMyTurn) {
           [0,1,2,3,4,5,6].map(col => {
             const cell = gameState.board[row][col];
             const isWinning = gameState.winningCells?.some(([r,c]) => r === row && c === col);
-            return `<div class="c4-cell ${isWinning ? 'winning' : ''}" data-row="${row}" data-col="${col}">
+            return `<div class="c4-cell ${cell ? 'filled' : 'empty'} ${isWinning ? 'winning' : ''}" data-col="${col}">
               ${cell || ''}
             </div>`;
           }).join('')
@@ -2235,8 +2211,9 @@ function renderConnect4Board(gameState, player1, player2, isMyTurn) {
     </div>
   `;
   
+  // Add click handlers for empty columns
   if (!gameState.winner && !gameState.isDraw && isMyTurn) {
-    document.querySelectorAll('.c4-cell').forEach(cell => {
+    document.querySelectorAll('.c4-cell.empty').forEach(cell => {
       cell.addEventListener('click', () => {
         const col = parseInt(cell.dataset.col);
         socket.emit('connect4Move', col);
@@ -2254,12 +2231,9 @@ function handleConnect4Update(data) {
   state.gameState.currentPlayer = data.currentPlayer;
   state.gameState.winner = data.winner;
   state.gameState.winningCells = data.winningCells;
+  state.gameState.isDraw = data.isDraw;
   
-  const player1 = state.players.find(p => p.id === state.gameState.player1);
-  const player2 = state.players.find(p => p.id === state.gameState.player2);
-  const isMyTurn = data.currentPlayer === state.playerId;
-  
-  renderConnect4Board(state.gameState, player1, player2, isMyTurn);
+  renderConnect4Board(state.gameState, data.players);
   updateScoreBoard(data.players, data.currentPlayer);
 }
 
@@ -2269,19 +2243,24 @@ function handleConnect4Update(data) {
 
 function initMoleWhackGame(gameState, players) {
   state.gameState = gameState;
-  state.gameState.moles = Array(9).fill(false);
+  state.gameState.activeMoles = new Set();
   elements.gameTitle.textContent = '🔨 Mole Whacker 🐹';
   
   elements.gameContent.innerHTML = `
     <div class="mole-container">
-      <div class="mole-status" id="moleStatus">Get Ready!</div>
+      <div class="mole-status" id="moleStatus">🎯 Get Ready!</div>
       <div class="mole-round" id="moleRound">Round 1/${gameState.maxRounds}</div>
+      <div class="mole-score" id="moleScore">Your Whacks: 0</div>
       <div class="mole-board" id="moleBoard">
         ${[0,1,2,3,4,5,6,7,8].map(i => `
           <div class="mole-hole" data-index="${i}">
             <div class="mole" id="mole-${i}">🐹</div>
           </div>
         `).join('')}
+      </div>
+      <div class="mole-instructions">
+        <p>👆 Tap the moles as fast as you can!</p>
+        <p>⏱️ 10 seconds per round</p>
       </div>
     </div>
   `;
@@ -2292,25 +2271,39 @@ function initMoleWhackGame(gameState, players) {
 
 function setupMoleClickHandlers() {
   document.querySelectorAll('.mole-hole').forEach(hole => {
-    hole.addEventListener('click', () => {
+    hole.addEventListener('click', (e) => {
+      e.preventDefault();
       const index = parseInt(hole.dataset.index);
-      socket.emit('whackMole', index);
+      const mole = document.getElementById(`mole-${index}`);
+      if (mole && mole.classList.contains('visible')) {
+        socket.emit('whackMole', index);
+        // Immediate visual feedback
+        mole.classList.add('hit');
+        setTimeout(() => mole.classList.remove('hit'), 150);
+      }
     });
   });
 }
 
 function handleMoleRoundStart(data) {
   state.gameState.round = data.round;
+  state.gameState.activeMoles = new Set();
+  
   const statusEl = document.getElementById('moleStatus');
   const roundEl = document.getElementById('moleRound');
   if (statusEl) statusEl.textContent = '🔨 WHACK THE MOLES!';
   if (roundEl) roundEl.textContent = `Round ${data.round}/${state.gameState.maxRounds}`;
+  
+  // Clear all moles
+  document.querySelectorAll('.mole').forEach(m => m.classList.remove('visible', 'hit'));
 }
 
 function handleMoleSpawned(data) {
   const mole = document.getElementById(`mole-${data.moleIndex}`);
   if (mole) {
+    mole.classList.remove('hit');
     mole.classList.add('visible');
+    state.gameState.activeMoles.add(data.moleIndex);
   }
 }
 
@@ -2319,8 +2312,21 @@ function handleMoleWhacked(data) {
   if (mole) {
     mole.classList.remove('visible');
     mole.classList.add('whacked');
-    setTimeout(() => mole.classList.remove('whacked'), 200);
+    state.gameState.activeMoles.delete(data.moleIndex);
+    setTimeout(() => mole.classList.remove('whacked'), 300);
   }
+  
+  // Show who whacked it
+  addChatMessage({
+    system: true,
+    message: `🔨 ${data.playerName} whacked a mole! (+10)`
+  }, elements.gameChatMessages);
+  
+  // Update personal score display
+  const myScore = data.players.find(p => p.id === state.playerId)?.score || 0;
+  const scoreEl = document.getElementById('moleScore');
+  if (scoreEl) scoreEl.textContent = `Your Score: ${myScore}`;
+  
   updateScoreBoard(data.players);
 }
 
@@ -2328,19 +2334,27 @@ function handleMoleHidden(data) {
   const mole = document.getElementById(`mole-${data.moleIndex}`);
   if (mole) {
     mole.classList.remove('visible');
+    state.gameState.activeMoles.delete(data.moleIndex);
   }
 }
 
 function handleMoleRoundEnd(data) {
+  state.gameState.activeMoles = new Set();
+  
+  // Hide all moles
+  document.querySelectorAll('.mole').forEach(m => m.classList.remove('visible'));
+  
   const statusEl = document.getElementById('moleStatus');
-  if (statusEl) {
-    if (data.round >= state.gameState.maxRounds) {
-      statusEl.textContent = '🎉 Game Over!';
-      showPlayAgainButton('mole');
-    } else {
-      statusEl.textContent = `Round ${data.round} Complete! Next round starting...`;
-    }
+  const roundEl = document.getElementById('moleRound');
+  
+  if (data.round >= state.gameState.maxRounds) {
+    if (statusEl) statusEl.textContent = '🎉 Game Over!';
+    showPlayAgainButton('mole');
+  } else {
+    if (statusEl) statusEl.textContent = `✅ Round ${data.round} Complete! Next round in 3s...`;
+    if (roundEl) roundEl.textContent = `Round ${data.round}/${state.gameState.maxRounds}`;
   }
+  
   updateScoreBoard(data.players);
 }
 
@@ -2348,10 +2362,18 @@ function handleMoleRoundEnd(data) {
 // KNIFE THROWER GAME
 // ============================================
 
+let knifeAnimationId = null;
+
 function initKnifeGame(gameState, players) {
   state.gameState = gameState;
   state.gameState.rotation = 0;
+  state.gameState.canThrow = true;
   elements.gameTitle.textContent = '🔪 Knife Thrower 🎯';
+  
+  // Cancel any previous animation
+  if (knifeAnimationId) {
+    cancelAnimationFrame(knifeAnimationId);
+  }
   
   const currentPlayerName = players.find(p => p.id === gameState.currentPlayer)?.name || 'Unknown';
   const isMyTurn = gameState.currentPlayer === state.playerId;
@@ -2359,25 +2381,40 @@ function initKnifeGame(gameState, players) {
   elements.gameContent.innerHTML = `
     <div class="knife-container">
       <div class="knife-status" id="knifeStatus">
-        ${isMyTurn ? '🎯 Click to throw!' : `Waiting for ${escapeHtml(currentPlayerName)}...`}
-      </div>
-      <div class="knife-target-container" id="knifeTarget">
-        <div class="knife-target">
-          <div class="target-center"></div>
-          ${gameState.thrownKnives.map(angle => `
-            <div class="thrown-knife" style="transform: rotate(${angle}deg) translateY(-120px)">🔪</div>
-          `).join('')}
-        </div>
+        ${isMyTurn ? '🎯 Tap to throw your knife!' : `⏳ ${escapeHtml(currentPlayerName)}'s turn...`}
       </div>
       <div class="knife-info">Round ${gameState.round}/${gameState.maxRounds}</div>
+      <div class="knife-target-container" id="knifeTargetContainer">
+        <div class="knife-target" id="knifeTarget">
+          <div class="target-center">🎯</div>
+          <div class="stuck-knives" id="stuckKnives">
+            ${(gameState.thrownKnives || []).map(angle => `
+              <div class="thrown-knife" style="transform: rotate(${angle}deg) translateY(-100px);">🗡️</div>
+            `).join('')}
+          </div>
+        </div>
+      </div>
+      <div class="knife-ready-area">
+        <div class="knife-ready" id="knifeReady">🗡️</div>
+        <div class="knife-hint">${isMyTurn ? '👆 TAP ABOVE' : ''}</div>
+      </div>
+      <div class="knife-scores">
+        ${players.map(p => `
+          <div class="knife-player ${p.id === gameState.currentPlayer ? 'active' : ''}">
+            <span>${escapeHtml(p.name)}</span>
+            <span>${p.score || 0} pts</span>
+          </div>
+        `).join('')}
+      </div>
     </div>
   `;
   
-  if (isMyTurn) {
-    document.getElementById('knifeTarget').addEventListener('click', () => {
-      const angle = (state.gameState.rotation % 360);
-      socket.emit('throwKnife', angle);
-    });
+  if (isMyTurn && !gameState.winner) {
+    const container = document.getElementById('knifeTargetContainer');
+    if (container) {
+      container.style.cursor = 'pointer';
+      container.addEventListener('click', handleKnifeThrowClick);
+    }
   }
   
   // Start rotation animation
@@ -2385,49 +2422,109 @@ function initKnifeGame(gameState, players) {
   updateScoreBoard(players, gameState.currentPlayer);
 }
 
-function animateKnifeTarget() {
-  if (state.currentGame !== 'knife') return;
+function handleKnifeThrowClick() {
+  if (!state.gameState.canThrow) return;
+  state.gameState.canThrow = false;
   
-  state.gameState.rotation = (state.gameState.rotation + 2) % 360;
-  const target = document.querySelector('.knife-target');
-  if (target) {
-    target.style.transform = `rotate(${state.gameState.rotation}deg)`;
+  const container = document.getElementById('knifeTargetContainer');
+  if (container) {
+    container.removeEventListener('click', handleKnifeThrowClick);
+    container.style.cursor = 'default';
   }
-  requestAnimationFrame(animateKnifeTarget);
+  
+  const angle = (state.gameState.rotation || 0) % 360;
+  socket.emit('throwKnife', angle);
+  
+  // Animate knife throw
+  const knife = document.getElementById('knifeReady');
+  if (knife) {
+    knife.classList.add('throwing');
+  }
+}
+
+function animateKnifeTarget() {
+  if (state.currentGame !== 'knife') {
+    knifeAnimationId = null;
+    return;
+  }
+  
+  const target = document.getElementById('knifeTarget');
+  if (!target) {
+    knifeAnimationId = null;
+    return;
+  }
+  
+  state.gameState.rotation = ((state.gameState.rotation || 0) + 2) % 360;
+  target.style.transform = `rotate(${state.gameState.rotation}deg)`;
+  
+  knifeAnimationId = requestAnimationFrame(animateKnifeTarget);
 }
 
 function handleKnifeThrown(data) {
   state.gameState.thrownKnives = data.thrownKnives;
-  updateScoreBoard(data.players);
   
-  // Add the knife to the display
-  const target = document.querySelector('.knife-target');
-  if (target) {
-    const knife = document.createElement('div');
-    knife.className = 'thrown-knife new';
-    knife.style.transform = `rotate(${data.angle}deg) translateY(-120px)`;
-    knife.innerHTML = '🔪';
-    target.appendChild(knife);
+  const knife = document.getElementById('knifeReady');
+  if (knife) {
+    knife.classList.remove('throwing');
   }
+  
+  // Add the knife to the target
+  const stuckKnives = document.getElementById('stuckKnives');
+  if (stuckKnives && data.angle !== undefined) {
+    const newKnife = document.createElement('div');
+    newKnife.className = 'thrown-knife new';
+    newKnife.style.transform = `rotate(${data.angle}deg) translateY(-100px)`;
+    newKnife.innerHTML = '🗡️';
+    stuckKnives.appendChild(newKnife);
+  }
+  
+  const statusEl = document.getElementById('knifeStatus');
+  if (statusEl) {
+    statusEl.innerHTML = '✅ <span style="color: #22c55e;">Clean throw!</span> +10 points';
+  }
+  
+  updateScoreBoard(data.players);
 }
 
 function handleKnifeCollision(data) {
   const statusEl = document.getElementById('knifeStatus');
   if (statusEl) {
-    statusEl.textContent = `💥 ${data.playerName} hit another knife!`;
+    statusEl.innerHTML = `💥 <span style="color: #ef4444;">${escapeHtml(data.playerName)} hit another knife!</span>`;
+  }
+  
+  const knife = document.getElementById('knifeReady');
+  if (knife) {
+    knife.classList.remove('throwing');
+    knife.classList.add('collision');
+    setTimeout(() => knife.classList.remove('collision'), 500);
   }
 }
 
 function handleKnifeNextTurn(data) {
+  if (data.winner) {
+    const winner = state.players.find(p => p.id === data.winner);
+    const statusEl = document.getElementById('knifeStatus');
+    if (statusEl) {
+      statusEl.textContent = `🏆 ${winner?.name || 'Winner'} wins!`;
+    }
+    if (knifeAnimationId) {
+      cancelAnimationFrame(knifeAnimationId);
+      knifeAnimationId = null;
+    }
+    showPlayAgainButton('knife');
+    return;
+  }
+  
   state.gameState.currentPlayer = data.currentPlayer;
   state.gameState.round = data.round;
+  state.gameState.canThrow = true;
   
   const currentPlayerName = state.players.find(p => p.id === data.currentPlayer)?.name || 'Unknown';
   const isMyTurn = data.currentPlayer === state.playerId;
   
   const statusEl = document.getElementById('knifeStatus');
   if (statusEl) {
-    statusEl.textContent = isMyTurn ? '🎯 Click to throw!' : `Waiting for ${escapeHtml(currentPlayerName)}...`;
+    statusEl.textContent = isMyTurn ? '🎯 Tap to throw your knife!' : `⏳ ${escapeHtml(currentPlayerName)}'s turn...`;
   }
   
   const infoEl = document.querySelector('.knife-info');
@@ -2435,12 +2532,21 @@ function handleKnifeNextTurn(data) {
     infoEl.textContent = `Round ${data.round}/${state.gameState.maxRounds}`;
   }
   
+  const hint = document.querySelector('.knife-hint');
+  if (hint) {
+    hint.textContent = isMyTurn ? '👆 TAP ABOVE' : '';
+  }
+  
+  // Update player scores visual
+  document.querySelectorAll('.knife-player').forEach(el => el.classList.remove('active'));
+  
   // Re-attach click handler if it's our turn
   if (isMyTurn) {
-    document.getElementById('knifeTarget')?.addEventListener('click', () => {
-      const angle = (state.gameState.rotation % 360);
-      socket.emit('throwKnife', angle);
-    });
+    const container = document.getElementById('knifeTargetContainer');
+    if (container) {
+      container.style.cursor = 'pointer';
+      container.addEventListener('click', handleKnifeThrowClick);
+    }
   }
 }
 
@@ -2522,46 +2628,85 @@ function handleMathNextQuestion(data) {
 
 function initDartsGame(gameState, players) {
   state.gameState = gameState;
+  state.gameState.canThrow = true;
   elements.gameTitle.textContent = '🎯 Darts';
   
+  renderDartsBoard(gameState, players);
+  updateScoreBoard(players, gameState.currentPlayer);
+}
+
+function renderDartsBoard(gameState, players) {
   const currentPlayerName = players.find(p => p.id === gameState.currentPlayer)?.name || 'Unknown';
   const isMyTurn = gameState.currentPlayer === state.playerId;
+  const throwsLeft = gameState.maxThrowsPerRound - (gameState.throwsThisRound || 0);
   
   elements.gameContent.innerHTML = `
     <div class="darts-container">
       <div class="darts-status" id="dartsStatus">
-        ${isMyTurn ? '🎯 Click to throw!' : `Waiting for ${escapeHtml(currentPlayerName)}...`}
+        ${isMyTurn ? '🎯 Tap the dartboard to throw!' : `⏳ ${escapeHtml(currentPlayerName)}'s turn...`}
       </div>
       <div class="darts-info">
-        Round ${gameState.round}/${gameState.maxRounds} • Throws: ${gameState.maxThrowsPerRound - gameState.throwsThisRound}
+        Round ${gameState.round}/${gameState.maxRounds} • Throws left: ${throwsLeft}
       </div>
-      <div class="dartboard" id="dartboard">
-        <div class="dartboard-ring ring-1"></div>
-        <div class="dartboard-ring ring-2"></div>
-        <div class="dartboard-ring ring-3"></div>
-        <div class="dartboard-ring ring-4"></div>
-        <div class="dartboard-ring ring-5"></div>
-        <div class="dartboard-bullseye"></div>
+      <div class="dartboard-wrapper">
+        <div class="dartboard" id="dartboard">
+          <div class="dartboard-ring ring-outer"></div>
+          <div class="dartboard-ring ring-1"></div>
+          <div class="dartboard-ring ring-2"></div>
+          <div class="dartboard-ring ring-3"></div>
+          <div class="dartboard-ring ring-4"></div>
+          <div class="dartboard-bullseye"></div>
+          <div class="dartboard-double-bull"></div>
+        </div>
       </div>
       <div class="darts-scores" id="dartsScores">
         ${players.map(p => `
-          <span>${escapeHtml(p.name)}: ${gameState.scores[p.id] || 0}</span>
-        `).join(' | ')}
+          <div class="dart-player-score ${p.id === gameState.currentPlayer ? 'active' : ''}">
+            <span class="dart-player-name">${escapeHtml(p.name)}</span>
+            <span class="dart-player-points">${gameState.scores?.[p.id] || 0}</span>
+          </div>
+        `).join('')}
+      </div>
+      <div class="darts-legend">
+        <span>🟡 Bull: 50 pts</span>
+        <span>🔴 Double Bull: 25 pts</span>
+        <span>Rings: 20-5 pts</span>
       </div>
     </div>
   `;
   
-  if (isMyTurn) {
+  if (isMyTurn && !gameState.winner) {
     const dartboard = document.getElementById('dartboard');
-    dartboard.addEventListener('click', (e) => {
-      const rect = dartboard.getBoundingClientRect();
-      const x = e.clientX - rect.left;
-      const y = e.clientY - rect.top;
-      socket.emit('throwDart', { x, y });
-    });
+    if (dartboard) {
+      dartboard.style.cursor = 'crosshair';
+      dartboard.addEventListener('click', handleDartClick);
+    }
   }
+}
+
+function handleDartClick(e) {
+  if (!state.gameState.canThrow) return;
+  state.gameState.canThrow = false;
   
-  updateScoreBoard(players, gameState.currentPlayer);
+  const dartboard = document.getElementById('dartboard');
+  if (!dartboard) return;
+  
+  dartboard.removeEventListener('click', handleDartClick);
+  dartboard.style.cursor = 'default';
+  
+  const rect = dartboard.getBoundingClientRect();
+  const x = e.clientX - rect.left;
+  const y = e.clientY - rect.top;
+  const centerX = rect.width / 2;
+  const centerY = rect.height / 2;
+  
+  // Send normalized position (0-1) relative to center
+  socket.emit('throwDart', { 
+    x: (x - centerX) / centerX,
+    y: (y - centerY) / centerY,
+    rawX: x,
+    rawY: y
+  });
 }
 
 function handleDartThrown(data) {
@@ -2571,249 +2716,104 @@ function handleDartThrown(data) {
     dart.className = 'dart-marker';
     dart.style.left = `${data.position.x}px`;
     dart.style.top = `${data.position.y}px`;
-    dart.innerHTML = `🎯<span class="dart-points">+${data.points}</span>`;
+    dart.innerHTML = `<span class="dart-icon">🎯</span><span class="dart-points">+${data.points}</span>`;
     dartboard.appendChild(dart);
   }
   
   state.gameState.scores = data.scores;
-  document.getElementById('dartsScores').innerHTML = state.players.map(p => `
-    <span>${escapeHtml(p.name)}: ${data.scores[p.id] || 0}</span>
-  `).join(' | ');
+  state.gameState.throwsThisRound = (state.gameState.throwsThisRound || 0) + 1;
+  
+  // Update scores display
+  const scoresEl = document.getElementById('dartsScores');
+  if (scoresEl) {
+    scoresEl.innerHTML = state.players.map(p => `
+      <div class="dart-player-score ${p.id === state.gameState.currentPlayer ? 'active' : ''}">
+        <span class="dart-player-name">${escapeHtml(p.name)}</span>
+        <span class="dart-player-points">${data.scores[p.id] || 0}</span>
+      </div>
+    `).join('');
+  }
+  
+  // Update throws left
+  const throwsLeft = state.gameState.maxThrowsPerRound - state.gameState.throwsThisRound;
+  const infoEl = document.querySelector('.darts-info');
+  if (infoEl) {
+    infoEl.textContent = `Round ${state.gameState.round}/${state.gameState.maxRounds} • Throws left: ${throwsLeft}`;
+  }
+  
+  state.gameState.canThrow = true;
+  
+  // Re-enable clicking if still our turn
+  if (state.gameState.currentPlayer === state.playerId && throwsLeft > 0) {
+    const dartboard = document.getElementById('dartboard');
+    if (dartboard) {
+      dartboard.style.cursor = 'crosshair';
+      dartboard.addEventListener('click', handleDartClick);
+    }
+  }
   
   updateScoreBoard(data.players);
 }
 
 function handleDartNextTurn(data) {
+  if (data.winner) {
+    const winner = state.players.find(p => p.id === data.winner);
+    const statusEl = document.getElementById('dartsStatus');
+    if (statusEl) {
+      statusEl.textContent = `🏆 ${winner?.name || 'Winner'} wins with ${data.scores?.[data.winner] || 0} points!`;
+    }
+    showPlayAgainButton('darts');
+    return;
+  }
+  
   state.gameState.currentPlayer = data.currentPlayer;
   state.gameState.round = data.round;
-  
-  const currentPlayerName = state.players.find(p => p.id === data.currentPlayer)?.name || 'Unknown';
-  const isMyTurn = data.currentPlayer === state.playerId;
+  state.gameState.throwsThisRound = 0;
+  state.gameState.canThrow = true;
   
   // Clear darts from board
   document.querySelectorAll('.dart-marker').forEach(d => d.remove());
   
-  document.getElementById('dartsStatus').textContent = 
-    isMyTurn ? '🎯 Click to throw!' : `Waiting for ${escapeHtml(currentPlayerName)}...`;
+  const currentPlayerName = state.players.find(p => p.id === data.currentPlayer)?.name || 'Unknown';
+  const isMyTurn = data.currentPlayer === state.playerId;
   
-  document.querySelector('.darts-info').textContent = 
-    `Round ${data.round}/${state.gameState.maxRounds} • Throws: ${data.throwsRemaining}`;
+  const statusEl = document.getElementById('dartsStatus');
+  if (statusEl) {
+    statusEl.textContent = isMyTurn ? '🎯 Tap the dartboard to throw!' : `⏳ ${escapeHtml(currentPlayerName)}'s turn...`;
+  }
+  
+  const infoEl = document.querySelector('.darts-info');
+  if (infoEl) {
+    infoEl.textContent = `Round ${data.round}/${state.gameState.maxRounds} • Throws left: ${data.throwsRemaining || state.gameState.maxThrowsPerRound}`;
+  }
+  
+  // Update active player highlight
+  document.querySelectorAll('.dart-player-score').forEach(el => el.classList.remove('active'));
   
   if (isMyTurn) {
     const dartboard = document.getElementById('dartboard');
-    dartboard.addEventListener('click', (e) => {
-      const rect = dartboard.getBoundingClientRect();
-      socket.emit('throwDart', { x: e.clientX - rect.left, y: e.clientY - rect.top });
-    });
+    if (dartboard) {
+      dartboard.style.cursor = 'crosshair';
+      dartboard.addEventListener('click', handleDartClick);
+    }
   }
 }
 
 function handleDartNextThrow(data) {
-  document.querySelector('.darts-info').textContent = 
-    `Round ${state.gameState.round}/${state.gameState.maxRounds} • Throws: ${data.throwsRemaining}`;
-}
-
-// ============================================
-// LUDO GAME
-// ============================================
-
-function initLudoGame(gameState, players) {
-  state.gameState = gameState;
-  elements.gameTitle.textContent = '🎲 Ludo';
+  state.gameState.canThrow = true;
   
-  renderLudoBoard(gameState, players);
-  updateScoreBoard(players, gameState.currentPlayer);
-}
-
-function renderLudoBoard(gameState, players) {
-  const currentPlayerName = players.find(p => p.id === gameState.currentPlayer)?.name || 'Unknown';
-  const isMyTurn = gameState.currentPlayer === state.playerId;
-  const myColor = gameState.playerColors[state.playerId];
-  
-  elements.gameContent.innerHTML = `
-    <div class="ludo-container">
-      <div class="ludo-status" id="ludoStatus">
-        ${gameState.winner ? `🏆 ${players.find(p => p.id === gameState.winner)?.name} wins!` :
-          (isMyTurn ? "🎲 Your turn!" : `Waiting for ${escapeHtml(currentPlayerName)}...`)}
-      </div>
-      <div class="ludo-dice-area">
-        <div class="ludo-dice" id="ludoDice">${gameState.diceValue || '🎲'}</div>
-        ${isMyTurn && gameState.canRoll ? `<button class="btn btn-primary" id="rollDiceBtn">Roll Dice</button>` : ''}
-      </div>
-      <div class="ludo-board" id="ludoBoard">
-        <div class="ludo-info">
-          ${players.filter(p => gameState.playerColors[p.id]).map(p => `
-            <span class="ludo-player-info" style="color: ${gameState.playerColors[p.id]}">
-              ● ${escapeHtml(p.name)}
-            </span>
-          `).join('')}
-        </div>
-        <div class="ludo-pieces">
-          ${Object.entries(gameState.pieces).map(([playerId, pieces]) => 
-            pieces.map((piece, idx) => `
-              <div class="ludo-piece ${playerId === state.playerId ? 'mine' : ''}" 
-                   data-player="${playerId}" data-index="${idx}"
-                   style="background: ${piece.color}">
-                ${piece.position === -1 ? '⚫' : (piece.position === 56 ? '🏠' : idx + 1)}
-              </div>
-            `).join('')
-          ).join('')}
-        </div>
-      </div>
-    </div>
-  `;
-  
-  if (isMyTurn && gameState.canRoll) {
-    document.getElementById('rollDiceBtn')?.addEventListener('click', () => {
-      socket.emit('ludoRoll');
-    });
+  const infoEl = document.querySelector('.darts-info');
+  if (infoEl) {
+    infoEl.textContent = `Round ${state.gameState.round}/${state.gameState.maxRounds} • Throws left: ${data.throwsRemaining}`;
   }
   
-  if (gameState.winner) {
-    showPlayAgainButton('ludo');
-  }
-}
-
-function handleLudoDiceRolled(data) {
-  state.gameState.diceValue = data.diceValue;
-  state.gameState.canRoll = false;
-  
-  const diceEl = document.getElementById('ludoDice');
-  if (diceEl) {
-    diceEl.textContent = data.diceValue;
-    diceEl.classList.add('rolled');
-  }
-  
-  document.getElementById('rollDiceBtn')?.remove();
-  
-  if (data.playerId === state.playerId && data.canMove) {
-    // Enable piece selection
-    document.querySelectorAll('.ludo-piece.mine').forEach((piece, idx) => {
-      piece.classList.add('selectable');
-      piece.addEventListener('click', () => {
-        socket.emit('ludoMove', idx);
-      });
-    });
-  }
-}
-
-function handleLudoMoved(data) {
-  state.gameState.pieces = data.pieces;
-  state.gameState.winner = data.winner;
-  
-  renderLudoBoard(state.gameState, state.players);
-  updateScoreBoard(data.players);
-}
-
-function handleLudoNextTurn(data) {
-  state.gameState.currentPlayer = data.currentPlayer;
-  state.gameState.canRoll = true;
-  state.gameState.diceValue = null;
-  
-  renderLudoBoard(state.gameState, state.players);
-  updateScoreBoard(data.players, data.currentPlayer);
-}
-
-// ============================================
-// AIR HOCKEY GAME
-// ============================================
-
-function initAirHockeyGame(gameState, players) {
-  state.gameState = gameState;
-  elements.gameTitle.textContent = '🏒 Air Hockey';
-  
-  const player1 = players.find(p => p.id === gameState.player1);
-  const player2 = players.find(p => p.id === gameState.player2);
-  const isPlayer1 = state.playerId === gameState.player1;
-  const isPlayer2 = state.playerId === gameState.player2;
-  
-  elements.gameContent.innerHTML = `
-    <div class="airhockey-container">
-      <div class="airhockey-scores">
-        <span class="ah-score p1">${escapeHtml(player1?.name || 'P1')}: ${gameState.score1}</span>
-        <span class="ah-score p2">${escapeHtml(player2?.name || 'P2')}: ${gameState.score2}</span>
-      </div>
-      <div class="airhockey-table" id="airhockeyTable">
-        <div class="ah-goal left"></div>
-        <div class="ah-goal right"></div>
-        <div class="ah-center-line"></div>
-        <div class="ah-center-circle"></div>
-        <div class="ah-puck" id="ahPuck"></div>
-        <div class="ah-paddle p1" id="ahPaddle1"></div>
-        <div class="ah-paddle p2" id="ahPaddle2"></div>
-      </div>
-      <div class="airhockey-info">First to ${gameState.maxScore} wins!</div>
-    </div>
-  `;
-  
-  // Set initial positions
-  updatePuckPosition(gameState.puckPosition);
-  updatePaddlePositions(gameState.paddle1, gameState.paddle2);
-  
-  // Add paddle movement
-  if (isPlayer1 || isPlayer2) {
-    const table = document.getElementById('airhockeyTable');
-    table.addEventListener('mousemove', (e) => {
-      const rect = table.getBoundingClientRect();
-      const x = (e.clientX - rect.left) / rect.width * 800;
-      const y = (e.clientY - rect.top) / rect.height * 600;
-      socket.emit('paddleMove', { x, y });
-    });
-    
-    table.addEventListener('touchmove', (e) => {
-      e.preventDefault();
-      const rect = table.getBoundingClientRect();
-      const touch = e.touches[0];
-      const x = (touch.clientX - rect.left) / rect.width * 800;
-      const y = (touch.clientY - rect.top) / rect.height * 600;
-      socket.emit('paddleMove', { x, y });
-    }, { passive: false });
-  }
-  
-  updateScoreBoard(players);
-}
-
-function updatePuckPosition(pos) {
-  const puck = document.getElementById('ahPuck');
-  if (puck) {
-    puck.style.left = `${pos.x / 800 * 100}%`;
-    puck.style.top = `${pos.y / 600 * 100}%`;
-  }
-}
-
-function updatePaddlePositions(p1, p2) {
-  const paddle1 = document.getElementById('ahPaddle1');
-  const paddle2 = document.getElementById('ahPaddle2');
-  if (paddle1) {
-    paddle1.style.left = `${p1.x / 800 * 100}%`;
-    paddle1.style.top = `${p1.y / 600 * 100}%`;
-  }
-  if (paddle2) {
-    paddle2.style.left = `${p2.x / 800 * 100}%`;
-    paddle2.style.top = `${p2.y / 600 * 100}%`;
-  }
-}
-
-function handlePuckUpdate(data) {
-  updatePuckPosition(data.position);
-}
-
-function handlePaddleUpdate(data) {
-  updatePaddlePositions(data.paddle1, data.paddle2);
-}
-
-function handleGoalScored(data) {
-  state.gameState.score1 = data.score1;
-  state.gameState.score2 = data.score2;
-  
-  const scores = document.querySelector('.airhockey-scores');
-  if (scores) {
-    const player1 = state.players.find(p => p.id === state.gameState.player1);
-    const player2 = state.players.find(p => p.id === state.gameState.player2);
-    scores.innerHTML = `
-      <span class="ah-score p1">${escapeHtml(player1?.name || 'P1')}: ${data.score1}</span>
-      <span class="ah-score p2">${escapeHtml(player2?.name || 'P2')}: ${data.score2}</span>
-    `;
+  // Re-enable clicking
+  if (state.gameState.currentPlayer === state.playerId) {
+    const dartboard = document.getElementById('dartboard');
+    if (dartboard) {
+      dartboard.style.cursor = 'crosshair';
+      dartboard.addEventListener('click', handleDartClick);
+    }
   }
 }
 
