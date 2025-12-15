@@ -219,11 +219,20 @@ function updatePlayersList(players) {
   state.players = players;
   elements.playersList.innerHTML = players.map(p => `
     <div class="player-item ${p.id === state.playerId && state.isHost ? 'host' : ''}">
-      <span class="player-name">${escapeHtml(p.name)}</span>
+      <span class="player-color-indicator" style="background: ${p.color || '#e50914'}"></span>
+      <span class="player-name" style="color: ${p.color || '#e50914'}">${escapeHtml(p.name)}</span>
       ${p.id === state.playerId && state.isHost ? '<span class="host-badge">👑 Host</span>' : ''}
+      ${state.isHost && p.id !== state.playerId ? `<button class="color-change-btn" data-player-id="${p.id}" title="Change color">🎨</button>` : ''}
       <span class="score">⭐ ${p.score}</span>
     </div>
   `).join('');
+  
+  // Add color change click handlers for host
+  if (state.isHost) {
+    document.querySelectorAll('.color-change-btn').forEach(btn => {
+      btn.addEventListener('click', () => showColorPicker(btn.dataset.playerId));
+    });
+  }
   
   // Show game selection only for host, show waiting message for others
   if (state.isHost) {
@@ -256,16 +265,220 @@ function updatePlayersList(players) {
           <span class="game-name">Nevermore<br>Trivia</span>
           <span class="game-players">2+ players</span>
         </button>
+        <button class="game-card" data-game="reaction">
+          <span class="game-icon">👹🎯</span>
+          <span class="game-name">Demogorgon<br>Hunt</span>
+          <span class="game-players">2+ players</span>
+        </button>
+        <button class="game-card" data-game="wordchain">
+          <span class="game-icon">🔤⛓️</span>
+          <span class="game-name">Word<br>Chain</span>
+          <span class="game-players">2+ players</span>
+        </button>
+        <button class="game-card" data-game="sudoku">
+          <span class="game-icon">🔢🧩</span>
+          <span class="game-name">Vecna's<br>Sudoku</span>
+          <span class="game-players">2+ players</span>
+        </button>
+        <button class="game-card" data-game="connect4">
+          <span class="game-icon">🔴🟡</span>
+          <span class="game-name">4 in<br>a Row</span>
+          <span class="game-players">2 players</span>
+        </button>
+        <button class="game-card" data-game="molewhack">
+          <span class="game-icon">🔨🐹</span>
+          <span class="game-name">Mole<br>Whacker</span>
+          <span class="game-players">2+ players</span>
+        </button>
+        <button class="game-card" data-game="knife">
+          <span class="game-icon">🔪🎯</span>
+          <span class="game-name">Knife<br>Thrower</span>
+          <span class="game-players">2+ players</span>
+        </button>
+        <button class="game-card" data-game="mathquiz">
+          <span class="game-icon">🔢➕</span>
+          <span class="game-name">Math<br>Quiz</span>
+          <span class="game-players">2+ players</span>
+        </button>
+        <button class="game-card" data-game="darts">
+          <span class="game-icon">🎯</span>
+          <span class="game-name">Darts</span>
+          <span class="game-players">2+ players</span>
+        </button>
+        <button class="game-card" data-game="ludo">
+          <span class="game-icon">🎲</span>
+          <span class="game-name">Ludo</span>
+          <span class="game-players">2-4 players</span>
+        </button>
+        <button class="game-card" data-game="airhockey">
+          <span class="game-icon">🏒</span>
+          <span class="game-name">Air<br>Hockey</span>
+          <span class="game-players">2 players</span>
+        </button>
       </div>
     `;
     // Re-attach event listeners for game cards
     document.querySelectorAll('.game-card').forEach(card => {
-      card.addEventListener('click', () => startGame(card.dataset.game));
+      card.addEventListener('click', () => handleGameSelection(card.dataset.game));
     });
   } else {
     elements.gameSelection.style.display = 'block';
     elements.gameSelection.innerHTML = '<h3 style="text-align: center; color: var(--text-secondary); font-family: Cinzel, serif;">⏳ Waiting for host to select a game... ⏳</h3>';
   }
+}
+
+// Handle game selection with options modal for certain games
+function handleGameSelection(gameType) {
+  if (gameType === 'memory') {
+    showMemoryDifficultyModal();
+  } else if (gameType === 'sudoku') {
+    showSudokuDifficultyModal();
+  } else {
+    startGame(gameType);
+  }
+}
+
+// Player colors
+const PLAYER_COLORS = [
+  '#e50914', // Red
+  '#05d9e8', // Cyan
+  '#22c55e', // Green
+  '#f59e0b', // Orange
+  '#ec4899', // Pink
+  '#8b5cf6', // Purple
+  '#06b6d4', // Teal
+  '#eab308'  // Yellow
+];
+
+// Show color picker for host to change player colors
+function showColorPicker(playerId) {
+  const player = state.players.find(p => p.id === playerId);
+  if (!player) return;
+  
+  const modal = document.createElement('div');
+  modal.className = 'modal active';
+  modal.id = 'colorPickerModal';
+  modal.innerHTML = `
+    <div class="modal-content">
+      <h2>🎨 Change Color for ${escapeHtml(player.name)}</h2>
+      <div class="color-picker-grid">
+        ${PLAYER_COLORS.map(color => `
+          <button class="color-option ${player.color === color ? 'selected' : ''}" 
+                  data-color="${color}" 
+                  style="background: ${color}"></button>
+        `).join('')}
+      </div>
+      <button class="btn btn-secondary" id="cancelColorBtn" style="margin-top: 20px;">Cancel</button>
+    </div>
+  `;
+  document.body.appendChild(modal);
+  
+  modal.querySelectorAll('.color-option').forEach(btn => {
+    btn.addEventListener('click', () => {
+      socket.emit('changePlayerColor', { targetPlayerId: playerId, color: btn.dataset.color });
+      modal.remove();
+    });
+  });
+  
+  document.getElementById('cancelColorBtn').addEventListener('click', () => {
+    modal.remove();
+  });
+}
+
+// Show memory difficulty selection modal
+function showMemoryDifficultyModal() {
+  const modal = document.createElement('div');
+  modal.className = 'modal active';
+  modal.id = 'difficultyModal';
+  modal.innerHTML = `
+    <div class="modal-content">
+      <h2>🃏 Select Difficulty 🃏</h2>
+      <div class="difficulty-options">
+        <button class="difficulty-btn" data-difficulty="easy">
+          <span class="diff-icon">😊</span>
+          <span class="diff-name">Easy</span>
+          <span class="diff-desc">4×3 Grid (6 pairs, 12 cards)</span>
+        </button>
+        <button class="difficulty-btn" data-difficulty="hard">
+          <span class="diff-icon">😈</span>
+          <span class="diff-name">Hard</span>
+          <span class="diff-desc">4×4 Grid (8 pairs, 16 cards)</span>
+        </button>
+        <button class="difficulty-btn" data-difficulty="insane">
+          <span class="diff-icon">💀</span>
+          <span class="diff-name">Insane</span>
+          <span class="diff-desc">6×4 Grid (12 pairs, 24 cards)</span>
+        </button>
+        <button class="difficulty-btn impossible" data-difficulty="impossible">
+          <span class="diff-icon">☠️</span>
+          <span class="diff-name">IMPOSSIBLE</span>
+          <span class="diff-desc">10×5 Grid (25 pairs, 50 cards)</span>
+        </button>
+      </div>
+      <button class="btn btn-secondary" id="cancelDifficultyBtn" style="margin-top: 20px;">Cancel</button>
+    </div>
+  `;
+  document.body.appendChild(modal);
+  
+  modal.querySelectorAll('.difficulty-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const difficulty = btn.dataset.difficulty;
+      modal.remove();
+      startGame({ type: 'memory', options: { difficulty } });
+    });
+  });
+  
+  document.getElementById('cancelDifficultyBtn').addEventListener('click', () => {
+    modal.remove();
+  });
+}
+
+// Show sudoku difficulty selection modal
+function showSudokuDifficultyModal() {
+  const modal = document.createElement('div');
+  modal.className = 'modal active';
+  modal.id = 'difficultyModal';
+  modal.innerHTML = `
+    <div class="modal-content">
+      <h2>🔢 Select Difficulty 🔢</h2>
+      <div class="difficulty-options">
+        <button class="difficulty-btn" data-difficulty="easy">
+          <span class="diff-icon">😊</span>
+          <span class="diff-name">Easy</span>
+          <span class="diff-desc">~35 empty cells</span>
+        </button>
+        <button class="difficulty-btn" data-difficulty="medium">
+          <span class="diff-icon">🤔</span>
+          <span class="diff-name">Medium</span>
+          <span class="diff-desc">~45 empty cells</span>
+        </button>
+        <button class="difficulty-btn" data-difficulty="hard">
+          <span class="diff-icon">😈</span>
+          <span class="diff-name">Hard</span>
+          <span class="diff-desc">~55 empty cells</span>
+        </button>
+        <button class="difficulty-btn impossible" data-difficulty="evil">
+          <span class="diff-icon">👁️</span>
+          <span class="diff-name">EVIL</span>
+          <span class="diff-desc">~60 empty cells (Vecna mode)</span>
+        </button>
+      </div>
+      <button class="btn btn-secondary" id="cancelDifficultyBtn" style="margin-top: 20px;">Cancel</button>
+    </div>
+  `;
+  document.body.appendChild(modal);
+  
+  modal.querySelectorAll('.difficulty-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const difficulty = btn.dataset.difficulty;
+      modal.remove();
+      startGame({ type: 'sudoku', options: { difficulty } });
+    });
+  });
+  
+  document.getElementById('cancelDifficultyBtn').addEventListener('click', () => {
+    modal.remove();
+  });
 }
 
 // ============================================
@@ -313,6 +526,8 @@ function startGame(gameType) {
 }
 
 function endGame() {
+  // Clean up any game-specific listeners
+  document.removeEventListener('keydown', handleSudokuKeypress);
   socket.emit('endGame');
 }
 
@@ -422,7 +637,14 @@ function showPlayAgainButton(gameType) {
   
   document.getElementById('playAgainBtn').addEventListener('click', () => {
     if (state.isHost) {
-      socket.emit('restartGame', state.currentGame);
+      // For memory game, preserve the difficulty
+      if (state.currentGame === 'memory' && state.gameState.difficulty) {
+        socket.emit('restartGame', { type: 'memory', options: { difficulty: state.gameState.difficulty } });
+      } else if (state.currentGame === 'sudoku' && state.gameState.difficulty) {
+        socket.emit('restartGame', { type: 'sudoku', options: { difficulty: state.gameState.difficulty } });
+      } else {
+        socket.emit('restartGame', state.currentGame);
+      }
     } else {
       showError('Only the host can restart the game!');
     }
@@ -439,14 +661,18 @@ function showPlayAgainButton(gameType) {
 
 function initMemoryGame(gameState, players) {
   state.gameState = gameState;
-  elements.gameTitle.textContent = '🃏 Vecna\'s Memory Match 🃏';
+  const difficultyLabel = gameState.difficulty ? gameState.difficulty.charAt(0).toUpperCase() + gameState.difficulty.slice(1) : 'Normal';
+  elements.gameTitle.textContent = `🃏 Vecna's Memory Match (${difficultyLabel}) 🃏`;
+  
+  // Determine grid columns based on difficulty
+  const gridCols = gameState.gridCols || 4;
   
   elements.gameContent.innerHTML = `
     <div class="memory-container">
       <div class="memory-status" id="memoryStatus">
         ${gameState.currentPlayer === state.playerId ? "🧠 Your turn to find a match!" : "Watching..."}
       </div>
-      <div class="memory-board" id="memoryBoard">
+      <div class="memory-board" id="memoryBoard" style="grid-template-columns: repeat(${gridCols}, 1fr);">
         ${gameState.cards.map((card, i) => `
           <div class="memory-card" data-index="${i}">
             <div class="card-content">
@@ -461,7 +687,7 @@ function initMemoryGame(gameState, players) {
   
   document.querySelectorAll('.memory-card').forEach(card => {
     card.addEventListener('click', () => {
-      if (gameState.currentPlayer !== state.playerId) return;
+      if (state.gameState.currentPlayer !== state.playerId) return;
       socket.emit('memoryFlip', parseInt(card.dataset.index));
     });
   });
@@ -1004,10 +1230,62 @@ function handleChessUpdate(data) {
 function initPsychicGame(gameState, players) {
   state.gameState = gameState;
   state.gameState.myChoice = null;
+  state.gameState.showingRules = true;
   elements.gameTitle.textContent = '🔮 Psychic Showdown ⚡';
   
-  showPsychicRound(1);
+  // Show rules first
+  showPsychicRules(players);
+}
+
+function showPsychicRules(players) {
+  elements.gameContent.innerHTML = `
+    <div class="psychic-container">
+      <div class="psychic-title">🔮 Psychic Showdown Rules ⚡</div>
+      <div class="psychic-rules">
+        <div class="rule-item">
+          <span class="rule-matchup">👁️ Vision</span>
+          <span class="rule-beats">BEATS</span>
+          <span class="rule-matchup">🧠 Mind</span>
+          <span class="rule-desc">(Wednesday sees through Vecna's tricks)</span>
+        </div>
+        <div class="rule-item">
+          <span class="rule-matchup">🧠 Mind</span>
+          <span class="rule-beats">BEATS</span>
+          <span class="rule-matchup">⚡ Power</span>
+          <span class="rule-desc">(Vecna outsmarts raw force)</span>
+        </div>
+        <div class="rule-item">
+          <span class="rule-matchup">⚡ Power</span>
+          <span class="rule-beats">BEATS</span>
+          <span class="rule-matchup">👁️ Vision</span>
+          <span class="rule-desc">(Eleven's power overwhelms visions)</span>
+        </div>
+      </div>
+      <div class="psychic-rules-info">
+        <p>🎮 Each round, all players choose simultaneously</p>
+        <p>⭐ Win against each opponent = +5 points</p>
+        <p>🏆 10 rounds total - highest score wins!</p>
+      </div>
+      <div class="psychic-countdown" id="psychicCountdown">Game starts in 5...</div>
+    </div>
+  `;
+  
   updateScoreBoard(players);
+  
+  // Countdown to start
+  let countdown = 5;
+  const countdownEl = document.getElementById('psychicCountdown');
+  const countdownInterval = setInterval(() => {
+    countdown--;
+    if (countdownEl) {
+      countdownEl.textContent = countdown > 0 ? `Game starts in ${countdown}...` : 'GO!';
+    }
+    if (countdown <= 0) {
+      clearInterval(countdownInterval);
+      state.gameState.showingRules = false;
+      showPsychicRound(1);
+    }
+  }, 1000);
 }
 
 function showPsychicRound(round) {
@@ -1055,23 +1333,39 @@ function handlePlayerChose(data) {
 
 function handlePsychicResults(data) {
   const choiceEmojis = { vision: '👁️', mind: '🧠', power: '⚡' };
+  const choiceNames = { vision: 'Vision', mind: 'Mind', power: 'Power' };
   const isFinalRound = data.round >= 10;
   
   elements.gameContent.innerHTML = `
     <div class="psychic-container">
-      <div class="psychic-round">Round ${data.round}/10 ${isFinalRound ? '- FINAL!' : ''}</div>
-      <div class="psychic-title">Results!</div>
+      <div class="psychic-round">Round ${data.round}/10 ${isFinalRound ? '- FINAL ROUND!' : ''}</div>
+      <div class="psychic-title">⚔️ Round Results ⚔️</div>
       <div class="psychic-results">
-        ${state.players.map(p => `
-          <div class="psychic-result-item">
-            <span>${escapeHtml(p.name)}</span>
-            <span>${choiceEmojis[data.choices[p.id]] || '?'} ${data.choices[p.id] || 'No choice'}</span>
-          </div>
-        `).join('')}
+        ${state.players.map(p => {
+          const choice = data.choices[p.id];
+          const roundResult = data.roundResults ? data.roundResults[p.id] : null;
+          const resultText = roundResult ? 
+            (roundResult.wins > roundResult.losses ? '✅ Won' : 
+             roundResult.wins < roundResult.losses ? '❌ Lost' : '🤝 Tied') : '';
+          const pointsGained = roundResult ? roundResult.wins * 5 : 0;
+          return `
+            <div class="psychic-result-item ${roundResult && roundResult.wins > roundResult.losses ? 'winner' : ''}">
+              <div class="result-player">
+                <span class="result-name">${escapeHtml(p.name)}</span>
+                <span class="result-choice">${choiceEmojis[choice] || '?'} ${choiceNames[choice] || 'No choice'}</span>
+              </div>
+              <div class="result-outcome">
+                <span class="result-status">${resultText}</span>
+                ${pointsGained > 0 ? `<span class="result-points">+${pointsGained}</span>` : ''}
+              </div>
+            </div>
+          `;
+        }).join('')}
       </div>
-      <div style="margin-top: 20px; color: var(--text-secondary);">
+      <div class="psychic-rules-reminder">
         👁️ Vision beats 🧠 Mind | 🧠 Mind beats ⚡ Power | ⚡ Power beats 👁️ Vision
       </div>
+      ${!isFinalRound ? `<div class="psychic-next-round">Next round in 5 seconds...</div>` : ''}
       ${isFinalRound ? '<div class="psychic-final"><h3>🎉 Game Complete! 🎉</h3></div>' : ''}
     </div>
   `;
@@ -1086,6 +1380,282 @@ function handlePsychicResults(data) {
 function handleNextPsychicRound(data) {
   state.gameState.myChoice = null;
   showPsychicRound(data.round);
+}
+
+// ============================================
+// DEMOGORGON HUNT (REACTION GAME)
+// ============================================
+
+function initReactionGame(gameState, players) {
+  state.gameState = gameState;
+  elements.gameTitle.textContent = '👹 Demogorgon Hunt 🎯';
+  
+  elements.gameContent.innerHTML = `
+    <div class="reaction-container">
+      <div class="reaction-round">Round ${gameState.round}/${gameState.maxRounds}</div>
+      <div class="reaction-title">Get Ready to Hunt!</div>
+      <div class="reaction-instructions">
+        <p>🎯 Click the Demogorgon as fast as you can when it appears!</p>
+        <p>⚡ Fastest player wins each round</p>
+        <p>🏆 +10 points per round won</p>
+      </div>
+      <div class="reaction-arena" id="reactionArena">
+        <div class="reaction-waiting">
+          <span class="waiting-icon">👁️</span>
+          <span>Watching the Upside Down...</span>
+        </div>
+      </div>
+    </div>
+  `;
+  
+  updateScoreBoard(players);
+  
+  // First round starts after a random delay (handled by server)
+}
+
+function handleReactionShowTarget(data) {
+  const arena = document.getElementById('reactionArena');
+  if (!arena) return;
+  
+  arena.innerHTML = `
+    <div class="demogorgon-target" id="demogorgonTarget" 
+         style="left: ${data.position.x}%; top: ${data.position.y}%;">
+      👹
+    </div>
+  `;
+  
+  const target = document.getElementById('demogorgonTarget');
+  if (target) {
+    target.addEventListener('click', () => {
+      socket.emit('reactionClick', { timestamp: Date.now() });
+      target.classList.add('clicked');
+    });
+  }
+}
+
+function handleReactionRoundResult(data) {
+  const arena = document.getElementById('reactionArena');
+  if (!arena) return;
+  
+  arena.innerHTML = `
+    <div class="reaction-result">
+      <div class="result-winner-icon">🏆</div>
+      <div class="result-winner-name">${escapeHtml(data.winnerName)}</div>
+      <div class="result-reaction-time">${data.reactionTime}ms</div>
+      <div class="result-caught">caught the Demogorgon!</div>
+    </div>
+  `;
+  
+  updateScoreBoard(data.players);
+}
+
+function handleReactionNextRound(data) {
+  state.gameState.round = data.round;
+  
+  const container = document.querySelector('.reaction-container');
+  if (container) {
+    const roundEl = container.querySelector('.reaction-round');
+    if (roundEl) {
+      roundEl.textContent = `Round ${data.round}/${state.gameState.maxRounds}`;
+    }
+  }
+  
+  const arena = document.getElementById('reactionArena');
+  if (arena) {
+    arena.innerHTML = `
+      <div class="reaction-waiting">
+        <span class="waiting-icon">👁️</span>
+        <span>Watching the Upside Down...</span>
+      </div>
+    `;
+  }
+}
+
+// ============================================
+// WORD CHAIN GAME
+// ============================================
+
+function initWordChainGame(gameState, players) {
+  state.gameState = gameState;
+  state.gameState.timerInterval = null;
+  elements.gameTitle.textContent = '🔤 Word Chain ⛓️';
+  
+  const isMyTurn = gameState.currentPlayer === state.playerId;
+  const currentPlayerName = players.find(p => p.id === gameState.currentPlayer)?.name || 'Unknown';
+  
+  elements.gameContent.innerHTML = `
+    <div class="wordchain-container">
+      <div class="wordchain-category">Category: ${escapeHtml(gameState.category)}</div>
+      <div class="wordchain-letter">
+        Next word must start with: <span class="letter-highlight">${gameState.currentLetter}</span>
+      </div>
+      <div class="wordchain-turn" id="wordchainTurn">
+        ${isMyTurn ? "🎯 Your turn!" : `Waiting for ${escapeHtml(currentPlayerName)}...`}
+      </div>
+      <div class="wordchain-timer" id="wordchainTimer">${gameState.timeLeft}</div>
+      ${isMyTurn ? `
+        <div class="wordchain-input-container">
+          <input type="text" id="wordchainInput" placeholder="Type a word..." maxlength="20" autocomplete="off">
+          <button class="btn btn-primary" id="wordchainSubmitBtn">Submit</button>
+        </div>
+      ` : ''}
+      <div class="wordchain-history" id="wordchainHistory">
+        <h4>Words Used:</h4>
+        <div class="word-list">
+          ${gameState.usedWords.length > 0 ? gameState.usedWords.map(w => `<span class="used-word">${escapeHtml(w)}</span>`).join('') : '<span class="no-words">No words yet...</span>'}
+        </div>
+      </div>
+      <div class="wordchain-rules">
+        <p>📝 Type a word starting with the shown letter</p>
+        <p>⏰ You have 10 seconds per turn</p>
+        <p>⭐ Longer words = more points!</p>
+      </div>
+    </div>
+  `;
+  
+  updateScoreBoard(players, gameState.currentPlayer);
+  
+  if (isMyTurn) {
+    const input = document.getElementById('wordchainInput');
+    const submitBtn = document.getElementById('wordchainSubmitBtn');
+    
+    input.focus();
+    
+    submitBtn.addEventListener('click', () => submitWord());
+    input.addEventListener('keypress', (e) => {
+      if (e.key === 'Enter') submitWord();
+    });
+    
+    // Start local timer
+    startWordChainTimer();
+  }
+}
+
+function submitWord() {
+  const input = document.getElementById('wordchainInput');
+  if (!input) return;
+  
+  const word = input.value.trim();
+  if (!word) {
+    showError('Please enter a word!');
+    return;
+  }
+  
+  socket.emit('wordchainSubmit', word);
+  input.value = '';
+}
+
+function startWordChainTimer() {
+  if (state.gameState.timerInterval) {
+    clearInterval(state.gameState.timerInterval);
+  }
+  
+  state.gameState.timeLeft = 10;
+  const timerEl = document.getElementById('wordchainTimer');
+  
+  state.gameState.timerInterval = setInterval(() => {
+    state.gameState.timeLeft--;
+    if (timerEl) {
+      timerEl.textContent = state.gameState.timeLeft;
+      if (state.gameState.timeLeft <= 3) {
+        timerEl.classList.add('warning');
+      }
+    }
+    
+    if (state.gameState.timeLeft <= 0) {
+      clearInterval(state.gameState.timerInterval);
+      socket.emit('wordchainTimeout');
+    }
+  }, 1000);
+}
+
+function handleWordchainUpdate(data) {
+  if (state.gameState.timerInterval) {
+    clearInterval(state.gameState.timerInterval);
+  }
+  
+  state.gameState.currentPlayer = data.currentPlayer;
+  state.gameState.usedWords = data.usedWords;
+  state.gameState.currentLetter = data.nextLetter;
+  
+  const isMyTurn = data.currentPlayer === state.playerId;
+  const currentPlayerName = state.players.find(p => p.id === data.currentPlayer)?.name || 'Unknown';
+  
+  // Update letter
+  const letterEl = document.querySelector('.wordchain-letter .letter-highlight');
+  if (letterEl) letterEl.textContent = data.nextLetter;
+  
+  // Update turn indicator
+  const turnEl = document.getElementById('wordchainTurn');
+  if (turnEl) {
+    turnEl.textContent = isMyTurn ? "🎯 Your turn!" : `Waiting for ${escapeHtml(currentPlayerName)}...`;
+  }
+  
+  // Update word history
+  const historyEl = document.getElementById('wordchainHistory');
+  if (historyEl) {
+    historyEl.innerHTML = `
+      <h4>Words Used:</h4>
+      <div class="word-list">
+        ${data.usedWords.map(w => `<span class="used-word">${escapeHtml(w)}</span>`).join('')}
+      </div>
+    `;
+  }
+  
+  // Add/remove input based on turn
+  const container = document.querySelector('.wordchain-container');
+  const existingInput = container.querySelector('.wordchain-input-container');
+  
+  if (isMyTurn && !existingInput) {
+    const timerEl = document.getElementById('wordchainTimer');
+    const inputHtml = `
+      <div class="wordchain-input-container">
+        <input type="text" id="wordchainInput" placeholder="Type a word..." maxlength="20" autocomplete="off">
+        <button class="btn btn-primary" id="wordchainSubmitBtn">Submit</button>
+      </div>
+    `;
+    timerEl.insertAdjacentHTML('afterend', inputHtml);
+    
+    const input = document.getElementById('wordchainInput');
+    const submitBtn = document.getElementById('wordchainSubmitBtn');
+    
+    input.focus();
+    submitBtn.addEventListener('click', () => submitWord());
+    input.addEventListener('keypress', (e) => {
+      if (e.key === 'Enter') submitWord();
+    });
+    
+    startWordChainTimer();
+  } else if (!isMyTurn && existingInput) {
+    existingInput.remove();
+  }
+  
+  // Reset timer display
+  const timerEl = document.getElementById('wordchainTimer');
+  if (timerEl) {
+    timerEl.textContent = '10';
+    timerEl.classList.remove('warning');
+  }
+  
+  updateScoreBoard(data.players, data.currentPlayer);
+}
+
+function handleWordchainTimeout(data) {
+  if (state.gameState.timerInterval) {
+    clearInterval(state.gameState.timerInterval);
+  }
+  
+  addChatMessage({
+    system: true,
+    message: `⏰ ${data.playerName} ran out of time! (-5 points)`
+  }, elements.gameChatMessages);
+  
+  handleWordchainUpdate({
+    currentPlayer: data.currentPlayer,
+    usedWords: state.gameState.usedWords,
+    nextLetter: state.gameState.currentLetter,
+    players: data.players
+  });
 }
 
 // ============================================
@@ -1179,6 +1749,36 @@ socket.on('gameStarted', (data) => {
     case 'psychic':
       initPsychicGame(data.gameState, data.players);
       break;
+    case 'reaction':
+      initReactionGame(data.gameState, data.players);
+      break;
+    case 'wordchain':
+      initWordChainGame(data.gameState, data.players);
+      break;
+    case 'sudoku':
+      initSudokuGame(data.gameState, data.players);
+      break;
+    case 'connect4':
+      initConnect4Game(data.gameState, data.players);
+      break;
+    case 'molewhack':
+      initMoleWhackGame(data.gameState, data.players);
+      break;
+    case 'knife':
+      initKnifeGame(data.gameState, data.players);
+      break;
+    case 'mathquiz':
+      initMathQuizGame(data.gameState, data.players);
+      break;
+    case 'darts':
+      initDartsGame(data.gameState, data.players);
+      break;
+    case 'ludo':
+      initLudoGame(data.gameState, data.players);
+      break;
+    case 'airhockey':
+      initAirHockeyGame(data.gameState, data.players);
+      break;
   }
 });
 
@@ -1217,6 +1817,63 @@ socket.on('playerChose', handlePlayerChose);
 socket.on('psychicResults', handlePsychicResults);
 socket.on('nextPsychicRound', handleNextPsychicRound);
 
+// Reaction Game (Demogorgon Hunt)
+socket.on('reactionShowTarget', handleReactionShowTarget);
+socket.on('reactionRoundResult', handleReactionRoundResult);
+socket.on('reactionNextRound', handleReactionNextRound);
+
+// Word Chain
+socket.on('wordchainUpdate', handleWordchainUpdate);
+socket.on('wordchainError', (data) => showError(data.message));
+socket.on('wordchainTimeout', handleWordchainTimeout);
+
+// Sudoku
+socket.on('sudokuUpdate', handleSudokuUpdate);
+socket.on('sudokuComplete', handleSudokuComplete);
+
+// Connect 4
+socket.on('connect4Update', handleConnect4Update);
+
+// Mole Whack
+socket.on('moleRoundStart', handleMoleRoundStart);
+socket.on('moleSpawned', handleMoleSpawned);
+socket.on('moleWhacked', handleMoleWhacked);
+socket.on('moleHidden', handleMoleHidden);
+socket.on('moleRoundEnd', handleMoleRoundEnd);
+
+// Knife Thrower
+socket.on('knifeThrown', handleKnifeThrown);
+socket.on('knifeCollision', handleKnifeCollision);
+socket.on('knifeNextTurn', handleKnifeNextTurn);
+
+// Math Quiz
+socket.on('mathTimer', (data) => updateMathTimer(data.timeLeft));
+socket.on('mathPlayerAnswered', handleMathPlayerAnswered);
+socket.on('mathReveal', handleMathReveal);
+socket.on('mathNextQuestion', handleMathNextQuestion);
+
+// Darts
+socket.on('dartThrown', handleDartThrown);
+socket.on('dartNextTurn', handleDartNextTurn);
+socket.on('dartNextThrow', handleDartNextThrow);
+
+// Ludo
+socket.on('ludoDiceRolled', handleLudoDiceRolled);
+socket.on('ludoMoved', handleLudoMoved);
+socket.on('ludoNextTurn', handleLudoNextTurn);
+
+// Air Hockey
+socket.on('puckUpdate', handlePuckUpdate);
+socket.on('paddleUpdate', handlePaddleUpdate);
+socket.on('goalScored', handleGoalScored);
+
+// Player color changed
+socket.on('playerColorChanged', (data) => {
+  const player = state.players.find(p => p.id === data.playerId);
+  if (player) player.color = data.color;
+  updatePlayersList(data.players);
+});
+
 // Game end
 socket.on('gameEnded', (data) => {
   elements.resultsTitle.textContent = '🏆 Game Over! 🏆';
@@ -1248,7 +1905,14 @@ socket.on('gameEnded', (data) => {
   const modalPlayAgainBtn = document.getElementById('modalPlayAgainBtn');
   if (modalPlayAgainBtn) {
     modalPlayAgainBtn.addEventListener('click', () => {
-      socket.emit('restartGame', state.currentGame);
+      // For memory and sudoku games, preserve the difficulty
+      if (state.currentGame === 'memory' && state.gameState.difficulty) {
+        socket.emit('restartGame', { type: 'memory', options: { difficulty: state.gameState.difficulty } });
+      } else if (state.currentGame === 'sudoku' && state.gameState.difficulty) {
+        socket.emit('restartGame', { type: 'sudoku', options: { difficulty: state.gameState.difficulty } });
+      } else {
+        socket.emit('restartGame', state.currentGame);
+      }
     });
   }
 });
@@ -1275,8 +1939,818 @@ socket.on('gameRestarted', (data) => {
     case 'psychic':
       initPsychicGame(data.gameState, data.players);
       break;
+    case 'reaction':
+      initReactionGame(data.gameState, data.players);
+      break;
+    case 'wordchain':
+      initWordChainGame(data.gameState, data.players);
+      break;
+    case 'sudoku':
+      initSudokuGame(data.gameState, data.players);
+      break;
+    case 'connect4':
+      initConnect4Game(data.gameState, data.players);
+      break;
+    case 'molewhack':
+      initMoleWhackGame(data.gameState, data.players);
+      break;
+    case 'knife':
+      initKnifeGame(data.gameState, data.players);
+      break;
+    case 'mathquiz':
+      initMathQuizGame(data.gameState, data.players);
+      break;
+    case 'darts':
+      initDartsGame(data.gameState, data.players);
+      break;
+    case 'ludo':
+      initLudoGame(data.gameState, data.players);
+      break;
+    case 'airhockey':
+      initAirHockeyGame(data.gameState, data.players);
+      break;
   }
 });
+
+// ============================================
+// SUDOKU GAME
+// ============================================
+
+function initSudokuGame(gameState, players) {
+  state.gameState = gameState;
+  state.gameState.selectedCell = null;
+  
+  const difficultyLabel = gameState.difficulty ? gameState.difficulty.charAt(0).toUpperCase() + gameState.difficulty.slice(1) : 'Medium';
+  elements.gameTitle.textContent = `🔢 Vecna's Sudoku (${difficultyLabel}) 🧩`;
+  
+  renderSudokuBoard(gameState);
+  updateScoreBoard(players);
+}
+
+function renderSudokuBoard(gameState) {
+  const selectedCell = state.gameState.selectedCell;
+  
+  elements.gameContent.innerHTML = `
+    <div class="sudoku-container">
+      <div class="sudoku-info">
+        <p>🧠 Work together to solve the puzzle!</p>
+        <p>✅ Correct = +5 points | ❌ Wrong = -2 points</p>
+      </div>
+      <div class="sudoku-board" id="sudokuBoard">
+        ${gameState.currentBoard.map((row, rowIndex) => 
+          row.map((cell, colIndex) => {
+            const isOriginal = gameState.puzzle[rowIndex][colIndex] !== 0;
+            const isSelected = selectedCell && selectedCell[0] === rowIndex && selectedCell[1] === colIndex;
+            const isWrong = cell !== 0 && cell !== gameState.solution[rowIndex][colIndex];
+            const cellKey = `${rowIndex}-${colIndex}`;
+            const filledBy = gameState.playerMoves[cellKey];
+            const playerName = filledBy ? state.players.find(p => p.id === filledBy)?.name : null;
+            
+            // Highlight same number
+            const selectedValue = selectedCell ? gameState.currentBoard[selectedCell[0]][selectedCell[1]] : 0;
+            const isSameNumber = cell !== 0 && cell === selectedValue;
+            
+            return `
+              <div class="sudoku-cell ${isOriginal ? 'original' : 'editable'} ${isSelected ? 'selected' : ''} ${isWrong ? 'wrong' : ''} ${isSameNumber ? 'same-number' : ''}"
+                   data-row="${rowIndex}" data-col="${colIndex}"
+                   ${playerName ? `title="Filled by ${playerName}"` : ''}>
+                ${cell !== 0 ? cell : ''}
+              </div>
+            `;
+          }).join('')
+        ).join('')}
+      </div>
+      <div class="sudoku-numpad" id="sudokuNumpad">
+        ${[1,2,3,4,5,6,7,8,9].map(num => `
+          <button class="numpad-btn" data-num="${num}">${num}</button>
+        `).join('')}
+        <button class="numpad-btn erase" data-num="0">✕</button>
+      </div>
+    </div>
+  `;
+  
+  // Add cell click handlers
+  document.querySelectorAll('.sudoku-cell.editable').forEach(cell => {
+    cell.addEventListener('click', () => {
+      const row = parseInt(cell.dataset.row);
+      const col = parseInt(cell.dataset.col);
+      selectSudokuCell(row, col);
+    });
+  });
+  
+  // Add numpad handlers
+  document.querySelectorAll('.numpad-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const num = parseInt(btn.dataset.num);
+      if (state.gameState.selectedCell) {
+        const [row, col] = state.gameState.selectedCell;
+        socket.emit('sudokuMove', { row, col, value: num });
+      }
+    });
+  });
+  
+  // Add keyboard support
+  document.addEventListener('keydown', handleSudokuKeypress);
+}
+
+function selectSudokuCell(row, col) {
+  state.gameState.selectedCell = [row, col];
+  renderSudokuBoard(state.gameState);
+}
+
+function handleSudokuKeypress(e) {
+  if (state.currentGame !== 'sudoku') return;
+  if (!state.gameState.selectedCell) return;
+  
+  const [row, col] = state.gameState.selectedCell;
+  
+  // Number keys 1-9
+  if (e.key >= '1' && e.key <= '9') {
+    socket.emit('sudokuMove', { row, col, value: parseInt(e.key) });
+  }
+  // Delete or backspace to erase
+  else if (e.key === 'Delete' || e.key === 'Backspace' || e.key === '0') {
+    socket.emit('sudokuMove', { row, col, value: 0 });
+  }
+  // Arrow keys to move selection
+  else if (e.key === 'ArrowUp' && row > 0) {
+    selectSudokuCell(row - 1, col);
+  }
+  else if (e.key === 'ArrowDown' && row < 8) {
+    selectSudokuCell(row + 1, col);
+  }
+  else if (e.key === 'ArrowLeft' && col > 0) {
+    selectSudokuCell(row, col - 1);
+  }
+  else if (e.key === 'ArrowRight' && col < 8) {
+    selectSudokuCell(row, col + 1);
+  }
+}
+
+function handleSudokuUpdate(data) {
+  state.gameState.currentBoard = data.currentBoard;
+  state.gameState.playerMoves = data.playerMoves;
+  
+  // Show feedback
+  if (data.value !== 0) {
+    const feedbackClass = data.isCorrect ? 'correct' : 'wrong';
+    addChatMessage({
+      system: true,
+      message: `${data.playerName} placed ${data.value} - ${data.isCorrect ? '✅ Correct!' : '❌ Wrong!'}`
+    }, elements.gameChatMessages);
+  }
+  
+  renderSudokuBoard(state.gameState);
+  updateScoreBoard(data.players);
+}
+
+function handleSudokuComplete(data) {
+  const minutes = Math.floor(data.completionTime / 60);
+  const seconds = data.completionTime % 60;
+  
+  elements.gameContent.innerHTML = `
+    <div class="sudoku-container">
+      <div class="sudoku-complete">
+        <h2>🎉 Puzzle Solved! 🎉</h2>
+        <div class="completion-time">
+          <span class="time-icon">⏱️</span>
+          <span class="time-value">${minutes}:${seconds.toString().padStart(2, '0')}</span>
+        </div>
+        <p>All players receive +20 bonus points!</p>
+      </div>
+    </div>
+  `;
+  
+  updateScoreBoard(data.players);
+  showPlayAgainButton('sudoku');
+}
+
+// ============================================
+// CONNECT 4 GAME
+// ============================================
+
+function initConnect4Game(gameState, players) {
+  state.gameState = gameState;
+  elements.gameTitle.textContent = '🔴 4 in a Row 🟡';
+  
+  const player1 = players.find(p => p.id === gameState.player1);
+  const player2 = players.find(p => p.id === gameState.player2);
+  const isMyTurn = gameState.currentPlayer === state.playerId;
+  
+  renderConnect4Board(gameState, player1, player2, isMyTurn);
+  updateScoreBoard(players, gameState.currentPlayer);
+}
+
+function renderConnect4Board(gameState, player1, player2, isMyTurn) {
+  elements.gameContent.innerHTML = `
+    <div class="connect4-container">
+      <div class="connect4-status" id="connect4Status">
+        ${gameState.winner ? `🏆 ${gameState.currentPlayer === state.playerId ? 'You win!' : 'Opponent wins!'}` : 
+          (isMyTurn ? "🎯 Your turn!" : "⏳ Opponent's turn...")}
+      </div>
+      <div class="connect4-players">
+        <span class="c4-player ${gameState.currentPlayer === gameState.player1 ? 'active' : ''}">
+          🔴 ${escapeHtml(player1?.name || 'Player 1')}
+        </span>
+        <span class="c4-player ${gameState.currentPlayer === gameState.player2 ? 'active' : ''}">
+          🟡 ${escapeHtml(player2?.name || 'Player 2')}
+        </span>
+      </div>
+      <div class="connect4-board" id="connect4Board">
+        ${[0,1,2,3,4,5].map(row => 
+          [0,1,2,3,4,5,6].map(col => {
+            const cell = gameState.board[row][col];
+            const isWinning = gameState.winningCells?.some(([r,c]) => r === row && c === col);
+            return `<div class="c4-cell ${isWinning ? 'winning' : ''}" data-row="${row}" data-col="${col}">
+              ${cell || ''}
+            </div>`;
+          }).join('')
+        ).join('')}
+      </div>
+    </div>
+  `;
+  
+  if (!gameState.winner && !gameState.isDraw && isMyTurn) {
+    document.querySelectorAll('.c4-cell').forEach(cell => {
+      cell.addEventListener('click', () => {
+        const col = parseInt(cell.dataset.col);
+        socket.emit('connect4Move', col);
+      });
+    });
+  }
+  
+  if (gameState.winner || gameState.isDraw) {
+    showPlayAgainButton('connect4');
+  }
+}
+
+function handleConnect4Update(data) {
+  state.gameState.board = data.board;
+  state.gameState.currentPlayer = data.currentPlayer;
+  state.gameState.winner = data.winner;
+  state.gameState.winningCells = data.winningCells;
+  
+  const player1 = state.players.find(p => p.id === state.gameState.player1);
+  const player2 = state.players.find(p => p.id === state.gameState.player2);
+  const isMyTurn = data.currentPlayer === state.playerId;
+  
+  renderConnect4Board(state.gameState, player1, player2, isMyTurn);
+  updateScoreBoard(data.players, data.currentPlayer);
+}
+
+// ============================================
+// MOLE WHACK GAME
+// ============================================
+
+function initMoleWhackGame(gameState, players) {
+  state.gameState = gameState;
+  state.gameState.moles = Array(9).fill(false);
+  elements.gameTitle.textContent = '🔨 Mole Whacker 🐹';
+  
+  elements.gameContent.innerHTML = `
+    <div class="mole-container">
+      <div class="mole-status" id="moleStatus">Get Ready!</div>
+      <div class="mole-round" id="moleRound">Round 1/${gameState.maxRounds}</div>
+      <div class="mole-board" id="moleBoard">
+        ${[0,1,2,3,4,5,6,7,8].map(i => `
+          <div class="mole-hole" data-index="${i}">
+            <div class="mole" id="mole-${i}">🐹</div>
+          </div>
+        `).join('')}
+      </div>
+    </div>
+  `;
+  
+  updateScoreBoard(players);
+  setupMoleClickHandlers();
+}
+
+function setupMoleClickHandlers() {
+  document.querySelectorAll('.mole-hole').forEach(hole => {
+    hole.addEventListener('click', () => {
+      const index = parseInt(hole.dataset.index);
+      socket.emit('whackMole', index);
+    });
+  });
+}
+
+function handleMoleRoundStart(data) {
+  state.gameState.round = data.round;
+  const statusEl = document.getElementById('moleStatus');
+  const roundEl = document.getElementById('moleRound');
+  if (statusEl) statusEl.textContent = '🔨 WHACK THE MOLES!';
+  if (roundEl) roundEl.textContent = `Round ${data.round}/${state.gameState.maxRounds}`;
+}
+
+function handleMoleSpawned(data) {
+  const mole = document.getElementById(`mole-${data.moleIndex}`);
+  if (mole) {
+    mole.classList.add('visible');
+  }
+}
+
+function handleMoleWhacked(data) {
+  const mole = document.getElementById(`mole-${data.moleIndex}`);
+  if (mole) {
+    mole.classList.remove('visible');
+    mole.classList.add('whacked');
+    setTimeout(() => mole.classList.remove('whacked'), 200);
+  }
+  updateScoreBoard(data.players);
+}
+
+function handleMoleHidden(data) {
+  const mole = document.getElementById(`mole-${data.moleIndex}`);
+  if (mole) {
+    mole.classList.remove('visible');
+  }
+}
+
+function handleMoleRoundEnd(data) {
+  const statusEl = document.getElementById('moleStatus');
+  if (statusEl) {
+    if (data.round >= state.gameState.maxRounds) {
+      statusEl.textContent = '🎉 Game Over!';
+      showPlayAgainButton('mole');
+    } else {
+      statusEl.textContent = `Round ${data.round} Complete! Next round starting...`;
+    }
+  }
+  updateScoreBoard(data.players);
+}
+
+// ============================================
+// KNIFE THROWER GAME
+// ============================================
+
+function initKnifeGame(gameState, players) {
+  state.gameState = gameState;
+  state.gameState.rotation = 0;
+  elements.gameTitle.textContent = '🔪 Knife Thrower 🎯';
+  
+  const currentPlayerName = players.find(p => p.id === gameState.currentPlayer)?.name || 'Unknown';
+  const isMyTurn = gameState.currentPlayer === state.playerId;
+  
+  elements.gameContent.innerHTML = `
+    <div class="knife-container">
+      <div class="knife-status" id="knifeStatus">
+        ${isMyTurn ? '🎯 Click to throw!' : `Waiting for ${escapeHtml(currentPlayerName)}...`}
+      </div>
+      <div class="knife-target-container" id="knifeTarget">
+        <div class="knife-target">
+          <div class="target-center"></div>
+          ${gameState.thrownKnives.map(angle => `
+            <div class="thrown-knife" style="transform: rotate(${angle}deg) translateY(-120px)">🔪</div>
+          `).join('')}
+        </div>
+      </div>
+      <div class="knife-info">Round ${gameState.round}/${gameState.maxRounds}</div>
+    </div>
+  `;
+  
+  if (isMyTurn) {
+    document.getElementById('knifeTarget').addEventListener('click', () => {
+      const angle = (state.gameState.rotation % 360);
+      socket.emit('throwKnife', angle);
+    });
+  }
+  
+  // Start rotation animation
+  animateKnifeTarget();
+  updateScoreBoard(players, gameState.currentPlayer);
+}
+
+function animateKnifeTarget() {
+  if (state.currentGame !== 'knife') return;
+  
+  state.gameState.rotation = (state.gameState.rotation + 2) % 360;
+  const target = document.querySelector('.knife-target');
+  if (target) {
+    target.style.transform = `rotate(${state.gameState.rotation}deg)`;
+  }
+  requestAnimationFrame(animateKnifeTarget);
+}
+
+function handleKnifeThrown(data) {
+  state.gameState.thrownKnives = data.thrownKnives;
+  updateScoreBoard(data.players);
+  
+  // Add the knife to the display
+  const target = document.querySelector('.knife-target');
+  if (target) {
+    const knife = document.createElement('div');
+    knife.className = 'thrown-knife new';
+    knife.style.transform = `rotate(${data.angle}deg) translateY(-120px)`;
+    knife.innerHTML = '🔪';
+    target.appendChild(knife);
+  }
+}
+
+function handleKnifeCollision(data) {
+  const statusEl = document.getElementById('knifeStatus');
+  if (statusEl) {
+    statusEl.textContent = `💥 ${data.playerName} hit another knife!`;
+  }
+}
+
+function handleKnifeNextTurn(data) {
+  state.gameState.currentPlayer = data.currentPlayer;
+  state.gameState.round = data.round;
+  
+  const currentPlayerName = state.players.find(p => p.id === data.currentPlayer)?.name || 'Unknown';
+  const isMyTurn = data.currentPlayer === state.playerId;
+  
+  const statusEl = document.getElementById('knifeStatus');
+  if (statusEl) {
+    statusEl.textContent = isMyTurn ? '🎯 Click to throw!' : `Waiting for ${escapeHtml(currentPlayerName)}...`;
+  }
+  
+  const infoEl = document.querySelector('.knife-info');
+  if (infoEl) {
+    infoEl.textContent = `Round ${data.round}/${state.gameState.maxRounds}`;
+  }
+  
+  // Re-attach click handler if it's our turn
+  if (isMyTurn) {
+    document.getElementById('knifeTarget')?.addEventListener('click', () => {
+      const angle = (state.gameState.rotation % 360);
+      socket.emit('throwKnife', angle);
+    });
+  }
+}
+
+// ============================================
+// MATH QUIZ GAME
+// ============================================
+
+function initMathQuizGame(gameState, players) {
+  state.gameState = gameState;
+  state.gameState.selectedAnswer = null;
+  elements.gameTitle.textContent = '🔢 Math Quiz ➕';
+  
+  showMathQuestion(0, gameState.questions[0], 15);
+  updateScoreBoard(players);
+}
+
+function showMathQuestion(index, question, timeLeft) {
+  state.gameState.currentQuestion = index;
+  state.gameState.timeLeft = timeLeft;
+  state.gameState.selectedAnswer = null;
+  
+  elements.gameContent.innerHTML = `
+    <div class="math-container">
+      <div class="math-timer" id="mathTimer">${timeLeft}</div>
+      <div class="math-progress">Question ${index + 1} of ${state.gameState.questions.length}</div>
+      <div class="math-question">${escapeHtml(question.question)}</div>
+      <div class="math-options" id="mathOptions">
+        ${question.options.map((opt, i) => `
+          <button class="math-option" data-index="${i}">${opt}</button>
+        `).join('')}
+      </div>
+    </div>
+  `;
+  
+  document.querySelectorAll('.math-option').forEach(option => {
+    option.addEventListener('click', () => {
+      if (state.gameState.selectedAnswer !== null) return;
+      state.gameState.selectedAnswer = parseInt(option.dataset.index);
+      option.classList.add('selected');
+      socket.emit('mathAnswer', state.gameState.selectedAnswer);
+    });
+  });
+}
+
+function updateMathTimer(timeLeft) {
+  const timer = document.getElementById('mathTimer');
+  if (timer) {
+    timer.textContent = timeLeft;
+    if (timeLeft <= 5) {
+      timer.classList.add('warning');
+    }
+  }
+}
+
+function handleMathPlayerAnswered(data) {
+  updateScoreBoard(data.players);
+}
+
+function handleMathReveal(data) {
+  const options = document.querySelectorAll('.math-option');
+  options.forEach((opt, i) => {
+    opt.classList.add('revealed');
+    if (i === data.correctAnswer) {
+      opt.classList.add('correct');
+    } else if (i === state.gameState.selectedAnswer) {
+      opt.classList.add('wrong');
+    }
+  });
+  updateScoreBoard(data.players);
+}
+
+function handleMathNextQuestion(data) {
+  showMathQuestion(data.questionIndex, data.question, 15);
+}
+
+// ============================================
+// DARTS GAME
+// ============================================
+
+function initDartsGame(gameState, players) {
+  state.gameState = gameState;
+  elements.gameTitle.textContent = '🎯 Darts';
+  
+  const currentPlayerName = players.find(p => p.id === gameState.currentPlayer)?.name || 'Unknown';
+  const isMyTurn = gameState.currentPlayer === state.playerId;
+  
+  elements.gameContent.innerHTML = `
+    <div class="darts-container">
+      <div class="darts-status" id="dartsStatus">
+        ${isMyTurn ? '🎯 Click to throw!' : `Waiting for ${escapeHtml(currentPlayerName)}...`}
+      </div>
+      <div class="darts-info">
+        Round ${gameState.round}/${gameState.maxRounds} • Throws: ${gameState.maxThrowsPerRound - gameState.throwsThisRound}
+      </div>
+      <div class="dartboard" id="dartboard">
+        <div class="dartboard-ring ring-1"></div>
+        <div class="dartboard-ring ring-2"></div>
+        <div class="dartboard-ring ring-3"></div>
+        <div class="dartboard-ring ring-4"></div>
+        <div class="dartboard-ring ring-5"></div>
+        <div class="dartboard-bullseye"></div>
+      </div>
+      <div class="darts-scores" id="dartsScores">
+        ${players.map(p => `
+          <span>${escapeHtml(p.name)}: ${gameState.scores[p.id] || 0}</span>
+        `).join(' | ')}
+      </div>
+    </div>
+  `;
+  
+  if (isMyTurn) {
+    const dartboard = document.getElementById('dartboard');
+    dartboard.addEventListener('click', (e) => {
+      const rect = dartboard.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const y = e.clientY - rect.top;
+      socket.emit('throwDart', { x, y });
+    });
+  }
+  
+  updateScoreBoard(players, gameState.currentPlayer);
+}
+
+function handleDartThrown(data) {
+  const dartboard = document.getElementById('dartboard');
+  if (dartboard) {
+    const dart = document.createElement('div');
+    dart.className = 'dart-marker';
+    dart.style.left = `${data.position.x}px`;
+    dart.style.top = `${data.position.y}px`;
+    dart.innerHTML = `🎯<span class="dart-points">+${data.points}</span>`;
+    dartboard.appendChild(dart);
+  }
+  
+  state.gameState.scores = data.scores;
+  document.getElementById('dartsScores').innerHTML = state.players.map(p => `
+    <span>${escapeHtml(p.name)}: ${data.scores[p.id] || 0}</span>
+  `).join(' | ');
+  
+  updateScoreBoard(data.players);
+}
+
+function handleDartNextTurn(data) {
+  state.gameState.currentPlayer = data.currentPlayer;
+  state.gameState.round = data.round;
+  
+  const currentPlayerName = state.players.find(p => p.id === data.currentPlayer)?.name || 'Unknown';
+  const isMyTurn = data.currentPlayer === state.playerId;
+  
+  // Clear darts from board
+  document.querySelectorAll('.dart-marker').forEach(d => d.remove());
+  
+  document.getElementById('dartsStatus').textContent = 
+    isMyTurn ? '🎯 Click to throw!' : `Waiting for ${escapeHtml(currentPlayerName)}...`;
+  
+  document.querySelector('.darts-info').textContent = 
+    `Round ${data.round}/${state.gameState.maxRounds} • Throws: ${data.throwsRemaining}`;
+  
+  if (isMyTurn) {
+    const dartboard = document.getElementById('dartboard');
+    dartboard.addEventListener('click', (e) => {
+      const rect = dartboard.getBoundingClientRect();
+      socket.emit('throwDart', { x: e.clientX - rect.left, y: e.clientY - rect.top });
+    });
+  }
+}
+
+function handleDartNextThrow(data) {
+  document.querySelector('.darts-info').textContent = 
+    `Round ${state.gameState.round}/${state.gameState.maxRounds} • Throws: ${data.throwsRemaining}`;
+}
+
+// ============================================
+// LUDO GAME
+// ============================================
+
+function initLudoGame(gameState, players) {
+  state.gameState = gameState;
+  elements.gameTitle.textContent = '🎲 Ludo';
+  
+  renderLudoBoard(gameState, players);
+  updateScoreBoard(players, gameState.currentPlayer);
+}
+
+function renderLudoBoard(gameState, players) {
+  const currentPlayerName = players.find(p => p.id === gameState.currentPlayer)?.name || 'Unknown';
+  const isMyTurn = gameState.currentPlayer === state.playerId;
+  const myColor = gameState.playerColors[state.playerId];
+  
+  elements.gameContent.innerHTML = `
+    <div class="ludo-container">
+      <div class="ludo-status" id="ludoStatus">
+        ${gameState.winner ? `🏆 ${players.find(p => p.id === gameState.winner)?.name} wins!` :
+          (isMyTurn ? "🎲 Your turn!" : `Waiting for ${escapeHtml(currentPlayerName)}...`)}
+      </div>
+      <div class="ludo-dice-area">
+        <div class="ludo-dice" id="ludoDice">${gameState.diceValue || '🎲'}</div>
+        ${isMyTurn && gameState.canRoll ? `<button class="btn btn-primary" id="rollDiceBtn">Roll Dice</button>` : ''}
+      </div>
+      <div class="ludo-board" id="ludoBoard">
+        <div class="ludo-info">
+          ${players.filter(p => gameState.playerColors[p.id]).map(p => `
+            <span class="ludo-player-info" style="color: ${gameState.playerColors[p.id]}">
+              ● ${escapeHtml(p.name)}
+            </span>
+          `).join('')}
+        </div>
+        <div class="ludo-pieces">
+          ${Object.entries(gameState.pieces).map(([playerId, pieces]) => 
+            pieces.map((piece, idx) => `
+              <div class="ludo-piece ${playerId === state.playerId ? 'mine' : ''}" 
+                   data-player="${playerId}" data-index="${idx}"
+                   style="background: ${piece.color}">
+                ${piece.position === -1 ? '⚫' : (piece.position === 56 ? '🏠' : idx + 1)}
+              </div>
+            `).join('')
+          ).join('')}
+        </div>
+      </div>
+    </div>
+  `;
+  
+  if (isMyTurn && gameState.canRoll) {
+    document.getElementById('rollDiceBtn')?.addEventListener('click', () => {
+      socket.emit('ludoRoll');
+    });
+  }
+  
+  if (gameState.winner) {
+    showPlayAgainButton('ludo');
+  }
+}
+
+function handleLudoDiceRolled(data) {
+  state.gameState.diceValue = data.diceValue;
+  state.gameState.canRoll = false;
+  
+  const diceEl = document.getElementById('ludoDice');
+  if (diceEl) {
+    diceEl.textContent = data.diceValue;
+    diceEl.classList.add('rolled');
+  }
+  
+  document.getElementById('rollDiceBtn')?.remove();
+  
+  if (data.playerId === state.playerId && data.canMove) {
+    // Enable piece selection
+    document.querySelectorAll('.ludo-piece.mine').forEach((piece, idx) => {
+      piece.classList.add('selectable');
+      piece.addEventListener('click', () => {
+        socket.emit('ludoMove', idx);
+      });
+    });
+  }
+}
+
+function handleLudoMoved(data) {
+  state.gameState.pieces = data.pieces;
+  state.gameState.winner = data.winner;
+  
+  renderLudoBoard(state.gameState, state.players);
+  updateScoreBoard(data.players);
+}
+
+function handleLudoNextTurn(data) {
+  state.gameState.currentPlayer = data.currentPlayer;
+  state.gameState.canRoll = true;
+  state.gameState.diceValue = null;
+  
+  renderLudoBoard(state.gameState, state.players);
+  updateScoreBoard(data.players, data.currentPlayer);
+}
+
+// ============================================
+// AIR HOCKEY GAME
+// ============================================
+
+function initAirHockeyGame(gameState, players) {
+  state.gameState = gameState;
+  elements.gameTitle.textContent = '🏒 Air Hockey';
+  
+  const player1 = players.find(p => p.id === gameState.player1);
+  const player2 = players.find(p => p.id === gameState.player2);
+  const isPlayer1 = state.playerId === gameState.player1;
+  const isPlayer2 = state.playerId === gameState.player2;
+  
+  elements.gameContent.innerHTML = `
+    <div class="airhockey-container">
+      <div class="airhockey-scores">
+        <span class="ah-score p1">${escapeHtml(player1?.name || 'P1')}: ${gameState.score1}</span>
+        <span class="ah-score p2">${escapeHtml(player2?.name || 'P2')}: ${gameState.score2}</span>
+      </div>
+      <div class="airhockey-table" id="airhockeyTable">
+        <div class="ah-goal left"></div>
+        <div class="ah-goal right"></div>
+        <div class="ah-center-line"></div>
+        <div class="ah-center-circle"></div>
+        <div class="ah-puck" id="ahPuck"></div>
+        <div class="ah-paddle p1" id="ahPaddle1"></div>
+        <div class="ah-paddle p2" id="ahPaddle2"></div>
+      </div>
+      <div class="airhockey-info">First to ${gameState.maxScore} wins!</div>
+    </div>
+  `;
+  
+  // Set initial positions
+  updatePuckPosition(gameState.puckPosition);
+  updatePaddlePositions(gameState.paddle1, gameState.paddle2);
+  
+  // Add paddle movement
+  if (isPlayer1 || isPlayer2) {
+    const table = document.getElementById('airhockeyTable');
+    table.addEventListener('mousemove', (e) => {
+      const rect = table.getBoundingClientRect();
+      const x = (e.clientX - rect.left) / rect.width * 800;
+      const y = (e.clientY - rect.top) / rect.height * 600;
+      socket.emit('paddleMove', { x, y });
+    });
+    
+    table.addEventListener('touchmove', (e) => {
+      e.preventDefault();
+      const rect = table.getBoundingClientRect();
+      const touch = e.touches[0];
+      const x = (touch.clientX - rect.left) / rect.width * 800;
+      const y = (touch.clientY - rect.top) / rect.height * 600;
+      socket.emit('paddleMove', { x, y });
+    }, { passive: false });
+  }
+  
+  updateScoreBoard(players);
+}
+
+function updatePuckPosition(pos) {
+  const puck = document.getElementById('ahPuck');
+  if (puck) {
+    puck.style.left = `${pos.x / 800 * 100}%`;
+    puck.style.top = `${pos.y / 600 * 100}%`;
+  }
+}
+
+function updatePaddlePositions(p1, p2) {
+  const paddle1 = document.getElementById('ahPaddle1');
+  const paddle2 = document.getElementById('ahPaddle2');
+  if (paddle1) {
+    paddle1.style.left = `${p1.x / 800 * 100}%`;
+    paddle1.style.top = `${p1.y / 600 * 100}%`;
+  }
+  if (paddle2) {
+    paddle2.style.left = `${p2.x / 800 * 100}%`;
+    paddle2.style.top = `${p2.y / 600 * 100}%`;
+  }
+}
+
+function handlePuckUpdate(data) {
+  updatePuckPosition(data.position);
+}
+
+function handlePaddleUpdate(data) {
+  updatePaddlePositions(data.paddle1, data.paddle2);
+}
+
+function handleGoalScored(data) {
+  state.gameState.score1 = data.score1;
+  state.gameState.score2 = data.score2;
+  
+  const scores = document.querySelector('.airhockey-scores');
+  if (scores) {
+    const player1 = state.players.find(p => p.id === state.gameState.player1);
+    const player2 = state.players.find(p => p.id === state.gameState.player2);
+    scores.innerHTML = `
+      <span class="ah-score p1">${escapeHtml(player1?.name || 'P1')}: ${data.score1}</span>
+      <span class="ah-score p2">${escapeHtml(player2?.name || 'P2')}: ${data.score2}</span>
+    `;
+  }
+}
 
 // ============================================
 // UTILITIES
