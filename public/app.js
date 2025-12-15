@@ -252,6 +252,16 @@ function updatePlayersList(players) {
           <span class="game-name">Nevermore<br>Chess</span>
           <span class="game-players">2 players</span>
         </button>
+        <button class="game-card" data-game="reaction">
+          <span class="game-icon">⚡👆</span>
+          <span class="game-name">Reaction<br>Race</span>
+          <span class="game-players">2+ players</span>
+        </button>
+        <button class="game-card" data-game="wordchain">
+          <span class="game-icon">🔤⛓️</span>
+          <span class="game-name">Word<br>Chain</span>
+          <span class="game-players">2+ players</span>
+        </button>
       </div>
     `;
     // Re-attach event listeners for game cards
@@ -310,7 +320,59 @@ function addChatMessage(msg, container = elements.chatMessages) {
 
 function startGame(gameType) {
   if (!state.isHost) return;
+  
+  // Memory game needs difficulty selection first
+  if (gameType === 'memory') {
+    showMemoryDifficultySelect();
+    return;
+  }
+  
   socket.emit('startGame', gameType);
+}
+
+function showMemoryDifficultySelect() {
+  showScreen('gameScreen');
+  elements.gameTitle.textContent = '🃏 Vecna\'s Memory Match 🃏';
+  
+  elements.gameContent.innerHTML = `
+    <div class="difficulty-select-container">
+      <h2 class="difficulty-title">Choose Your Challenge</h2>
+      <p class="difficulty-subtitle">How deep into Vecna's mind dare you venture?</p>
+      <div class="difficulty-options">
+        <button class="difficulty-card" data-difficulty="easy">
+          <span class="diff-icon">😊</span>
+          <span class="diff-name">Easy</span>
+          <span class="diff-desc">6 pairs • 4x3 grid</span>
+          <span class="diff-label">For Mortals</span>
+        </button>
+        <button class="difficulty-card" data-difficulty="medium">
+          <span class="diff-icon">😈</span>
+          <span class="diff-name">Medium</span>
+          <span class="diff-desc">8 pairs • 4x4 grid</span>
+          <span class="diff-label">Outcast Level</span>
+        </button>
+        <button class="difficulty-card" data-difficulty="hard">
+          <span class="diff-icon">💀</span>
+          <span class="diff-name">Hard</span>
+          <span class="diff-desc">12 pairs • 6x4 grid</span>
+          <span class="diff-label">Vecna's Chosen</span>
+        </button>
+        <button class="difficulty-card" data-difficulty="insane">
+          <span class="diff-icon">🔥</span>
+          <span class="diff-name">Insane</span>
+          <span class="diff-desc">18 pairs • 6x6 grid</span>
+          <span class="diff-label">Mind Flayer Mode</span>
+        </button>
+      </div>
+    </div>
+  `;
+  
+  document.querySelectorAll('.difficulty-card').forEach(card => {
+    card.addEventListener('click', () => {
+      const difficulty = card.dataset.difficulty;
+      socket.emit('selectMemoryDifficulty', difficulty);
+    });
+  });
 }
 
 function endGame() {
@@ -425,12 +487,19 @@ function initMemoryGame(gameState, players) {
   state.gameState = gameState;
   elements.gameTitle.textContent = '🃏 Vecna\'s Memory Match 🃏';
   
+  const gridCols = gameState.gridCols || 4;
+  const difficultyLabels = { easy: 'Easy', medium: 'Medium', hard: 'Hard', insane: 'Insane' };
+  const diffLabel = difficultyLabels[gameState.difficulty] || 'Medium';
+  
   elements.gameContent.innerHTML = `
     <div class="memory-container">
-      <div class="memory-status" id="memoryStatus">
-        ${gameState.currentPlayer === state.playerId ? "🧠 Your turn to find a match!" : "Watching..."}
+      <div class="memory-header">
+        <div class="memory-status" id="memoryStatus">
+          ${gameState.currentPlayer === state.playerId ? "🧠 Your turn to find a match!" : "Watching..."}
+        </div>
+        <div class="memory-difficulty-badge">${diffLabel}</div>
       </div>
-      <div class="memory-board" id="memoryBoard">
+      <div class="memory-board memory-grid-${gridCols}" id="memoryBoard">
         ${gameState.cards.map((card, i) => `
           <div class="memory-card" data-index="${i}">
             <div class="card-content">
@@ -825,6 +894,297 @@ function handleNewDrawingRound(data) {
       actionsDiv.querySelector('.game-lobby-btn').addEventListener('click', () => socket.emit('endGame'));
     }
   }
+}
+
+// ============================================
+// REACTION RACE GAME
+// ============================================
+
+function initReactionGame(gameState, players) {
+  state.gameState = gameState;
+  elements.gameTitle.textContent = '⚡ Reaction Race 👆';
+  
+  showReactionReadyScreen(1);
+  updateScoreBoard(players);
+}
+
+function showReactionReadyScreen(round) {
+  elements.gameContent.innerHTML = `
+    <div class="reaction-container">
+      <div class="reaction-round">Round ${round}/10</div>
+      <div class="reaction-title">Get Ready!</div>
+      <div class="reaction-instructions">
+        <p>When you see the prompt appear, <strong>TAP AS FAST AS YOU CAN!</strong></p>
+        <p class="warning">⚠️ But don't tap too early or you'll be disqualified for this round!</p>
+      </div>
+      <button class="btn btn-primary reaction-ready-btn" id="reactionReadyBtn">
+        👆 I'm Ready!
+      </button>
+      <div class="reaction-waiting-players" id="reactionWaitingPlayers">
+        Waiting for players...
+      </div>
+    </div>
+  `;
+  
+  document.getElementById('reactionReadyBtn')?.addEventListener('click', () => {
+    socket.emit('reactionReady');
+    document.getElementById('reactionReadyBtn').disabled = true;
+    document.getElementById('reactionReadyBtn').textContent = '✓ Ready!';
+  });
+}
+
+function handleReactionPlayerReady(data) {
+  const waitingEl = document.getElementById('reactionWaitingPlayers');
+  if (waitingEl) {
+    waitingEl.textContent = `${data.readyCount}/${data.totalPlayers} players ready`;
+  }
+}
+
+function handleReactionWaiting(data) {
+  state.gameState.round = data.round;
+  
+  elements.gameContent.innerHTML = `
+    <div class="reaction-container">
+      <div class="reaction-round">Round ${data.round}/10</div>
+      <div class="reaction-waiting-screen" id="reactionScreen">
+        <div class="reaction-wait-text">WAIT FOR IT...</div>
+        <p class="reaction-hint">Don't tap yet!</p>
+      </div>
+    </div>
+  `;
+  
+  // Add click listener for the screen
+  document.getElementById('reactionScreen')?.addEventListener('click', () => {
+    socket.emit('reactionClick');
+  });
+  
+  // Also add touch listener for mobile
+  document.getElementById('reactionScreen')?.addEventListener('touchstart', (e) => {
+    e.preventDefault();
+    socket.emit('reactionClick');
+  });
+}
+
+function handleReactionPrompt(data) {
+  const screen = document.getElementById('reactionScreen');
+  if (screen) {
+    screen.classList.add('prompt-active');
+    screen.innerHTML = `
+      <div class="reaction-prompt" style="color: ${data.prompt.color}">
+        ${data.prompt.text}
+      </div>
+      <p class="reaction-tap-now">TAP NOW! 👆</p>
+    `;
+  }
+}
+
+function handleReactionTooEarly(data) {
+  if (data.playerId === state.playerId) {
+    const screen = document.getElementById('reactionScreen');
+    if (screen) {
+      screen.classList.add('too-early');
+      screen.innerHTML = `
+        <div class="reaction-too-early">
+          ❌ TOO EARLY! ❌
+        </div>
+        <p>Wait for the prompt next time!</p>
+      `;
+    }
+  }
+}
+
+function handleReactionResult(data) {
+  const isWinner = data.winnerId === state.playerId;
+  
+  elements.gameContent.innerHTML = `
+    <div class="reaction-container">
+      <div class="reaction-round">Round ${data.round}/${data.maxRounds}</div>
+      <div class="reaction-result ${isWinner ? 'winner' : ''}">
+        <div class="reaction-winner-icon">${isWinner ? '🏆' : '😔'}</div>
+        <div class="reaction-winner-name">${escapeHtml(data.winnerName)} wins!</div>
+        <div class="reaction-time">${data.reactionTime}ms</div>
+      </div>
+      <div class="reaction-next-info">
+        ${data.round < data.maxRounds ? 'Next round in 3...' : 'Final results coming...'}
+      </div>
+    </div>
+  `;
+  
+  updateScoreBoard(data.players);
+}
+
+function handleReactionNextRound(data) {
+  showReactionReadyScreen(data.round);
+}
+
+// ============================================
+// WORD CHAIN GAME
+// ============================================
+
+let wordChainTimer = null;
+
+function initWordChainGame(gameState, players) {
+  state.gameState = gameState;
+  elements.gameTitle.textContent = '🔤 Word Chain ⛓️';
+  
+  renderWordChainGame(gameState);
+  updateScoreBoard(players, gameState.currentPlayer);
+  
+  // Start timer if it's our turn
+  if (gameState.currentPlayer === state.playerId) {
+    startWordChainTimer();
+  }
+}
+
+function renderWordChainGame(gameState) {
+  const isMyTurn = gameState.currentPlayer === state.playerId;
+  const lastWord = gameState.usedWords[gameState.usedWords.length - 1] || '';
+  const nextLetter = lastWord ? lastWord[lastWord.length - 1].toUpperCase() : '';
+  const currentPlayerName = state.players.find(p => p.id === gameState.currentPlayer)?.name || 'Unknown';
+  
+  elements.gameContent.innerHTML = `
+    <div class="wordchain-container">
+      <div class="wordchain-header">
+        <div class="wordchain-round">Round ${gameState.round || 1}</div>
+        <div class="wordchain-timer" id="wordchainTimer">${gameState.timeLeft || 15}</div>
+      </div>
+      
+      <div class="wordchain-current">
+        <div class="wordchain-last-word">
+          ${lastWord ? `<span class="last-word">${escapeHtml(lastWord)}</span>` : '<span class="starting">Starting word above!</span>'}
+        </div>
+        ${nextLetter ? `<div class="wordchain-next-letter">Next word must start with: <strong>${nextLetter}</strong></div>` : ''}
+      </div>
+      
+      <div class="wordchain-turn-info ${isMyTurn ? 'my-turn' : ''}">
+        ${isMyTurn ? "🎯 Your turn! Type a word:" : `⏳ Waiting for ${escapeHtml(currentPlayerName)}...`}
+      </div>
+      
+      ${isMyTurn ? `
+        <div class="wordchain-input-container">
+          <input type="text" id="wordchainInput" class="wordchain-input" 
+                 placeholder="Type a word starting with ${nextLetter}..." 
+                 maxlength="30" autocomplete="off" autocapitalize="off">
+          <button class="btn btn-primary wordchain-submit" id="wordchainSubmit">Submit</button>
+        </div>
+      ` : ''}
+      
+      <div class="wordchain-history">
+        <h4>Word Chain:</h4>
+        <div class="wordchain-words" id="wordchainWords">
+          ${gameState.usedWords.map((word, i) => `
+            <span class="chain-word">${escapeHtml(word)}${i < gameState.usedWords.length - 1 ? ' → ' : ''}</span>
+          `).join('')}
+        </div>
+      </div>
+      
+      <div class="wordchain-rules">
+        <p>💡 Say any word that starts with the last letter of the previous word!</p>
+        <p>⚠️ No repeats allowed • 15 seconds per turn</p>
+      </div>
+    </div>
+  `;
+  
+  if (isMyTurn) {
+    const input = document.getElementById('wordchainInput');
+    const submit = document.getElementById('wordchainSubmit');
+    
+    input?.focus();
+    
+    input?.addEventListener('keypress', (e) => {
+      if (e.key === 'Enter') {
+        submitWordChainWord();
+      }
+    });
+    
+    submit?.addEventListener('click', submitWordChainWord);
+  }
+}
+
+function submitWordChainWord() {
+  const input = document.getElementById('wordchainInput');
+  if (!input) return;
+  
+  const word = input.value.trim();
+  if (word) {
+    socket.emit('wordChainSubmit', word);
+    input.value = '';
+  }
+}
+
+function startWordChainTimer() {
+  clearInterval(wordChainTimer);
+  state.gameState.timeLeft = 15;
+  
+  wordChainTimer = setInterval(() => {
+    state.gameState.timeLeft--;
+    const timerEl = document.getElementById('wordchainTimer');
+    if (timerEl) {
+      timerEl.textContent = state.gameState.timeLeft;
+      if (state.gameState.timeLeft <= 5) {
+        timerEl.classList.add('warning');
+      }
+    }
+    
+    if (state.gameState.timeLeft <= 0) {
+      clearInterval(wordChainTimer);
+      socket.emit('wordChainTimeout');
+    }
+  }, 1000);
+}
+
+function handleWordChainUpdate(data) {
+  state.gameState.usedWords = data.usedWords;
+  state.gameState.currentPlayer = data.currentPlayer;
+  state.gameState.round = data.round;
+  state.gameState.timeLeft = 15;
+  
+  clearInterval(wordChainTimer);
+  
+  renderWordChainGame(state.gameState);
+  updateScoreBoard(data.players, data.currentPlayer);
+  
+  if (data.currentPlayer === state.playerId) {
+    startWordChainTimer();
+  }
+}
+
+function handleWordChainGameOver(data) {
+  clearInterval(wordChainTimer);
+  
+  const isLoser = data.loserId === state.playerId;
+  
+  elements.gameContent.innerHTML = `
+    <div class="wordchain-container">
+      <div class="wordchain-gameover">
+        <div class="gameover-title">${isLoser ? '😵 Game Over!' : '🎉 You Survived!'}</div>
+        <div class="gameover-loser">
+          <span class="loser-name">${escapeHtml(data.loserName)}</span> is out!
+        </div>
+        <div class="gameover-reason">${escapeHtml(data.reason)}</div>
+        ${data.lastWord ? `<div class="gameover-word">Attempted: "${escapeHtml(data.lastWord)}"</div>` : ''}
+        
+        <div class="wordchain-final-chain">
+          <h4>Final Chain (${data.usedWords.length} words):</h4>
+          <div class="chain-words-final">
+            ${data.usedWords.map((word, i) => `
+              <span class="chain-word">${escapeHtml(word)}${i < data.usedWords.length - 1 ? ' → ' : ''}</span>
+            `).join('')}
+          </div>
+        </div>
+        
+        <div class="game-over-actions">
+          <button class="btn btn-primary game-rematch-btn">🔄 Play Again</button>
+          <button class="btn btn-secondary game-lobby-btn">🏠 Back to Lobby</button>
+        </div>
+      </div>
+    </div>
+  `;
+  
+  updateScoreBoard(data.players);
+  
+  document.querySelector('.game-rematch-btn')?.addEventListener('click', () => socket.emit('gameRematch'));
+  document.querySelector('.game-lobby-btn')?.addEventListener('click', () => socket.emit('endGame'));
 }
 
 // ============================================
@@ -1425,8 +1785,63 @@ function initPsychicGame(gameState, players) {
   state.gameState.myChoice = null;
   elements.gameTitle.textContent = '🔮 Psychic Showdown ⚡';
   
-  showPsychicRound(1);
+  // Show rules first if round is 0
+  if (gameState.phase === 'rules' || gameState.round === 0) {
+    showPsychicRules();
+  } else {
+    showPsychicRound(gameState.round || 1);
+  }
   updateScoreBoard(players);
+}
+
+function showPsychicRules() {
+  elements.gameContent.innerHTML = `
+    <div class="psychic-container">
+      <div class="psychic-title">🔮 Psychic Showdown ⚡</div>
+      <div class="psychic-rules">
+        <h3>How to Play</h3>
+        <p>Channel your inner psychic and try to outsmart your opponents!</p>
+        
+        <div class="rules-grid">
+          <div class="rule-item">
+            <span class="rule-icon">👁️</span>
+            <span class="rule-name">Vision</span>
+            <span class="rule-beats">Beats Mind</span>
+            <span class="rule-desc">Wednesday's foresight</span>
+          </div>
+          <div class="rule-item">
+            <span class="rule-icon">🧠</span>
+            <span class="rule-name">Mind</span>
+            <span class="rule-beats">Beats Power</span>
+            <span class="rule-desc">Vecna's control</span>
+          </div>
+          <div class="rule-item">
+            <span class="rule-icon">⚡</span>
+            <span class="rule-name">Power</span>
+            <span class="rule-beats">Beats Vision</span>
+            <span class="rule-desc">Eleven's telekinesis</span>
+          </div>
+        </div>
+        
+        <div class="rules-summary">
+          <p>👁️ Vision → 🧠 Mind → ⚡ Power → 👁️ Vision</p>
+          <p><strong>10 rounds</strong> • <strong>5 points</strong> per win</p>
+        </div>
+        
+        ${state.isHost ? `
+          <button class="btn btn-primary psychic-start-btn" id="psychicStartBtn">
+            ⚡ Start Game ⚡
+          </button>
+        ` : `
+          <p class="waiting-text">Waiting for host to start...</p>
+        `}
+      </div>
+    </div>
+  `;
+  
+  document.getElementById('psychicStartBtn')?.addEventListener('click', () => {
+    socket.emit('psychicStart');
+  });
 }
 
 function showPsychicRound(round) {
@@ -1474,32 +1889,59 @@ function handlePlayerChose(data) {
 
 function handlePsychicResults(data) {
   const choiceEmojis = { vision: '👁️', mind: '🧠', power: '⚡' };
-  const isLastRound = data.round >= 10;
+  const choiceNames = { vision: 'Vision', mind: 'Mind', power: 'Power' };
+  const beats = { vision: 'mind', mind: 'power', power: 'vision' };
+  const isLastRound = data.round >= (data.maxRounds || 10);
+  
+  // Calculate who won this round
+  const playerChoices = state.players.map(p => ({
+    ...p,
+    choice: data.choices[p.id]
+  }));
   
   elements.gameContent.innerHTML = `
     <div class="psychic-container">
-      <div class="psychic-title">Results!</div>
-      <div class="psychic-results">
-        ${state.players.map(p => `
-          <div class="psychic-result-item">
-            <span>${escapeHtml(p.name)}</span>
-            <span>${choiceEmojis[data.choices[p.id]] || '?'} ${data.choices[p.id] || 'No choice'}</span>
+      <div class="psychic-round">Round ${data.round}/${data.maxRounds || 10} - Results</div>
+      <div class="psychic-title">⚡ Results! ⚡</div>
+      <div class="psychic-results-display">
+        ${playerChoices.map(p => `
+          <div class="psychic-result-card ${p.choice ? '' : 'no-choice'}">
+            <div class="result-player-name">${escapeHtml(p.name)}</div>
+            <div class="result-choice-icon">${choiceEmojis[p.choice] || '❓'}</div>
+            <div class="result-choice-name">${choiceNames[p.choice] || 'No choice'}</div>
           </div>
         `).join('')}
       </div>
-      <div style="margin-top: 20px; color: var(--text-secondary);">
-        👁️ Vision beats 🧠 Mind | 🧠 Mind beats ⚡ Power | ⚡ Power beats 👁️ Vision
+      <div class="psychic-rules-reminder">
+        <span>👁️ Vision beats 🧠 Mind</span>
+        <span>🧠 Mind beats ⚡ Power</span>
+        <span>⚡ Power beats 👁️ Vision</span>
       </div>
-      ${isLastRound ? `
+      ${!isLastRound ? `
+        <div class="psychic-next-round-timer">
+          <p>Next round starting in <span id="psychicCountdown">5</span>...</p>
+        </div>
+      ` : `
         <div class="game-over-actions" style="margin-top: 20px;">
           <button class="btn btn-primary game-rematch-btn">🔄 Play Again</button>
           <button class="btn btn-secondary game-lobby-btn">🏠 Back to Lobby</button>
         </div>
-      ` : ''}
+      `}
     </div>
   `;
   
   updateScoreBoard(data.players);
+  
+  // Countdown timer for next round
+  if (!isLastRound) {
+    let countdown = 5;
+    const countdownEl = document.getElementById('psychicCountdown');
+    const countdownInterval = setInterval(() => {
+      countdown--;
+      if (countdownEl) countdownEl.textContent = countdown;
+      if (countdown <= 0) clearInterval(countdownInterval);
+    }, 1000);
+  }
   
   if (isLastRound) {
     document.querySelector('.game-rematch-btn')?.addEventListener('click', () => socket.emit('gameRematch'));
@@ -1575,6 +2017,9 @@ socket.on('gameStarted', (data) => {
     case 'memory':
       initMemoryGame(data.gameState, data.players);
       break;
+    case 'memorySelect':
+      showMemoryDifficultySelect();
+      break;
     case 'trivia':
       initTrivia(data.gameState, data.players);
       break;
@@ -1586,6 +2031,12 @@ socket.on('gameStarted', (data) => {
       break;
     case 'chess':
       initChessGame(data.gameState, data.players);
+      break;
+    case 'reaction':
+      initReactionGame(data.gameState, data.players);
+      break;
+    case 'wordchain':
+      initWordChainGame(data.gameState, data.players);
       break;
   }
 });
@@ -1625,6 +2076,23 @@ socket.on('newDrawingRound', handleNewDrawingRound);
 socket.on('playerChose', handlePlayerChose);
 socket.on('psychicResults', handlePsychicResults);
 socket.on('nextPsychicRound', handleNextPsychicRound);
+socket.on('psychicGameStart', (data) => {
+  state.gameState.round = data.round;
+  state.gameState.phase = 'choosing';
+  showPsychicRound(data.round);
+});
+
+// Reaction Race
+socket.on('playerReady', handleReactionPlayerReady);
+socket.on('reactionWaiting', handleReactionWaiting);
+socket.on('reactionPrompt', handleReactionPrompt);
+socket.on('reactionTooEarly', handleReactionTooEarly);
+socket.on('reactionResult', handleReactionResult);
+socket.on('reactionNextRound', handleReactionNextRound);
+
+// Word Chain
+socket.on('wordChainUpdate', handleWordChainUpdate);
+socket.on('wordChainGameOver', handleWordChainGameOver);
 
 // Chess
 socket.on('chessUpdate', updateChessGame);

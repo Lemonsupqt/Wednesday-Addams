@@ -67,6 +67,69 @@ const drawingPrompts = [
   "Russian base", "Nevermore gates", "Hopper's cabin", "Wednesday's uniform"
 ];
 
+// Memory game configurations by difficulty
+function getMemoryConfig(difficulty) {
+  const allItems = [
+    { id: 'demogorgon', emoji: '👹', name: 'Demogorgon' },
+    { id: 'eleven', emoji: '🔴', name: 'Eleven' },
+    { id: 'wednesday', emoji: '🖤', name: 'Wednesday' },
+    { id: 'thing', emoji: '🖐️', name: 'Thing' },
+    { id: 'waffle', emoji: '🧇', name: 'Eggo' },
+    { id: 'cello', emoji: '🎻', name: 'Cello' },
+    { id: 'spider', emoji: '🕷️', name: 'Spider' },
+    { id: 'light', emoji: '💡', name: 'Lights' },
+    { id: 'vecna', emoji: '👁️', name: 'Vecna' },
+    { id: 'hopper', emoji: '👮', name: 'Hopper' },
+    { id: 'mind_flayer', emoji: '🌑', name: 'Mind Flayer' },
+    { id: 'dustin', emoji: '🧢', name: 'Dustin' },
+    { id: 'max', emoji: '🛹', name: 'Max' },
+    { id: 'steve', emoji: '💇', name: 'Steve' },
+    { id: 'enid', emoji: '🐺', name: 'Enid' },
+    { id: 'morticia', emoji: '🖤', name: 'Morticia' },
+    { id: 'pugsley', emoji: '💣', name: 'Pugsley' },
+    { id: 'lurch', emoji: '🧟', name: 'Lurch' },
+    { id: 'fester', emoji: '💡', name: 'Fester' },
+    { id: 'gomez', emoji: '🗡️', name: 'Gomez' },
+    { id: 'stranger_bike', emoji: '🚲', name: 'Bike' },
+    { id: 'walkie', emoji: '📻', name: 'Walkie' },
+    { id: 'upside_down', emoji: '🌀', name: 'Portal' },
+    { id: 'demobat', emoji: '🦇', name: 'Demobat' }
+  ];
+
+  switch (difficulty) {
+    case 'easy':
+      return { items: allItems.slice(0, 6), cols: 4 }; // 12 cards (6 pairs) - 4x3
+    case 'medium':
+      return { items: allItems.slice(0, 8), cols: 4 }; // 16 cards (8 pairs) - 4x4
+    case 'hard':
+      return { items: allItems.slice(0, 12), cols: 6 }; // 24 cards (12 pairs) - 6x4
+    case 'insane':
+      return { items: allItems.slice(0, 18), cols: 6 }; // 36 cards (18 pairs) - 6x6
+    default:
+      return { items: allItems.slice(0, 8), cols: 4 };
+  }
+}
+
+// Word Chain game words
+const wordChainCategories = {
+  characters: ['Eleven', 'Wednesday', 'Vecna', 'Hopper', 'Enid', 'Thing', 'Dustin', 'Max', 'Steve', 'Morticia', 'Pugsley', 'Lucas', 'Will', 'Mike', 'Nancy', 'Jonathan', 'Robin', 'Eddie', 'Argyle', 'Murray'],
+  creatures: ['Demogorgon', 'Mind Flayer', 'Demobat', 'Demodog', 'Hyde', 'Werewolf', 'Siren', 'Vampire', 'Ghost', 'Monster'],
+  places: ['Hawkins', 'Nevermore', 'Upside Down', 'Lab', 'Arcade', 'Mall', 'School', 'Forest', 'Russia', 'Cemetery'],
+  objects: ['Waffle', 'Bike', 'Walkie', 'Cello', 'Sword', 'Gate', 'Lights', 'Van', 'Bat', 'Guitar']
+};
+
+// Reaction game prompts
+const reactionPrompts = [
+  { text: '👹 DEMOGORGON!', color: '#e50914' },
+  { text: '⚡ ELEVEN\'S POWER!', color: '#9333ea' },
+  { text: '🖐️ THING!', color: '#d4af37' },
+  { text: '🔴 NOSEBLEED!', color: '#ff0000' },
+  { text: '👁️ VECNA STRIKES!', color: '#1a0a2e' },
+  { text: '🌀 PORTAL OPENS!', color: '#05d9e8' },
+  { text: '🦇 DEMOBAT!', color: '#8b0000' },
+  { text: '🐺 WEREWOLF!', color: '#4a5568' }
+];
+
 // Room class to manage game state
 class GameRoom {
   constructor(id, hostId, hostName) {
@@ -267,6 +330,18 @@ io.on('connection', (socket) => {
     }
   });
 
+  // Psychic showdown - start game after rules
+  socket.on('psychicStart', () => {
+    const roomId = players.get(socket.id);
+    const room = rooms.get(roomId);
+    if (!room || room.currentGame !== 'psychic') return;
+
+    const state = room.gameState;
+    state.round = 1;
+    state.phase = 'choosing';
+    io.to(roomId).emit('psychicGameStart', { round: 1 });
+  });
+
   // Psychic showdown move
   socket.on('psychicMove', (choice) => {
     const roomId = players.get(socket.id);
@@ -274,6 +349,8 @@ io.on('connection', (socket) => {
     if (!room || room.currentGame !== 'psychic') return;
 
     const state = room.gameState;
+    if (state.phase !== 'choosing') return;
+    
     state.choices.set(socket.id, choice);
 
     io.to(roomId).emit('playerChose', {
@@ -285,6 +362,177 @@ io.on('connection', (socket) => {
     if (state.choices.size >= room.players.size) {
       resolvePsychicRound(room, roomId);
     }
+  });
+
+  // Memory game difficulty selection
+  socket.on('selectMemoryDifficulty', (difficulty) => {
+    const roomId = players.get(socket.id);
+    const room = rooms.get(roomId);
+    if (!room) return;
+    
+    // Store selected difficulty and start game
+    room.gameState = { selectedDifficulty: difficulty };
+    room.currentGame = 'memory';
+    room.gameState = initializeGame('memory', room);
+    
+    io.to(roomId).emit('gameStarted', { 
+      gameType: 'memory', 
+      gameState: room.gameState,
+      players: room.getPlayerList()
+    });
+  });
+
+  // Reaction Race game
+  socket.on('reactionReady', () => {
+    const roomId = players.get(socket.id);
+    const room = rooms.get(roomId);
+    if (!room || room.currentGame !== 'reaction') return;
+
+    const state = room.gameState;
+    state.readyPlayers.add(socket.id);
+
+    io.to(roomId).emit('playerReady', {
+      playerId: socket.id,
+      readyCount: state.readyPlayers.size,
+      totalPlayers: room.players.size
+    });
+
+    if (state.readyPlayers.size >= room.players.size) {
+      startReactionRound(room, roomId);
+    }
+  });
+
+  socket.on('reactionClick', () => {
+    const roomId = players.get(socket.id);
+    const room = rooms.get(roomId);
+    if (!room || room.currentGame !== 'reaction') return;
+
+    const state = room.gameState;
+    
+    if (!state.promptShown) {
+      // Too early! Penalty
+      state.tooEarly.add(socket.id);
+      io.to(roomId).emit('reactionTooEarly', { playerId: socket.id });
+      return;
+    }
+
+    if (!state.winner && !state.tooEarly.has(socket.id)) {
+      const reactionTime = Date.now() - state.promptTime;
+      state.winner = socket.id;
+      state.winnerTime = reactionTime;
+      room.players.get(socket.id).score += 10;
+
+      io.to(roomId).emit('reactionResult', {
+        winnerId: socket.id,
+        winnerName: room.players.get(socket.id).name,
+        reactionTime,
+        players: room.getPlayerList(),
+        round: state.round,
+        maxRounds: state.maxRounds
+      });
+
+      // Next round after delay
+      setTimeout(() => {
+        state.round++;
+        if (state.round > state.maxRounds) {
+          endGame(room, roomId);
+        } else {
+          state.readyPlayers.clear();
+          state.tooEarly.clear();
+          state.winner = null;
+          state.promptShown = false;
+          io.to(roomId).emit('reactionNextRound', { round: state.round });
+        }
+      }, 3000);
+    }
+  });
+
+  // Word Chain game
+  socket.on('wordChainSubmit', (word) => {
+    const roomId = players.get(socket.id);
+    const room = rooms.get(roomId);
+    if (!room || room.currentGame !== 'wordchain') return;
+
+    const state = room.gameState;
+    if (state.currentPlayer !== socket.id) return;
+    if (state.gameOver) return;
+
+    const trimmedWord = word.trim().toLowerCase();
+    const lastWord = state.usedWords[state.usedWords.length - 1]?.toLowerCase() || '';
+    
+    // Validate word
+    let valid = true;
+    let reason = '';
+
+    if (trimmedWord.length < 2) {
+      valid = false;
+      reason = 'Word too short!';
+    } else if (state.usedWords.map(w => w.toLowerCase()).includes(trimmedWord)) {
+      valid = false;
+      reason = 'Word already used!';
+    } else if (lastWord && trimmedWord[0] !== lastWord[lastWord.length - 1]) {
+      valid = false;
+      reason = `Word must start with "${lastWord[lastWord.length - 1].toUpperCase()}"!`;
+    }
+
+    if (valid) {
+      state.usedWords.push(word);
+      room.players.get(socket.id).score += 5;
+      
+      // Next player
+      const playerIds = Array.from(room.players.keys());
+      const currentIndex = playerIds.indexOf(state.currentPlayer);
+      state.currentPlayer = playerIds[(currentIndex + 1) % playerIds.length];
+      state.timeLeft = 15;
+      state.round++;
+
+      io.to(roomId).emit('wordChainUpdate', {
+        word,
+        playerId: socket.id,
+        playerName: room.players.get(socket.id).name,
+        usedWords: state.usedWords,
+        currentPlayer: state.currentPlayer,
+        players: room.getPlayerList(),
+        round: state.round
+      });
+    } else {
+      // Player loses this round
+      state.gameOver = true;
+      const loserId = socket.id;
+      const players = room.getPlayerList().sort((a, b) => b.score - a.score);
+      
+      io.to(roomId).emit('wordChainGameOver', {
+        loserId,
+        loserName: room.players.get(loserId).name,
+        reason,
+        lastWord: word,
+        players,
+        usedWords: state.usedWords
+      });
+    }
+  });
+
+  socket.on('wordChainTimeout', () => {
+    const roomId = players.get(socket.id);
+    const room = rooms.get(roomId);
+    if (!room || room.currentGame !== 'wordchain') return;
+
+    const state = room.gameState;
+    if (state.currentPlayer !== socket.id) return;
+    if (state.gameOver) return;
+
+    state.gameOver = true;
+    const loserId = socket.id;
+    const players = room.getPlayerList().sort((a, b) => b.score - a.score);
+
+    io.to(roomId).emit('wordChainGameOver', {
+      loserId,
+      loserName: room.players.get(loserId).name,
+      reason: 'Time ran out!',
+      lastWord: '',
+      players,
+      usedWords: state.usedWords
+    });
   });
 
   // Memory game flip
@@ -602,34 +850,34 @@ function initializeGame(gameType, room) {
     case 'tictactoe':
       const symbols = ['🔴', '💀']; // Eleven's nosebleed vs Death
       const symbolMap = new Map();
-      playerIds.slice(0, 2).forEach((id, i) => symbolMap.set(id, symbols[i]));
+      // Randomize who gets which symbol and who starts
+      const shuffledTTTPlayers = [...playerIds.slice(0, 2)].sort(() => Math.random() - 0.5);
+      shuffledTTTPlayers.forEach((id, i) => symbolMap.set(id, symbols[i]));
+      const tttStartingPlayer = shuffledTTTPlayers[Math.floor(Math.random() * 2)];
       return {
         board: Array(9).fill(null),
-        currentPlayer: playerIds[0],
+        currentPlayer: tttStartingPlayer,
         playerSymbols: symbolMap,
         winner: null
       };
 
     case 'memory':
-      const memoryItems = [
-        { id: 'demogorgon', emoji: '👹', name: 'Demogorgon' },
-        { id: 'eleven', emoji: '🔴', name: 'Eleven' },
-        { id: 'wednesday', emoji: '🖤', name: 'Wednesday' },
-        { id: 'thing', emoji: '🖐️', name: 'Thing' },
-        { id: 'waffle', emoji: '🧇', name: 'Eggo' },
-        { id: 'cello', emoji: '🎻', name: 'Cello' },
-        { id: 'spider', emoji: '🕷️', name: 'Spider' },
-        { id: 'light', emoji: '💡', name: 'Lights' }
-      ];
-      const cards = [...memoryItems, ...memoryItems]
+      // Randomize starting player
+      const memoryStartingPlayer = playerIds[Math.floor(Math.random() * playerIds.length)];
+      // Default to medium difficulty if not specified
+      const difficulty = room.gameState?.selectedDifficulty || 'medium';
+      const memoryConfig = getMemoryConfig(difficulty);
+      const cards = [...memoryConfig.items, ...memoryConfig.items]
         .sort(() => Math.random() - 0.5)
         .map((item, index) => ({ ...item, index }));
       return {
         cards,
         flipped: [],
         matched: [],
-        currentPlayer: playerIds[0],
-        checking: false
+        currentPlayer: memoryStartingPlayer,
+        checking: false,
+        difficulty,
+        gridCols: memoryConfig.cols
       };
 
     case 'trivia':
@@ -644,12 +892,15 @@ function initializeGame(gameType, room) {
 
     case 'drawing':
       const shuffledPrompts = [...drawingPrompts].sort(() => Math.random() - 0.5);
+      // Randomize starting drawer
+      const shuffledDrawers = [...playerIds].sort(() => Math.random() - 0.5);
       return {
         prompts: shuffledPrompts,
         currentPromptIndex: 0,
         currentPrompt: shuffledPrompts[0],
-        currentDrawer: playerIds[0],
+        currentDrawer: shuffledDrawers[0],
         drawerIndex: 0,
+        drawerOrder: shuffledDrawers,
         guessedPlayers: [],
         roundsPlayed: 0,
         maxRounds: Math.min(playerIds.length * 2, 10)
@@ -658,8 +909,10 @@ function initializeGame(gameType, room) {
     case 'psychic':
       return {
         choices: new Map(),
-        round: 1,
-        maxRounds: 10
+        round: 0, // Start at 0 to show rules first
+        maxRounds: 10,
+        phase: 'rules', // 'rules', 'choosing', 'results'
+        resultsTimer: null
       };
 
     case 'chess':
@@ -681,6 +934,33 @@ function initializeGame(gameType, room) {
         lastMove: null,
         canCastle: { whiteKing: true, whiteQueenside: true, whiteKingside: true, blackKing: true, blackQueenside: true, blackKingside: true },
         enPassantTarget: null
+      };
+
+    case 'reaction':
+      return {
+        round: 1,
+        maxRounds: 10,
+        readyPlayers: new Set(),
+        promptShown: false,
+        promptTime: null,
+        winner: null,
+        winnerTime: null,
+        tooEarly: new Set(),
+        currentPrompt: null
+      };
+
+    case 'wordchain':
+      // Randomize starting player
+      const wcStartPlayer = playerIds[Math.floor(Math.random() * playerIds.length)];
+      // Pick a random starting word
+      const allWords = Object.values(wordChainCategories).flat();
+      const startWord = allWords[Math.floor(Math.random() * allWords.length)];
+      return {
+        currentPlayer: wcStartPlayer,
+        usedWords: [startWord],
+        timeLeft: 15,
+        round: 1,
+        gameOver: false
       };
 
     default:
@@ -909,10 +1189,10 @@ function nextDrawingRound(room, roomId) {
     return;
   }
 
-  // Next drawer
-  const playerIds = Array.from(room.players.keys());
-  state.drawerIndex = (state.drawerIndex + 1) % playerIds.length;
-  state.currentDrawer = playerIds[state.drawerIndex];
+  // Next drawer - use the randomized drawerOrder
+  const drawerOrder = state.drawerOrder || Array.from(room.players.keys());
+  state.drawerIndex = (state.drawerIndex + 1) % drawerOrder.length;
+  state.currentDrawer = drawerOrder[state.drawerIndex];
   state.currentPromptIndex++;
   state.currentPrompt = state.prompts[state.currentPromptIndex];
   state.guessedPlayers = [];
@@ -980,22 +1260,48 @@ function resolvePsychicRound(room, roomId) {
     }
   }
 
+  state.phase = 'results';
   io.to(roomId).emit('psychicResults', {
     choices: Object.fromEntries(state.choices),
     players: room.getPlayerList(),
-    round: state.round
+    round: state.round,
+    maxRounds: state.maxRounds
   });
 
+  // Increased delay from 3s to 5s so players can see results
   setTimeout(() => {
     state.round++;
     state.choices.clear();
+    state.phase = 'choosing';
 
     if (state.round > state.maxRounds) {
       endGame(room, roomId);
     } else {
       io.to(roomId).emit('nextPsychicRound', { round: state.round });
     }
-  }, 3000);
+  }, 5000); // Increased to 5 seconds so players can see results
+}
+
+function startReactionRound(room, roomId) {
+  const state = room.gameState;
+  state.promptShown = false;
+  state.tooEarly.clear();
+  
+  // Random delay between 2-6 seconds
+  const delay = 2000 + Math.random() * 4000;
+  
+  io.to(roomId).emit('reactionWaiting', { round: state.round });
+  
+  setTimeout(() => {
+    if (room.currentGame !== 'reaction') return;
+    
+    const prompt = reactionPrompts[Math.floor(Math.random() * reactionPrompts.length)];
+    state.currentPrompt = prompt;
+    state.promptShown = true;
+    state.promptTime = Date.now();
+    
+    io.to(roomId).emit('reactionPrompt', { prompt });
+  }, delay);
 }
 
 function endGame(room, roomId) {
