@@ -201,20 +201,35 @@ function makeMove(board, from, to) {
   return newBoard;
 }
 
+// Player colors
+const PLAYER_COLORS = [
+  '#e50914', // Red
+  '#05d9e8', // Cyan
+  '#22c55e', // Green
+  '#f59e0b', // Orange
+  '#ec4899', // Pink
+  '#8b5cf6', // Purple
+  '#06b6d4', // Teal
+  '#eab308'  // Yellow
+];
+
 // Room class to manage game state
 class GameRoom {
   constructor(id, hostId, hostName) {
     this.id = id;
     this.hostId = hostId;
     this.players = new Map();
-    this.players.set(hostId, { id: hostId, name: hostName, score: 0, ready: false });
+    this.players.set(hostId, { id: hostId, name: hostName, score: 0, ready: false, color: PLAYER_COLORS[0] });
     this.currentGame = null;
     this.gameState = {};
     this.chat = [];
+    this.colorIndex = 1;
   }
 
   addPlayer(playerId, playerName) {
-    this.players.set(playerId, { id: playerId, name: playerName, score: 0, ready: false });
+    const color = PLAYER_COLORS[this.colorIndex % PLAYER_COLORS.length];
+    this.colorIndex++;
+    this.players.set(playerId, { id: playerId, name: playerName, score: 0, ready: false, color });
   }
 
   removePlayer(playerId) {
@@ -336,6 +351,16 @@ io.on('connection', (socket) => {
           io.to(roomId).emit('reactionShowTarget', { position: room.gameState.targetPosition });
         }
       }, delay);
+    }
+    
+    // Start mole whack game
+    if (gameType === 'molewhack') {
+      startMoleWhackRound(room, roomId);
+    }
+    
+    // Start air hockey with initial puck velocity
+    if (gameType === 'airhockey') {
+      room.gameState.puckVelocity = { x: (Math.random() > 0.5 ? 5 : -5), y: (Math.random() - 0.5) * 4 };
     }
   });
 
@@ -622,6 +647,16 @@ io.on('connection', (socket) => {
         }
       }, delay);
     }
+    
+    // Start mole whack game
+    if (gameType === 'molewhack') {
+      startMoleWhackRound(room, roomId);
+    }
+    
+    // Start air hockey with initial puck velocity
+    if (gameType === 'airhockey') {
+      room.gameState.puckVelocity = { x: (Math.random() > 0.5 ? 5 : -5), y: (Math.random() - 0.5) * 4 };
+    }
   });
 
   // Reaction game - player clicked target
@@ -825,6 +860,373 @@ io.on('connection', (socket) => {
       playerMoves: state.playerMoves,
       players: room.getPlayerList()
     });
+  });
+
+  // Connect 4 move
+  socket.on('connect4Move', (col) => {
+    const roomId = players.get(socket.id);
+    const room = rooms.get(roomId);
+    if (!room || room.currentGame !== 'connect4') return;
+
+    const state = room.gameState;
+    if (state.winner || state.currentPlayer !== socket.id) return;
+    
+    // Find the lowest empty row in the column
+    let row = -1;
+    for (let r = 5; r >= 0; r--) {
+      if (!state.board[r][col]) {
+        row = r;
+        break;
+      }
+    }
+    
+    if (row === -1) return; // Column is full
+    
+    // Place the piece
+    const piece = socket.id === state.player1 ? '🔴' : '🟡';
+    state.board[row][col] = piece;
+    
+    // Check for winner
+    const winner = checkConnect4Winner(state.board, row, col, piece);
+    if (winner) {
+      state.winner = socket.id;
+      state.winningCells = winner;
+      room.players.get(socket.id).score += 10;
+    }
+    
+    // Check for draw
+    const isDraw = !state.winner && state.board[0].every(cell => cell !== null);
+    
+    // Switch turns
+    if (!state.winner && !isDraw) {
+      state.currentPlayer = state.currentPlayer === state.player1 ? state.player2 : state.player1;
+    }
+    
+    io.to(roomId).emit('connect4Update', {
+      board: state.board,
+      currentPlayer: state.currentPlayer,
+      winner: state.winner,
+      winnerName: state.winner ? room.players.get(state.winner).name : null,
+      winningCells: state.winningCells,
+      isDraw,
+      players: room.getPlayerList()
+    });
+  });
+
+  // Mole whack
+  socket.on('whackMole', (moleIndex) => {
+    const roomId = players.get(socket.id);
+    const room = rooms.get(roomId);
+    if (!room || room.currentGame !== 'molewhack') return;
+
+    const state = room.gameState;
+    if (!state.roundActive) return;
+    
+    const moleIdx = state.molePositions.indexOf(moleIndex);
+    if (moleIdx !== -1) {
+      state.molePositions.splice(moleIdx, 1);
+      if (!state.scores[socket.id]) state.scores[socket.id] = 0;
+      state.scores[socket.id] += 10;
+      room.players.get(socket.id).score += 10;
+      
+      io.to(roomId).emit('moleWhacked', {
+        moleIndex,
+        playerId: socket.id,
+        playerName: room.players.get(socket.id).name,
+        scores: state.scores,
+        players: room.getPlayerList()
+      });
+    }
+  });
+
+  // Knife throw
+  socket.on('throwKnife', (angle) => {
+    const roomId = players.get(socket.id);
+    const room = rooms.get(roomId);
+    if (!room || room.currentGame !== 'knife') return;
+
+    const state = room.gameState;
+    if (state.currentPlayer !== socket.id) return;
+    
+    // Check for collision with existing knives
+    const collision = state.thrownKnives.some(k => {
+      const diff = Math.abs(k - angle);
+      return diff < 15 || diff > 345;
+    });
+    
+    if (collision) {
+      // Game over for this player - they hit another knife
+      io.to(roomId).emit('knifeCollision', {
+        playerId: socket.id,
+        playerName: room.players.get(socket.id).name,
+        angle,
+        players: room.getPlayerList()
+      });
+      
+      // Move to next player or end game
+      const playerIds = Array.from(room.players.keys());
+      const currentIndex = playerIds.indexOf(socket.id);
+      state.currentPlayer = playerIds[(currentIndex + 1) % playerIds.length];
+      state.round++;
+      
+      if (state.round > state.maxRounds) {
+        endGame(room, roomId);
+      } else {
+        io.to(roomId).emit('knifeNextTurn', {
+          currentPlayer: state.currentPlayer,
+          round: state.round,
+          thrownKnives: state.thrownKnives
+        });
+      }
+    } else {
+      // Successful throw
+      state.thrownKnives.push(angle);
+      room.players.get(socket.id).score += 10;
+      
+      io.to(roomId).emit('knifeThrown', {
+        playerId: socket.id,
+        playerName: room.players.get(socket.id).name,
+        angle,
+        thrownKnives: state.thrownKnives,
+        players: room.getPlayerList()
+      });
+      
+      // Next player
+      const playerIds = Array.from(room.players.keys());
+      const currentIndex = playerIds.indexOf(socket.id);
+      state.currentPlayer = playerIds[(currentIndex + 1) % playerIds.length];
+      state.round++;
+      
+      if (state.round > state.maxRounds) {
+        endGame(room, roomId);
+      } else {
+        setTimeout(() => {
+          io.to(roomId).emit('knifeNextTurn', {
+            currentPlayer: state.currentPlayer,
+            round: state.round,
+            thrownKnives: state.thrownKnives
+          });
+        }, 1000);
+      }
+    }
+  });
+
+  // Math quiz answer
+  socket.on('mathAnswer', (answerIndex) => {
+    const roomId = players.get(socket.id);
+    const room = rooms.get(roomId);
+    if (!room || room.currentGame !== 'mathquiz') return;
+
+    const state = room.gameState;
+    if (state.answered.includes(socket.id)) return;
+
+    state.answered.push(socket.id);
+    const currentQ = state.questions[state.currentQuestion];
+    const isCorrect = answerIndex === currentQ.correct;
+
+    if (isCorrect) {
+      const player = room.players.get(socket.id);
+      const timeBonus = Math.max(0, Math.floor((state.timeLeft / 15) * 5));
+      player.score += 10 + timeBonus;
+    }
+
+    io.to(roomId).emit('mathPlayerAnswered', {
+      playerId: socket.id,
+      isCorrect,
+      players: room.getPlayerList(),
+      answeredCount: state.answered.length,
+      totalPlayers: room.players.size
+    });
+
+    if (state.answered.length >= room.players.size) {
+      revealMathAnswer(room, roomId);
+    }
+  });
+
+  // Darts throw
+  socket.on('throwDart', (position) => {
+    const roomId = players.get(socket.id);
+    const room = rooms.get(roomId);
+    if (!room || room.currentGame !== 'darts') return;
+
+    const state = room.gameState;
+    if (state.currentPlayer !== socket.id || state.winner) return;
+    
+    // Calculate score based on position (distance from center)
+    const dx = position.x - 150; // Center is at 150, 150
+    const dy = position.y - 150;
+    const distance = Math.sqrt(dx * dx + dy * dy);
+    
+    let points = 0;
+    if (distance < 10) points = 50; // Bullseye
+    else if (distance < 25) points = 25; // Inner bull
+    else if (distance < 50) points = 20;
+    else if (distance < 75) points = 15;
+    else if (distance < 100) points = 10;
+    else if (distance < 125) points = 5;
+    else if (distance < 150) points = 1;
+    
+    if (!state.scores[socket.id]) state.scores[socket.id] = 0;
+    state.scores[socket.id] += points;
+    room.players.get(socket.id).score += points;
+    
+    state.lastThrow = { position, points, playerId: socket.id };
+    state.throwsThisRound++;
+    
+    io.to(roomId).emit('dartThrown', {
+      position,
+      points,
+      playerId: socket.id,
+      playerName: room.players.get(socket.id).name,
+      scores: state.scores,
+      players: room.getPlayerList()
+    });
+    
+    // Check if turn ends
+    if (state.throwsThisRound >= state.maxThrowsPerRound) {
+      state.throwsThisRound = 0;
+      const playerIds = Array.from(room.players.keys());
+      const currentIndex = playerIds.indexOf(socket.id);
+      const nextIndex = (currentIndex + 1) % playerIds.length;
+      
+      if (nextIndex === 0) {
+        state.round++;
+      }
+      
+      if (state.round > state.maxRounds) {
+        endGame(room, roomId);
+      } else {
+        state.currentPlayer = playerIds[nextIndex];
+        io.to(roomId).emit('dartNextTurn', {
+          currentPlayer: state.currentPlayer,
+          round: state.round,
+          throwsRemaining: state.maxThrowsPerRound
+        });
+      }
+    } else {
+      io.to(roomId).emit('dartNextThrow', {
+        throwsRemaining: state.maxThrowsPerRound - state.throwsThisRound
+      });
+    }
+  });
+
+  // Ludo roll dice
+  socket.on('ludoRoll', () => {
+    const roomId = players.get(socket.id);
+    const room = rooms.get(roomId);
+    if (!room || room.currentGame !== 'ludo') return;
+
+    const state = room.gameState;
+    if (state.currentPlayer !== socket.id || !state.canRoll || state.winner) return;
+    
+    const diceValue = Math.floor(Math.random() * 6) + 1;
+    state.diceValue = diceValue;
+    state.canRoll = false;
+    
+    // Check if player can move any piece
+    const canMove = canMoveLudoPiece(state, socket.id, diceValue);
+    
+    io.to(roomId).emit('ludoDiceRolled', {
+      playerId: socket.id,
+      diceValue,
+      canMove,
+      players: room.getPlayerList()
+    });
+    
+    if (!canMove) {
+      // Auto-skip turn if can't move
+      setTimeout(() => {
+        nextLudoTurn(room, roomId, diceValue !== 6);
+      }, 1500);
+    }
+  });
+
+  // Ludo move piece
+  socket.on('ludoMove', (pieceIndex) => {
+    const roomId = players.get(socket.id);
+    const room = rooms.get(roomId);
+    if (!room || room.currentGame !== 'ludo') return;
+
+    const state = room.gameState;
+    if (state.currentPlayer !== socket.id || state.canRoll || state.winner) return;
+    
+    const piece = state.pieces[socket.id][pieceIndex];
+    const diceValue = state.diceValue;
+    
+    // Validate and execute move
+    const moveResult = executeLudoMove(state, socket.id, pieceIndex, diceValue);
+    
+    if (moveResult.valid) {
+      // Check for captures
+      if (moveResult.captured) {
+        room.players.get(socket.id).score += 5;
+      }
+      
+      // Check for reaching home
+      if (moveResult.reachedHome) {
+        room.players.get(socket.id).score += 20;
+      }
+      
+      // Check for winner
+      if (checkLudoWinner(state, socket.id)) {
+        state.winner = socket.id;
+        room.players.get(socket.id).score += 50;
+      }
+      
+      io.to(roomId).emit('ludoMoved', {
+        playerId: socket.id,
+        pieceIndex,
+        newPosition: piece.position,
+        captured: moveResult.captured,
+        reachedHome: moveResult.reachedHome,
+        pieces: state.pieces,
+        winner: state.winner,
+        winnerName: state.winner ? room.players.get(state.winner).name : null,
+        players: room.getPlayerList()
+      });
+      
+      if (!state.winner) {
+        nextLudoTurn(room, roomId, diceValue !== 6);
+      }
+    }
+  });
+
+  // Air hockey paddle move
+  socket.on('paddleMove', (position) => {
+    const roomId = players.get(socket.id);
+    const room = rooms.get(roomId);
+    if (!room || room.currentGame !== 'airhockey') return;
+
+    const state = room.gameState;
+    if (!state.gameActive) return;
+    
+    if (socket.id === state.player1) {
+      state.paddle1 = { x: Math.min(200, Math.max(50, position.x)), y: Math.min(550, Math.max(50, position.y)) };
+    } else if (socket.id === state.player2) {
+      state.paddle2 = { x: Math.min(750, Math.max(600, position.x)), y: Math.min(550, Math.max(50, position.y)) };
+    }
+    
+    io.to(roomId).emit('paddleUpdate', {
+      paddle1: state.paddle1,
+      paddle2: state.paddle2
+    });
+  });
+
+  // Player color change
+  socket.on('changePlayerColor', ({ targetPlayerId, color }) => {
+    const roomId = players.get(socket.id);
+    const room = rooms.get(roomId);
+    if (!room || room.hostId !== socket.id) return;
+    
+    const player = room.players.get(targetPlayerId);
+    if (player) {
+      player.color = color;
+      io.to(roomId).emit('playerColorChanged', {
+        playerId: targetPlayerId,
+        color,
+        players: room.getPlayerList()
+      });
+    }
   });
 
   // End game and return to lobby
@@ -1072,9 +1474,163 @@ function initializeGame(gameType, room, options = {}) {
         completed: false
       };
 
+    case 'connect4':
+      const c4Players = playerIds.slice(0, 2);
+      const shuffledC4 = [...c4Players].sort(() => Math.random() - 0.5);
+      return {
+        board: Array(6).fill(null).map(() => Array(7).fill(null)),
+        currentPlayer: shuffledC4[0],
+        player1: shuffledC4[0],
+        player2: shuffledC4[1],
+        winner: null,
+        winningCells: []
+      };
+
+    case 'molewhack':
+      return {
+        round: 1,
+        maxRounds: 10,
+        molePositions: [],
+        scores: {},
+        roundActive: false,
+        roundStartTime: null
+      };
+
+    case 'knife':
+      return {
+        currentPlayer: getRandomStartingPlayer(playerIds),
+        round: 1,
+        maxRounds: playerIds.length * 3,
+        targetAngle: 0,
+        thrownKnives: [],
+        rotating: true,
+        scores: {}
+      };
+
+    case 'mathquiz':
+      return {
+        currentQuestion: 0,
+        questions: generateMathQuestions(10),
+        answered: [],
+        timeLeft: 15,
+        scores: {}
+      };
+
+    case 'darts':
+      return {
+        currentPlayer: getRandomStartingPlayer(playerIds),
+        round: 1,
+        maxRounds: 3,
+        throwsThisRound: 0,
+        maxThrowsPerRound: 3,
+        scores: {},
+        lastThrow: null
+      };
+
+    case 'ludo':
+      const ludoColors = ['red', 'blue', 'green', 'yellow'];
+      const ludoPlayers = playerIds.slice(0, 4);
+      const ludoPlayerColors = {};
+      ludoPlayers.forEach((id, i) => {
+        ludoPlayerColors[id] = ludoColors[i];
+      });
+      return {
+        players: ludoPlayers,
+        playerColors: ludoPlayerColors,
+        currentPlayer: ludoPlayers[0],
+        pieces: initLudoPieces(ludoPlayers, ludoColors),
+        diceValue: null,
+        canRoll: true,
+        winner: null
+      };
+
+    case 'airhockey':
+      const ahPlayers = playerIds.slice(0, 2);
+      const shuffledAH = [...ahPlayers].sort(() => Math.random() - 0.5);
+      return {
+        player1: shuffledAH[0],
+        player2: shuffledAH[1],
+        score1: 0,
+        score2: 0,
+        maxScore: 7,
+        puckPosition: { x: 400, y: 300 },
+        puckVelocity: { x: 0, y: 0 },
+        paddle1: { x: 100, y: 300 },
+        paddle2: { x: 700, y: 300 },
+        gameActive: true,
+        winner: null
+      };
+
     default:
       return {};
   }
+}
+
+// Generate math questions
+function generateMathQuestions(count) {
+  const questions = [];
+  const operations = ['+', '-', '×', '÷'];
+  
+  for (let i = 0; i < count; i++) {
+    const op = operations[Math.floor(Math.random() * operations.length)];
+    let a, b, answer;
+    
+    switch (op) {
+      case '+':
+        a = Math.floor(Math.random() * 50) + 1;
+        b = Math.floor(Math.random() * 50) + 1;
+        answer = a + b;
+        break;
+      case '-':
+        a = Math.floor(Math.random() * 50) + 20;
+        b = Math.floor(Math.random() * 20) + 1;
+        answer = a - b;
+        break;
+      case '×':
+        a = Math.floor(Math.random() * 12) + 1;
+        b = Math.floor(Math.random() * 12) + 1;
+        answer = a * b;
+        break;
+      case '÷':
+        b = Math.floor(Math.random() * 10) + 1;
+        answer = Math.floor(Math.random() * 10) + 1;
+        a = b * answer;
+        break;
+    }
+    
+    // Generate wrong options
+    const options = [answer];
+    while (options.length < 4) {
+      const wrong = answer + (Math.floor(Math.random() * 20) - 10);
+      if (wrong !== answer && wrong > 0 && !options.includes(wrong)) {
+        options.push(wrong);
+      }
+    }
+    options.sort(() => Math.random() - 0.5);
+    
+    questions.push({
+      question: `${a} ${op} ${b} = ?`,
+      options,
+      correct: options.indexOf(answer)
+    });
+  }
+  
+  return questions;
+}
+
+// Initialize Ludo pieces
+function initLudoPieces(players, colors) {
+  const pieces = {};
+  players.forEach((playerId, index) => {
+    const color = colors[index];
+    pieces[playerId] = [
+      { position: -1, color }, // -1 means in home
+      { position: -1, color },
+      { position: -1, color },
+      { position: -1, color }
+    ];
+  });
+  return pieces;
 }
 
 // Sudoku generator
@@ -1163,6 +1719,142 @@ function isValidSudokuPlacement(board, row, col, num) {
   }
   
   return true;
+}
+
+// Connect 4 winner check
+function checkConnect4Winner(board, row, col, piece) {
+  const directions = [
+    [0, 1],  // horizontal
+    [1, 0],  // vertical
+    [1, 1],  // diagonal down-right
+    [1, -1]  // diagonal down-left
+  ];
+  
+  for (const [dr, dc] of directions) {
+    const cells = [[row, col]];
+    
+    // Check positive direction
+    for (let i = 1; i < 4; i++) {
+      const r = row + dr * i;
+      const c = col + dc * i;
+      if (r >= 0 && r < 6 && c >= 0 && c < 7 && board[r][c] === piece) {
+        cells.push([r, c]);
+      } else break;
+    }
+    
+    // Check negative direction
+    for (let i = 1; i < 4; i++) {
+      const r = row - dr * i;
+      const c = col - dc * i;
+      if (r >= 0 && r < 6 && c >= 0 && c < 7 && board[r][c] === piece) {
+        cells.push([r, c]);
+      } else break;
+    }
+    
+    if (cells.length >= 4) return cells;
+  }
+  
+  return null;
+}
+
+// Math quiz reveal
+function revealMathAnswer(room, roomId) {
+  const state = room.gameState;
+  const currentQ = state.questions[state.currentQuestion];
+
+  io.to(roomId).emit('mathReveal', {
+    correctAnswer: currentQ.correct,
+    players: room.getPlayerList()
+  });
+
+  setTimeout(() => {
+    state.currentQuestion++;
+    state.answered = [];
+
+    if (state.currentQuestion >= state.questions.length) {
+      endGame(room, roomId);
+    } else {
+      state.timeLeft = 15;
+      io.to(roomId).emit('mathNextQuestion', {
+        questionIndex: state.currentQuestion,
+        question: state.questions[state.currentQuestion]
+      });
+    }
+  }, 3000);
+}
+
+// Ludo helper functions
+function canMoveLudoPiece(state, playerId, diceValue) {
+  const pieces = state.pieces[playerId];
+  
+  for (let i = 0; i < 4; i++) {
+    const piece = pieces[i];
+    if (piece.position === -1 && diceValue === 6) return true; // Can leave home
+    if (piece.position >= 0 && piece.position < 56) return true; // Can move on board
+  }
+  
+  return false;
+}
+
+function executeLudoMove(state, playerId, pieceIndex, diceValue) {
+  const piece = state.pieces[playerId][pieceIndex];
+  let captured = null;
+  let reachedHome = false;
+  
+  if (piece.position === -1) {
+    // Leaving home - need 6
+    if (diceValue !== 6) return { valid: false };
+    piece.position = 0; // Start position
+  } else {
+    const newPos = piece.position + diceValue;
+    if (newPos > 56) return { valid: false }; // Can't overshoot home
+    
+    if (newPos === 56) {
+      reachedHome = true;
+      piece.position = 56; // Home!
+    } else {
+      piece.position = newPos;
+      
+      // Check for captures (simplified - not on safe squares)
+      const safeSquares = [0, 8, 13, 21, 26, 34, 39, 47];
+      if (!safeSquares.includes(newPos % 52)) {
+        for (const [otherId, otherPieces] of Object.entries(state.pieces)) {
+          if (otherId !== playerId) {
+            for (const otherPiece of otherPieces) {
+              if (otherPiece.position === newPos && otherPiece.position >= 0 && otherPiece.position < 52) {
+                otherPiece.position = -1; // Send back home
+                captured = otherId;
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+  
+  return { valid: true, captured, reachedHome };
+}
+
+function checkLudoWinner(state, playerId) {
+  const pieces = state.pieces[playerId];
+  return pieces.every(p => p.position === 56);
+}
+
+function nextLudoTurn(room, roomId, switchPlayer) {
+  const state = room.gameState;
+  
+  if (switchPlayer) {
+    const playerIndex = state.players.indexOf(state.currentPlayer);
+    state.currentPlayer = state.players[(playerIndex + 1) % state.players.length];
+  }
+  
+  state.canRoll = true;
+  state.diceValue = null;
+  
+  io.to(roomId).emit('ludoNextTurn', {
+    currentPlayer: state.currentPlayer,
+    players: room.getPlayerList()
+  });
 }
 
 function processGameMove(room, playerId, moveData) {
@@ -1276,6 +1968,39 @@ function endGame(room, roomId) {
   room.currentGame = null;
 }
 
+function startMoleWhackRound(room, roomId) {
+  const state = room.gameState;
+  state.roundActive = true;
+  state.molePositions = [];
+  
+  io.to(roomId).emit('moleRoundStart', { round: state.round });
+  
+  // End round after 10 seconds
+  setTimeout(() => {
+    if (room.currentGame === 'molewhack') {
+      state.roundActive = false;
+      state.round++;
+      
+      io.to(roomId).emit('moleRoundEnd', {
+        round: state.round - 1,
+        scores: state.scores,
+        players: room.getPlayerList()
+      });
+      
+      if (state.round > state.maxRounds) {
+        endGame(room, roomId);
+      } else {
+        // Start next round after 3 seconds
+        setTimeout(() => {
+          if (room.currentGame === 'molewhack') {
+            startMoleWhackRound(room, roomId);
+          }
+        }, 3000);
+      }
+    }
+  }, 10000);
+}
+
 // Trivia timer
 setInterval(() => {
   rooms.forEach((room, roomId) => {
@@ -1287,8 +2012,127 @@ setInterval(() => {
         revealTriviaAnswer(room, roomId);
       }
     }
+    
+    // Math quiz timer
+    if (room.currentGame === 'mathquiz' && room.gameState.timeLeft > 0) {
+      room.gameState.timeLeft--;
+      io.to(roomId).emit('mathTimer', { timeLeft: room.gameState.timeLeft });
+      
+      if (room.gameState.timeLeft === 0) {
+        revealMathAnswer(room, roomId);
+      }
+    }
+    
+    // Mole whack game - spawn moles
+    if (room.currentGame === 'molewhack' && room.gameState.roundActive) {
+      // Randomly spawn moles
+      if (Math.random() < 0.3 && room.gameState.molePositions.length < 3) {
+        const newMole = Math.floor(Math.random() * 9);
+        if (!room.gameState.molePositions.includes(newMole)) {
+          room.gameState.molePositions.push(newMole);
+          io.to(roomId).emit('moleSpawned', { moleIndex: newMole });
+          
+          // Auto-hide mole after 1.5 seconds
+          setTimeout(() => {
+            const idx = room.gameState.molePositions.indexOf(newMole);
+            if (idx !== -1) {
+              room.gameState.molePositions.splice(idx, 1);
+              io.to(roomId).emit('moleHidden', { moleIndex: newMole });
+            }
+          }, 1500);
+        }
+      }
+    }
   });
 }, 1000);
+
+// Air hockey physics update (60fps)
+setInterval(() => {
+  rooms.forEach((room, roomId) => {
+    if (room.currentGame === 'airhockey' && room.gameState.gameActive) {
+      const state = room.gameState;
+      
+      // Update puck position
+      state.puckPosition.x += state.puckVelocity.x;
+      state.puckPosition.y += state.puckVelocity.y;
+      
+      // Apply friction
+      state.puckVelocity.x *= 0.99;
+      state.puckVelocity.y *= 0.99;
+      
+      // Wall collisions
+      if (state.puckPosition.y <= 20 || state.puckPosition.y >= 580) {
+        state.puckVelocity.y *= -0.9;
+        state.puckPosition.y = Math.max(20, Math.min(580, state.puckPosition.y));
+      }
+      
+      // Goal detection
+      if (state.puckPosition.x <= 20) {
+        if (state.puckPosition.y > 200 && state.puckPosition.y < 400) {
+          // Player 2 scores
+          state.score2++;
+          resetPuck(state, 1);
+          io.to(roomId).emit('goalScored', { scorer: state.player2, score1: state.score1, score2: state.score2 });
+          
+          if (state.score2 >= state.maxScore) {
+            state.winner = state.player2;
+            state.gameActive = false;
+            room.players.get(state.player2).score += 20;
+            endGame(room, roomId);
+          }
+        } else {
+          state.puckVelocity.x *= -0.9;
+          state.puckPosition.x = 20;
+        }
+      }
+      
+      if (state.puckPosition.x >= 780) {
+        if (state.puckPosition.y > 200 && state.puckPosition.y < 400) {
+          // Player 1 scores
+          state.score1++;
+          resetPuck(state, 2);
+          io.to(roomId).emit('goalScored', { scorer: state.player1, score1: state.score1, score2: state.score2 });
+          
+          if (state.score1 >= state.maxScore) {
+            state.winner = state.player1;
+            state.gameActive = false;
+            room.players.get(state.player1).score += 20;
+            endGame(room, roomId);
+          }
+        } else {
+          state.puckVelocity.x *= -0.9;
+          state.puckPosition.x = 780;
+        }
+      }
+      
+      // Paddle collisions
+      const paddles = [state.paddle1, state.paddle2];
+      for (const paddle of paddles) {
+        const dx = state.puckPosition.x - paddle.x;
+        const dy = state.puckPosition.y - paddle.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        
+        if (dist < 40) {
+          const angle = Math.atan2(dy, dx);
+          state.puckVelocity.x = Math.cos(angle) * 10;
+          state.puckVelocity.y = Math.sin(angle) * 10;
+          state.puckPosition.x = paddle.x + Math.cos(angle) * 45;
+          state.puckPosition.y = paddle.y + Math.sin(angle) * 45;
+        }
+      }
+      
+      io.to(roomId).emit('puckUpdate', {
+        position: state.puckPosition,
+        velocity: state.puckVelocity
+      });
+    }
+  });
+}, 16);
+
+function resetPuck(state, direction) {
+  state.puckPosition = { x: 400, y: 300 };
+  state.puckVelocity = { x: direction === 1 ? 5 : -5, y: (Math.random() - 0.5) * 4 };
+}
 
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {

@@ -219,11 +219,20 @@ function updatePlayersList(players) {
   state.players = players;
   elements.playersList.innerHTML = players.map(p => `
     <div class="player-item ${p.id === state.playerId && state.isHost ? 'host' : ''}">
-      <span class="player-name">${escapeHtml(p.name)}</span>
+      <span class="player-color-indicator" style="background: ${p.color || '#e50914'}"></span>
+      <span class="player-name" style="color: ${p.color || '#e50914'}">${escapeHtml(p.name)}</span>
       ${p.id === state.playerId && state.isHost ? '<span class="host-badge">👑 Host</span>' : ''}
+      ${state.isHost && p.id !== state.playerId ? `<button class="color-change-btn" data-player-id="${p.id}" title="Change color">🎨</button>` : ''}
       <span class="score">⭐ ${p.score}</span>
     </div>
   `).join('');
+  
+  // Add color change click handlers for host
+  if (state.isHost) {
+    document.querySelectorAll('.color-change-btn').forEach(btn => {
+      btn.addEventListener('click', () => showColorPicker(btn.dataset.playerId));
+    });
+  }
   
   // Show game selection only for host, show waiting message for others
   if (state.isHost) {
@@ -271,6 +280,41 @@ function updatePlayersList(players) {
           <span class="game-name">Vecna's<br>Sudoku</span>
           <span class="game-players">2+ players</span>
         </button>
+        <button class="game-card" data-game="connect4">
+          <span class="game-icon">🔴🟡</span>
+          <span class="game-name">4 in<br>a Row</span>
+          <span class="game-players">2 players</span>
+        </button>
+        <button class="game-card" data-game="molewhack">
+          <span class="game-icon">🔨🐹</span>
+          <span class="game-name">Mole<br>Whacker</span>
+          <span class="game-players">2+ players</span>
+        </button>
+        <button class="game-card" data-game="knife">
+          <span class="game-icon">🔪🎯</span>
+          <span class="game-name">Knife<br>Thrower</span>
+          <span class="game-players">2+ players</span>
+        </button>
+        <button class="game-card" data-game="mathquiz">
+          <span class="game-icon">🔢➕</span>
+          <span class="game-name">Math<br>Quiz</span>
+          <span class="game-players">2+ players</span>
+        </button>
+        <button class="game-card" data-game="darts">
+          <span class="game-icon">🎯</span>
+          <span class="game-name">Darts</span>
+          <span class="game-players">2+ players</span>
+        </button>
+        <button class="game-card" data-game="ludo">
+          <span class="game-icon">🎲</span>
+          <span class="game-name">Ludo</span>
+          <span class="game-players">2-4 players</span>
+        </button>
+        <button class="game-card" data-game="airhockey">
+          <span class="game-icon">🏒</span>
+          <span class="game-name">Air<br>Hockey</span>
+          <span class="game-players">2 players</span>
+        </button>
       </div>
     `;
     // Re-attach event listeners for game cards
@@ -292,6 +336,53 @@ function handleGameSelection(gameType) {
   } else {
     startGame(gameType);
   }
+}
+
+// Player colors
+const PLAYER_COLORS = [
+  '#e50914', // Red
+  '#05d9e8', // Cyan
+  '#22c55e', // Green
+  '#f59e0b', // Orange
+  '#ec4899', // Pink
+  '#8b5cf6', // Purple
+  '#06b6d4', // Teal
+  '#eab308'  // Yellow
+];
+
+// Show color picker for host to change player colors
+function showColorPicker(playerId) {
+  const player = state.players.find(p => p.id === playerId);
+  if (!player) return;
+  
+  const modal = document.createElement('div');
+  modal.className = 'modal active';
+  modal.id = 'colorPickerModal';
+  modal.innerHTML = `
+    <div class="modal-content">
+      <h2>🎨 Change Color for ${escapeHtml(player.name)}</h2>
+      <div class="color-picker-grid">
+        ${PLAYER_COLORS.map(color => `
+          <button class="color-option ${player.color === color ? 'selected' : ''}" 
+                  data-color="${color}" 
+                  style="background: ${color}"></button>
+        `).join('')}
+      </div>
+      <button class="btn btn-secondary" id="cancelColorBtn" style="margin-top: 20px;">Cancel</button>
+    </div>
+  `;
+  document.body.appendChild(modal);
+  
+  modal.querySelectorAll('.color-option').forEach(btn => {
+    btn.addEventListener('click', () => {
+      socket.emit('changePlayerColor', { targetPlayerId: playerId, color: btn.dataset.color });
+      modal.remove();
+    });
+  });
+  
+  document.getElementById('cancelColorBtn').addEventListener('click', () => {
+    modal.remove();
+  });
 }
 
 // Show memory difficulty selection modal
@@ -1667,6 +1758,27 @@ socket.on('gameStarted', (data) => {
     case 'sudoku':
       initSudokuGame(data.gameState, data.players);
       break;
+    case 'connect4':
+      initConnect4Game(data.gameState, data.players);
+      break;
+    case 'molewhack':
+      initMoleWhackGame(data.gameState, data.players);
+      break;
+    case 'knife':
+      initKnifeGame(data.gameState, data.players);
+      break;
+    case 'mathquiz':
+      initMathQuizGame(data.gameState, data.players);
+      break;
+    case 'darts':
+      initDartsGame(data.gameState, data.players);
+      break;
+    case 'ludo':
+      initLudoGame(data.gameState, data.players);
+      break;
+    case 'airhockey':
+      initAirHockeyGame(data.gameState, data.players);
+      break;
   }
 });
 
@@ -1718,6 +1830,49 @@ socket.on('wordchainTimeout', handleWordchainTimeout);
 // Sudoku
 socket.on('sudokuUpdate', handleSudokuUpdate);
 socket.on('sudokuComplete', handleSudokuComplete);
+
+// Connect 4
+socket.on('connect4Update', handleConnect4Update);
+
+// Mole Whack
+socket.on('moleRoundStart', handleMoleRoundStart);
+socket.on('moleSpawned', handleMoleSpawned);
+socket.on('moleWhacked', handleMoleWhacked);
+socket.on('moleHidden', handleMoleHidden);
+socket.on('moleRoundEnd', handleMoleRoundEnd);
+
+// Knife Thrower
+socket.on('knifeThrown', handleKnifeThrown);
+socket.on('knifeCollision', handleKnifeCollision);
+socket.on('knifeNextTurn', handleKnifeNextTurn);
+
+// Math Quiz
+socket.on('mathTimer', (data) => updateMathTimer(data.timeLeft));
+socket.on('mathPlayerAnswered', handleMathPlayerAnswered);
+socket.on('mathReveal', handleMathReveal);
+socket.on('mathNextQuestion', handleMathNextQuestion);
+
+// Darts
+socket.on('dartThrown', handleDartThrown);
+socket.on('dartNextTurn', handleDartNextTurn);
+socket.on('dartNextThrow', handleDartNextThrow);
+
+// Ludo
+socket.on('ludoDiceRolled', handleLudoDiceRolled);
+socket.on('ludoMoved', handleLudoMoved);
+socket.on('ludoNextTurn', handleLudoNextTurn);
+
+// Air Hockey
+socket.on('puckUpdate', handlePuckUpdate);
+socket.on('paddleUpdate', handlePaddleUpdate);
+socket.on('goalScored', handleGoalScored);
+
+// Player color changed
+socket.on('playerColorChanged', (data) => {
+  const player = state.players.find(p => p.id === data.playerId);
+  if (player) player.color = data.color;
+  updatePlayersList(data.players);
+});
 
 // Game end
 socket.on('gameEnded', (data) => {
@@ -1792,6 +1947,27 @@ socket.on('gameRestarted', (data) => {
       break;
     case 'sudoku':
       initSudokuGame(data.gameState, data.players);
+      break;
+    case 'connect4':
+      initConnect4Game(data.gameState, data.players);
+      break;
+    case 'molewhack':
+      initMoleWhackGame(data.gameState, data.players);
+      break;
+    case 'knife':
+      initKnifeGame(data.gameState, data.players);
+      break;
+    case 'mathquiz':
+      initMathQuizGame(data.gameState, data.players);
+      break;
+    case 'darts':
+      initDartsGame(data.gameState, data.players);
+      break;
+    case 'ludo':
+      initLudoGame(data.gameState, data.players);
+      break;
+    case 'airhockey':
+      initAirHockeyGame(data.gameState, data.players);
       break;
   }
 });
@@ -1947,6 +2123,633 @@ function handleSudokuComplete(data) {
   
   updateScoreBoard(data.players);
   showPlayAgainButton('sudoku');
+}
+
+// ============================================
+// CONNECT 4 GAME
+// ============================================
+
+function initConnect4Game(gameState, players) {
+  state.gameState = gameState;
+  elements.gameTitle.textContent = '🔴 4 in a Row 🟡';
+  
+  const player1 = players.find(p => p.id === gameState.player1);
+  const player2 = players.find(p => p.id === gameState.player2);
+  const isMyTurn = gameState.currentPlayer === state.playerId;
+  
+  renderConnect4Board(gameState, player1, player2, isMyTurn);
+  updateScoreBoard(players, gameState.currentPlayer);
+}
+
+function renderConnect4Board(gameState, player1, player2, isMyTurn) {
+  elements.gameContent.innerHTML = `
+    <div class="connect4-container">
+      <div class="connect4-status" id="connect4Status">
+        ${gameState.winner ? `🏆 ${gameState.currentPlayer === state.playerId ? 'You win!' : 'Opponent wins!'}` : 
+          (isMyTurn ? "🎯 Your turn!" : "⏳ Opponent's turn...")}
+      </div>
+      <div class="connect4-players">
+        <span class="c4-player ${gameState.currentPlayer === gameState.player1 ? 'active' : ''}">
+          🔴 ${escapeHtml(player1?.name || 'Player 1')}
+        </span>
+        <span class="c4-player ${gameState.currentPlayer === gameState.player2 ? 'active' : ''}">
+          🟡 ${escapeHtml(player2?.name || 'Player 2')}
+        </span>
+      </div>
+      <div class="connect4-board" id="connect4Board">
+        ${[0,1,2,3,4,5].map(row => 
+          [0,1,2,3,4,5,6].map(col => {
+            const cell = gameState.board[row][col];
+            const isWinning = gameState.winningCells?.some(([r,c]) => r === row && c === col);
+            return `<div class="c4-cell ${isWinning ? 'winning' : ''}" data-row="${row}" data-col="${col}">
+              ${cell || ''}
+            </div>`;
+          }).join('')
+        ).join('')}
+      </div>
+    </div>
+  `;
+  
+  if (!gameState.winner && !gameState.isDraw && isMyTurn) {
+    document.querySelectorAll('.c4-cell').forEach(cell => {
+      cell.addEventListener('click', () => {
+        const col = parseInt(cell.dataset.col);
+        socket.emit('connect4Move', col);
+      });
+    });
+  }
+  
+  if (gameState.winner || gameState.isDraw) {
+    showPlayAgainButton('connect4');
+  }
+}
+
+function handleConnect4Update(data) {
+  state.gameState.board = data.board;
+  state.gameState.currentPlayer = data.currentPlayer;
+  state.gameState.winner = data.winner;
+  state.gameState.winningCells = data.winningCells;
+  
+  const player1 = state.players.find(p => p.id === state.gameState.player1);
+  const player2 = state.players.find(p => p.id === state.gameState.player2);
+  const isMyTurn = data.currentPlayer === state.playerId;
+  
+  renderConnect4Board(state.gameState, player1, player2, isMyTurn);
+  updateScoreBoard(data.players, data.currentPlayer);
+}
+
+// ============================================
+// MOLE WHACK GAME
+// ============================================
+
+function initMoleWhackGame(gameState, players) {
+  state.gameState = gameState;
+  state.gameState.moles = Array(9).fill(false);
+  elements.gameTitle.textContent = '🔨 Mole Whacker 🐹';
+  
+  elements.gameContent.innerHTML = `
+    <div class="mole-container">
+      <div class="mole-status" id="moleStatus">Get Ready!</div>
+      <div class="mole-round" id="moleRound">Round 1/${gameState.maxRounds}</div>
+      <div class="mole-board" id="moleBoard">
+        ${[0,1,2,3,4,5,6,7,8].map(i => `
+          <div class="mole-hole" data-index="${i}">
+            <div class="mole" id="mole-${i}">🐹</div>
+          </div>
+        `).join('')}
+      </div>
+    </div>
+  `;
+  
+  updateScoreBoard(players);
+  setupMoleClickHandlers();
+}
+
+function setupMoleClickHandlers() {
+  document.querySelectorAll('.mole-hole').forEach(hole => {
+    hole.addEventListener('click', () => {
+      const index = parseInt(hole.dataset.index);
+      socket.emit('whackMole', index);
+    });
+  });
+}
+
+function handleMoleRoundStart(data) {
+  state.gameState.round = data.round;
+  const statusEl = document.getElementById('moleStatus');
+  const roundEl = document.getElementById('moleRound');
+  if (statusEl) statusEl.textContent = '🔨 WHACK THE MOLES!';
+  if (roundEl) roundEl.textContent = `Round ${data.round}/${state.gameState.maxRounds}`;
+}
+
+function handleMoleSpawned(data) {
+  const mole = document.getElementById(`mole-${data.moleIndex}`);
+  if (mole) {
+    mole.classList.add('visible');
+  }
+}
+
+function handleMoleWhacked(data) {
+  const mole = document.getElementById(`mole-${data.moleIndex}`);
+  if (mole) {
+    mole.classList.remove('visible');
+    mole.classList.add('whacked');
+    setTimeout(() => mole.classList.remove('whacked'), 200);
+  }
+  updateScoreBoard(data.players);
+}
+
+function handleMoleHidden(data) {
+  const mole = document.getElementById(`mole-${data.moleIndex}`);
+  if (mole) {
+    mole.classList.remove('visible');
+  }
+}
+
+function handleMoleRoundEnd(data) {
+  const statusEl = document.getElementById('moleStatus');
+  if (statusEl) {
+    if (data.round >= state.gameState.maxRounds) {
+      statusEl.textContent = '🎉 Game Over!';
+      showPlayAgainButton('mole');
+    } else {
+      statusEl.textContent = `Round ${data.round} Complete! Next round starting...`;
+    }
+  }
+  updateScoreBoard(data.players);
+}
+
+// ============================================
+// KNIFE THROWER GAME
+// ============================================
+
+function initKnifeGame(gameState, players) {
+  state.gameState = gameState;
+  state.gameState.rotation = 0;
+  elements.gameTitle.textContent = '🔪 Knife Thrower 🎯';
+  
+  const currentPlayerName = players.find(p => p.id === gameState.currentPlayer)?.name || 'Unknown';
+  const isMyTurn = gameState.currentPlayer === state.playerId;
+  
+  elements.gameContent.innerHTML = `
+    <div class="knife-container">
+      <div class="knife-status" id="knifeStatus">
+        ${isMyTurn ? '🎯 Click to throw!' : `Waiting for ${escapeHtml(currentPlayerName)}...`}
+      </div>
+      <div class="knife-target-container" id="knifeTarget">
+        <div class="knife-target">
+          <div class="target-center"></div>
+          ${gameState.thrownKnives.map(angle => `
+            <div class="thrown-knife" style="transform: rotate(${angle}deg) translateY(-120px)">🔪</div>
+          `).join('')}
+        </div>
+      </div>
+      <div class="knife-info">Round ${gameState.round}/${gameState.maxRounds}</div>
+    </div>
+  `;
+  
+  if (isMyTurn) {
+    document.getElementById('knifeTarget').addEventListener('click', () => {
+      const angle = (state.gameState.rotation % 360);
+      socket.emit('throwKnife', angle);
+    });
+  }
+  
+  // Start rotation animation
+  animateKnifeTarget();
+  updateScoreBoard(players, gameState.currentPlayer);
+}
+
+function animateKnifeTarget() {
+  if (state.currentGame !== 'knife') return;
+  
+  state.gameState.rotation = (state.gameState.rotation + 2) % 360;
+  const target = document.querySelector('.knife-target');
+  if (target) {
+    target.style.transform = `rotate(${state.gameState.rotation}deg)`;
+  }
+  requestAnimationFrame(animateKnifeTarget);
+}
+
+function handleKnifeThrown(data) {
+  state.gameState.thrownKnives = data.thrownKnives;
+  updateScoreBoard(data.players);
+  
+  // Add the knife to the display
+  const target = document.querySelector('.knife-target');
+  if (target) {
+    const knife = document.createElement('div');
+    knife.className = 'thrown-knife new';
+    knife.style.transform = `rotate(${data.angle}deg) translateY(-120px)`;
+    knife.innerHTML = '🔪';
+    target.appendChild(knife);
+  }
+}
+
+function handleKnifeCollision(data) {
+  const statusEl = document.getElementById('knifeStatus');
+  if (statusEl) {
+    statusEl.textContent = `💥 ${data.playerName} hit another knife!`;
+  }
+}
+
+function handleKnifeNextTurn(data) {
+  state.gameState.currentPlayer = data.currentPlayer;
+  state.gameState.round = data.round;
+  
+  const currentPlayerName = state.players.find(p => p.id === data.currentPlayer)?.name || 'Unknown';
+  const isMyTurn = data.currentPlayer === state.playerId;
+  
+  const statusEl = document.getElementById('knifeStatus');
+  if (statusEl) {
+    statusEl.textContent = isMyTurn ? '🎯 Click to throw!' : `Waiting for ${escapeHtml(currentPlayerName)}...`;
+  }
+  
+  const infoEl = document.querySelector('.knife-info');
+  if (infoEl) {
+    infoEl.textContent = `Round ${data.round}/${state.gameState.maxRounds}`;
+  }
+  
+  // Re-attach click handler if it's our turn
+  if (isMyTurn) {
+    document.getElementById('knifeTarget')?.addEventListener('click', () => {
+      const angle = (state.gameState.rotation % 360);
+      socket.emit('throwKnife', angle);
+    });
+  }
+}
+
+// ============================================
+// MATH QUIZ GAME
+// ============================================
+
+function initMathQuizGame(gameState, players) {
+  state.gameState = gameState;
+  state.gameState.selectedAnswer = null;
+  elements.gameTitle.textContent = '🔢 Math Quiz ➕';
+  
+  showMathQuestion(0, gameState.questions[0], 15);
+  updateScoreBoard(players);
+}
+
+function showMathQuestion(index, question, timeLeft) {
+  state.gameState.currentQuestion = index;
+  state.gameState.timeLeft = timeLeft;
+  state.gameState.selectedAnswer = null;
+  
+  elements.gameContent.innerHTML = `
+    <div class="math-container">
+      <div class="math-timer" id="mathTimer">${timeLeft}</div>
+      <div class="math-progress">Question ${index + 1} of ${state.gameState.questions.length}</div>
+      <div class="math-question">${escapeHtml(question.question)}</div>
+      <div class="math-options" id="mathOptions">
+        ${question.options.map((opt, i) => `
+          <button class="math-option" data-index="${i}">${opt}</button>
+        `).join('')}
+      </div>
+    </div>
+  `;
+  
+  document.querySelectorAll('.math-option').forEach(option => {
+    option.addEventListener('click', () => {
+      if (state.gameState.selectedAnswer !== null) return;
+      state.gameState.selectedAnswer = parseInt(option.dataset.index);
+      option.classList.add('selected');
+      socket.emit('mathAnswer', state.gameState.selectedAnswer);
+    });
+  });
+}
+
+function updateMathTimer(timeLeft) {
+  const timer = document.getElementById('mathTimer');
+  if (timer) {
+    timer.textContent = timeLeft;
+    if (timeLeft <= 5) {
+      timer.classList.add('warning');
+    }
+  }
+}
+
+function handleMathPlayerAnswered(data) {
+  updateScoreBoard(data.players);
+}
+
+function handleMathReveal(data) {
+  const options = document.querySelectorAll('.math-option');
+  options.forEach((opt, i) => {
+    opt.classList.add('revealed');
+    if (i === data.correctAnswer) {
+      opt.classList.add('correct');
+    } else if (i === state.gameState.selectedAnswer) {
+      opt.classList.add('wrong');
+    }
+  });
+  updateScoreBoard(data.players);
+}
+
+function handleMathNextQuestion(data) {
+  showMathQuestion(data.questionIndex, data.question, 15);
+}
+
+// ============================================
+// DARTS GAME
+// ============================================
+
+function initDartsGame(gameState, players) {
+  state.gameState = gameState;
+  elements.gameTitle.textContent = '🎯 Darts';
+  
+  const currentPlayerName = players.find(p => p.id === gameState.currentPlayer)?.name || 'Unknown';
+  const isMyTurn = gameState.currentPlayer === state.playerId;
+  
+  elements.gameContent.innerHTML = `
+    <div class="darts-container">
+      <div class="darts-status" id="dartsStatus">
+        ${isMyTurn ? '🎯 Click to throw!' : `Waiting for ${escapeHtml(currentPlayerName)}...`}
+      </div>
+      <div class="darts-info">
+        Round ${gameState.round}/${gameState.maxRounds} • Throws: ${gameState.maxThrowsPerRound - gameState.throwsThisRound}
+      </div>
+      <div class="dartboard" id="dartboard">
+        <div class="dartboard-ring ring-1"></div>
+        <div class="dartboard-ring ring-2"></div>
+        <div class="dartboard-ring ring-3"></div>
+        <div class="dartboard-ring ring-4"></div>
+        <div class="dartboard-ring ring-5"></div>
+        <div class="dartboard-bullseye"></div>
+      </div>
+      <div class="darts-scores" id="dartsScores">
+        ${players.map(p => `
+          <span>${escapeHtml(p.name)}: ${gameState.scores[p.id] || 0}</span>
+        `).join(' | ')}
+      </div>
+    </div>
+  `;
+  
+  if (isMyTurn) {
+    const dartboard = document.getElementById('dartboard');
+    dartboard.addEventListener('click', (e) => {
+      const rect = dartboard.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const y = e.clientY - rect.top;
+      socket.emit('throwDart', { x, y });
+    });
+  }
+  
+  updateScoreBoard(players, gameState.currentPlayer);
+}
+
+function handleDartThrown(data) {
+  const dartboard = document.getElementById('dartboard');
+  if (dartboard) {
+    const dart = document.createElement('div');
+    dart.className = 'dart-marker';
+    dart.style.left = `${data.position.x}px`;
+    dart.style.top = `${data.position.y}px`;
+    dart.innerHTML = `🎯<span class="dart-points">+${data.points}</span>`;
+    dartboard.appendChild(dart);
+  }
+  
+  state.gameState.scores = data.scores;
+  document.getElementById('dartsScores').innerHTML = state.players.map(p => `
+    <span>${escapeHtml(p.name)}: ${data.scores[p.id] || 0}</span>
+  `).join(' | ');
+  
+  updateScoreBoard(data.players);
+}
+
+function handleDartNextTurn(data) {
+  state.gameState.currentPlayer = data.currentPlayer;
+  state.gameState.round = data.round;
+  
+  const currentPlayerName = state.players.find(p => p.id === data.currentPlayer)?.name || 'Unknown';
+  const isMyTurn = data.currentPlayer === state.playerId;
+  
+  // Clear darts from board
+  document.querySelectorAll('.dart-marker').forEach(d => d.remove());
+  
+  document.getElementById('dartsStatus').textContent = 
+    isMyTurn ? '🎯 Click to throw!' : `Waiting for ${escapeHtml(currentPlayerName)}...`;
+  
+  document.querySelector('.darts-info').textContent = 
+    `Round ${data.round}/${state.gameState.maxRounds} • Throws: ${data.throwsRemaining}`;
+  
+  if (isMyTurn) {
+    const dartboard = document.getElementById('dartboard');
+    dartboard.addEventListener('click', (e) => {
+      const rect = dartboard.getBoundingClientRect();
+      socket.emit('throwDart', { x: e.clientX - rect.left, y: e.clientY - rect.top });
+    });
+  }
+}
+
+function handleDartNextThrow(data) {
+  document.querySelector('.darts-info').textContent = 
+    `Round ${state.gameState.round}/${state.gameState.maxRounds} • Throws: ${data.throwsRemaining}`;
+}
+
+// ============================================
+// LUDO GAME
+// ============================================
+
+function initLudoGame(gameState, players) {
+  state.gameState = gameState;
+  elements.gameTitle.textContent = '🎲 Ludo';
+  
+  renderLudoBoard(gameState, players);
+  updateScoreBoard(players, gameState.currentPlayer);
+}
+
+function renderLudoBoard(gameState, players) {
+  const currentPlayerName = players.find(p => p.id === gameState.currentPlayer)?.name || 'Unknown';
+  const isMyTurn = gameState.currentPlayer === state.playerId;
+  const myColor = gameState.playerColors[state.playerId];
+  
+  elements.gameContent.innerHTML = `
+    <div class="ludo-container">
+      <div class="ludo-status" id="ludoStatus">
+        ${gameState.winner ? `🏆 ${players.find(p => p.id === gameState.winner)?.name} wins!` :
+          (isMyTurn ? "🎲 Your turn!" : `Waiting for ${escapeHtml(currentPlayerName)}...`)}
+      </div>
+      <div class="ludo-dice-area">
+        <div class="ludo-dice" id="ludoDice">${gameState.diceValue || '🎲'}</div>
+        ${isMyTurn && gameState.canRoll ? `<button class="btn btn-primary" id="rollDiceBtn">Roll Dice</button>` : ''}
+      </div>
+      <div class="ludo-board" id="ludoBoard">
+        <div class="ludo-info">
+          ${players.filter(p => gameState.playerColors[p.id]).map(p => `
+            <span class="ludo-player-info" style="color: ${gameState.playerColors[p.id]}">
+              ● ${escapeHtml(p.name)}
+            </span>
+          `).join('')}
+        </div>
+        <div class="ludo-pieces">
+          ${Object.entries(gameState.pieces).map(([playerId, pieces]) => 
+            pieces.map((piece, idx) => `
+              <div class="ludo-piece ${playerId === state.playerId ? 'mine' : ''}" 
+                   data-player="${playerId}" data-index="${idx}"
+                   style="background: ${piece.color}">
+                ${piece.position === -1 ? '⚫' : (piece.position === 56 ? '🏠' : idx + 1)}
+              </div>
+            `).join('')
+          ).join('')}
+        </div>
+      </div>
+    </div>
+  `;
+  
+  if (isMyTurn && gameState.canRoll) {
+    document.getElementById('rollDiceBtn')?.addEventListener('click', () => {
+      socket.emit('ludoRoll');
+    });
+  }
+  
+  if (gameState.winner) {
+    showPlayAgainButton('ludo');
+  }
+}
+
+function handleLudoDiceRolled(data) {
+  state.gameState.diceValue = data.diceValue;
+  state.gameState.canRoll = false;
+  
+  const diceEl = document.getElementById('ludoDice');
+  if (diceEl) {
+    diceEl.textContent = data.diceValue;
+    diceEl.classList.add('rolled');
+  }
+  
+  document.getElementById('rollDiceBtn')?.remove();
+  
+  if (data.playerId === state.playerId && data.canMove) {
+    // Enable piece selection
+    document.querySelectorAll('.ludo-piece.mine').forEach((piece, idx) => {
+      piece.classList.add('selectable');
+      piece.addEventListener('click', () => {
+        socket.emit('ludoMove', idx);
+      });
+    });
+  }
+}
+
+function handleLudoMoved(data) {
+  state.gameState.pieces = data.pieces;
+  state.gameState.winner = data.winner;
+  
+  renderLudoBoard(state.gameState, state.players);
+  updateScoreBoard(data.players);
+}
+
+function handleLudoNextTurn(data) {
+  state.gameState.currentPlayer = data.currentPlayer;
+  state.gameState.canRoll = true;
+  state.gameState.diceValue = null;
+  
+  renderLudoBoard(state.gameState, state.players);
+  updateScoreBoard(data.players, data.currentPlayer);
+}
+
+// ============================================
+// AIR HOCKEY GAME
+// ============================================
+
+function initAirHockeyGame(gameState, players) {
+  state.gameState = gameState;
+  elements.gameTitle.textContent = '🏒 Air Hockey';
+  
+  const player1 = players.find(p => p.id === gameState.player1);
+  const player2 = players.find(p => p.id === gameState.player2);
+  const isPlayer1 = state.playerId === gameState.player1;
+  const isPlayer2 = state.playerId === gameState.player2;
+  
+  elements.gameContent.innerHTML = `
+    <div class="airhockey-container">
+      <div class="airhockey-scores">
+        <span class="ah-score p1">${escapeHtml(player1?.name || 'P1')}: ${gameState.score1}</span>
+        <span class="ah-score p2">${escapeHtml(player2?.name || 'P2')}: ${gameState.score2}</span>
+      </div>
+      <div class="airhockey-table" id="airhockeyTable">
+        <div class="ah-goal left"></div>
+        <div class="ah-goal right"></div>
+        <div class="ah-center-line"></div>
+        <div class="ah-center-circle"></div>
+        <div class="ah-puck" id="ahPuck"></div>
+        <div class="ah-paddle p1" id="ahPaddle1"></div>
+        <div class="ah-paddle p2" id="ahPaddle2"></div>
+      </div>
+      <div class="airhockey-info">First to ${gameState.maxScore} wins!</div>
+    </div>
+  `;
+  
+  // Set initial positions
+  updatePuckPosition(gameState.puckPosition);
+  updatePaddlePositions(gameState.paddle1, gameState.paddle2);
+  
+  // Add paddle movement
+  if (isPlayer1 || isPlayer2) {
+    const table = document.getElementById('airhockeyTable');
+    table.addEventListener('mousemove', (e) => {
+      const rect = table.getBoundingClientRect();
+      const x = (e.clientX - rect.left) / rect.width * 800;
+      const y = (e.clientY - rect.top) / rect.height * 600;
+      socket.emit('paddleMove', { x, y });
+    });
+    
+    table.addEventListener('touchmove', (e) => {
+      e.preventDefault();
+      const rect = table.getBoundingClientRect();
+      const touch = e.touches[0];
+      const x = (touch.clientX - rect.left) / rect.width * 800;
+      const y = (touch.clientY - rect.top) / rect.height * 600;
+      socket.emit('paddleMove', { x, y });
+    }, { passive: false });
+  }
+  
+  updateScoreBoard(players);
+}
+
+function updatePuckPosition(pos) {
+  const puck = document.getElementById('ahPuck');
+  if (puck) {
+    puck.style.left = `${pos.x / 800 * 100}%`;
+    puck.style.top = `${pos.y / 600 * 100}%`;
+  }
+}
+
+function updatePaddlePositions(p1, p2) {
+  const paddle1 = document.getElementById('ahPaddle1');
+  const paddle2 = document.getElementById('ahPaddle2');
+  if (paddle1) {
+    paddle1.style.left = `${p1.x / 800 * 100}%`;
+    paddle1.style.top = `${p1.y / 600 * 100}%`;
+  }
+  if (paddle2) {
+    paddle2.style.left = `${p2.x / 800 * 100}%`;
+    paddle2.style.top = `${p2.y / 600 * 100}%`;
+  }
+}
+
+function handlePuckUpdate(data) {
+  updatePuckPosition(data.position);
+}
+
+function handlePaddleUpdate(data) {
+  updatePaddlePositions(data.paddle1, data.paddle2);
+}
+
+function handleGoalScored(data) {
+  state.gameState.score1 = data.score1;
+  state.gameState.score2 = data.score2;
+  
+  const scores = document.querySelector('.airhockey-scores');
+  if (scores) {
+    const player1 = state.players.find(p => p.id === state.gameState.player1);
+    const player2 = state.players.find(p => p.id === state.gameState.player2);
+    scores.innerHTML = `
+      <span class="ah-score p1">${escapeHtml(player1?.name || 'P1')}: ${data.score1}</span>
+      <span class="ah-score p2">${escapeHtml(player2?.name || 'P2')}: ${data.score2}</span>
+    `;
+  }
 }
 
 // ============================================
