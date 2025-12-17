@@ -2883,10 +2883,41 @@ input[type="text"]::placeholder {
   transform: translateX(-50%);
   font-size: 3rem;
   transition: bottom 0.1s ease-out;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.mole-face {
+  display: block;
+}
+
+.mole-headband {
+  position: absolute;
+  top: 5px;
+  width: 80%;
+  height: 8px;
+  border-radius: 4px;
+  background: #888;
+  box-shadow: 0 0 8px #888;
+  transition: all 0.1s ease;
 }
 
 .mole.visible {
   bottom: 10%;
+}
+
+.mole.my-mole .mole-headband {
+  animation: pulseGlow 0.5s ease infinite;
+}
+
+.mole.other-mole {
+  opacity: 0.85;
+}
+
+@keyframes pulseGlow {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.1); }
 }
 
 .mole.whacked {
@@ -2901,6 +2932,87 @@ input[type="text"]::placeholder {
   0% { transform: translateX(-50%) scale(1); bottom: 10%; }
   30% { transform: translateX(-50%) scale(1.3); }
   100% { transform: translateX(-50%) scale(0.5); bottom: -100%; }
+}
+
+/* Mole game info and rules */
+.mole-info {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 20px;
+  margin-bottom: 10px;
+  flex-wrap: wrap;
+}
+
+.mole-your-color {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+}
+
+.mole-your-color .color-indicator {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 2px solid white;
+  box-shadow: 0 0 8px currentColor;
+}
+
+.mole-rules {
+  display: flex;
+  justify-content: center;
+  gap: 20px;
+  margin-bottom: 15px;
+  font-size: 0.85rem;
+  flex-wrap: wrap;
+}
+
+.rule-good {
+  color: var(--success);
+}
+
+.rule-bad {
+  color: var(--danger);
+}
+
+/* Mole hit feedback animation */
+.mole-feedback {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  font-size: 1.5rem;
+  font-weight: bold;
+  pointer-events: none;
+  animation: feedbackFloat 0.8s ease forwards;
+  z-index: 100;
+}
+
+.mole-feedback.positive {
+  color: var(--success);
+  text-shadow: 0 0 10px var(--success);
+}
+
+.mole-feedback.negative {
+  color: var(--danger);
+  text-shadow: 0 0 10px var(--danger);
+}
+
+@keyframes feedbackFloat {
+  0% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+  100% { opacity: 0; transform: translate(-50%, -150%) scale(1.5); }
+}
+
+/* Intensity label */
+.mole-status .intensity {
+  display: inline-block;
+  padding: 2px 8px;
+  background: rgba(229, 9, 20, 0.3);
+  border-radius: 10px;
+  font-size: 0.8em;
+  margin-left: 8px;
 }
 
 .mole-instructions {

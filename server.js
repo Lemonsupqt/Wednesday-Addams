@@ -875,17 +875,40 @@ io.on('connection', (socket) => {
     const state = room.gameState;
     if (!state.roundActive) return;
     
-    const moleIdx = state.molePositions.indexOf(moleIndex);
-    if (moleIdx !== -1) {
+    // Find the mole at this position
+    const moleData = state.molePositions.find(m => m.position === moleIndex);
+    if (moleData) {
+      // Remove mole from active positions
+      const moleIdx = state.molePositions.indexOf(moleData);
       state.molePositions.splice(moleIdx, 1);
+      
       if (!state.scores[socket.id]) state.scores[socket.id] = 0;
-      state.scores[socket.id] += 10;
-      room.players.get(socket.id).score += 10;
+      
+      // Check if player hit their own mole or someone else's
+      const isOwnMole = moleData.playerId === socket.id;
+      let pointsChange = 0;
+      
+      if (isOwnMole) {
+        // Hit own mole: +10 points
+        pointsChange = 10;
+        state.scores[socket.id] += 10;
+        room.players.get(socket.id).score += 10;
+      } else {
+        // Hit someone else's mole: -5 points
+        pointsChange = -5;
+        state.scores[socket.id] = Math.max(0, (state.scores[socket.id] || 0) - 5);
+        room.players.get(socket.id).score = Math.max(0, room.players.get(socket.id).score - 5);
+      }
       
       io.to(roomId).emit('moleWhacked', {
         moleIndex,
-        playerId: socket.id,
-        playerName: room.players.get(socket.id).name,
+        moleOwnerId: moleData.playerId,
+        moleOwnerName: moleData.playerName,
+        moleColor: moleData.color,
+        whackerId: socket.id,
+        whackerName: room.players.get(socket.id).name,
+        isOwnMole,
+        pointsChange,
         scores: state.scores,
         players: room.getPlayerList()
       });
@@ -1277,13 +1300,22 @@ function initializeGame(gameType, room, options = {}) {
       };
 
     case 'molewhack':
+      // Create player list with colors for mole assignment
+      const molePlayerList = playerIds.map((id, idx) => ({
+        id,
+        color: room.players.get(id).color || PLAYER_COLORS[idx % PLAYER_COLORS.length],
+        name: room.players.get(id).name
+      }));
       return {
         round: 1,
-        maxRounds: 5,  // Reduced from 10 to 5 for faster games
-        molePositions: [],
+        maxRounds: 5,
+        molePositions: [],  // Now stores { position, playerId, color, playerName }
         scores: {},
         roundActive: false,
-        roundStartTime: null
+        roundStartTime: null,
+        playerList: molePlayerList,  // List of players with colors
+        spawnInterval: 1000,  // Starting spawn interval (ms) - gets faster each round
+        moleLifetime: 2000   // How long mole stays up (ms) - gets shorter each round
       };
 
     case 'mathquiz':
@@ -1662,30 +1694,64 @@ function startMoleWhackRound(room, roomId) {
   state.molePositions = [];
   state.roundStartTime = Date.now();
   
-  io.to(roomId).emit('moleRoundStart', { round: state.round });
+  // Intensity progression: each round gets faster
+  // Round 1: spawn every 1000ms, mole stays 2000ms
+  // Round 5: spawn every 500ms, mole stays 1200ms
+  const roundProgress = (state.round - 1) / (state.maxRounds - 1); // 0 to 1
+  const spawnInterval = Math.max(500, 1000 - (roundProgress * 500)); // 1000ms -> 500ms
+  const moleLifetime = Math.max(1200, 2000 - (roundProgress * 800)); // 2000ms -> 1200ms
   
-  // Helper function to spawn a mole
+  state.spawnInterval = spawnInterval;
+  state.moleLifetime = moleLifetime;
+  
+  io.to(roomId).emit('moleRoundStart', { 
+    round: state.round,
+    intensity: Math.round((1 - roundProgress) * 100), // 100% = slow, 0% = fast
+    spawnInterval,
+    moleLifetime
+  });
+  
+  // Helper function to spawn a mole assigned to a random player
   const spawnMole = () => {
     if (!room.currentGame || room.currentGame !== 'molewhack' || !state.roundActive) {
       return;
     }
     
     // Find an available position
-    const availablePositions = [0,1,2,3,4,5,6,7,8].filter(i => !state.molePositions.includes(i));
+    const occupiedPositions = state.molePositions.map(m => m.position);
+    const availablePositions = [0,1,2,3,4,5,6,7,8].filter(i => !occupiedPositions.includes(i));
     if (availablePositions.length === 0) return;
     
-    const moleIndex = availablePositions[Math.floor(Math.random() * availablePositions.length)];
-    state.molePositions.push(moleIndex);
-    io.to(roomId).emit('moleSpawned', { moleIndex });
+    const molePosition = availablePositions[Math.floor(Math.random() * availablePositions.length)];
     
-    // Hide mole after 1.2-1.8 seconds if not whacked
-    const hideDelay = 1200 + Math.random() * 600;
+    // Assign mole to a random player
+    const playerList = state.playerList || [];
+    if (playerList.length === 0) return;
+    const assignedPlayer = playerList[Math.floor(Math.random() * playerList.length)];
+    
+    const moleData = {
+      position: molePosition,
+      playerId: assignedPlayer.id,
+      color: assignedPlayer.color,
+      playerName: assignedPlayer.name
+    };
+    
+    state.molePositions.push(moleData);
+    io.to(roomId).emit('moleSpawned', { 
+      moleIndex: molePosition,
+      playerId: assignedPlayer.id,
+      color: assignedPlayer.color,
+      playerName: assignedPlayer.name
+    });
+    
+    // Hide mole after lifetime if not whacked
+    const hideDelay = moleLifetime + (Math.random() * 300);
     setTimeout(() => {
       if (room.currentGame === 'molewhack' && state.roundActive) {
-        const idx = state.molePositions.indexOf(moleIndex);
+        const idx = state.molePositions.findIndex(m => m.position === molePosition);
         if (idx !== -1) {
           state.molePositions.splice(idx, 1);
-          io.to(roomId).emit('moleHidden', { moleIndex });
+          io.to(roomId).emit('moleHidden', { moleIndex: molePosition });
         }
       }
     }, hideDelay);
@@ -1694,14 +1760,14 @@ function startMoleWhackRound(room, roomId) {
   // Spawn first mole immediately after a short delay (let UI render)
   setTimeout(() => spawnMole(), 500);
   
-  // Then spawn more moles regularly
+  // Then spawn more moles at the current interval rate
   const moleSpawner = setInterval(() => {
     if (!room.currentGame || room.currentGame !== 'molewhack' || !state.roundActive) {
       clearInterval(moleSpawner);
       return;
     }
     spawnMole();
-  }, 700);
+  }, spawnInterval);
   
   // End round after 10 seconds
   setTimeout(() => {

@@ -1982,26 +1982,40 @@ function handleConnect4Update(data) {
 function initMoleWhackGame(gameState, players) {
   console.log('Initializing Mole Whack:', gameState);
   state.gameState = gameState || { maxRounds: 5, round: 1 };
-  state.gameState.activeMoles = new Set();
+  state.gameState.activeMoles = new Map(); // Map of position -> mole data
   elements.gameTitle.textContent = '🔨 Mole Whacker 🐹';
   
   const maxRounds = state.gameState.maxRounds || 5;
+  
+  // Find current player's color
+  const myPlayer = players.find(p => p.id === state.playerId);
+  const myColor = myPlayer?.color || '#e50914';
   
   elements.gameContent.innerHTML = `
     <div class="mole-container">
       <div class="mole-status" id="moleStatus">🎯 Get Ready!</div>
       <div class="mole-round" id="moleRound">Round 1/${maxRounds}</div>
-      <div class="mole-score" id="moleScore">Your Whacks: 0</div>
+      <div class="mole-info">
+        <div class="mole-your-color">Your moles: <span class="color-indicator" style="background:${myColor}"></span></div>
+        <div class="mole-score" id="moleScore">Score: 0</div>
+      </div>
+      <div class="mole-rules">
+        <span class="rule-good">✅ Hit YOUR color = +10</span>
+        <span class="rule-bad">❌ Hit other color = -5</span>
+      </div>
       <div class="mole-board" id="moleBoard">
         ${[0,1,2,3,4,5,6,7,8].map(i => `
           <div class="mole-hole" data-index="${i}">
-            <div class="mole" id="mole-${i}">🐹</div>
+            <div class="mole" id="mole-${i}" data-color="">
+              <span class="mole-headband"></span>
+              <span class="mole-face">🐹</span>
+            </div>
           </div>
         `).join('')}
       </div>
       <div class="mole-instructions">
-        <p>👆 Tap the moles as fast as you can!</p>
-        <p>⏱️ 10 seconds per round</p>
+        <p>👆 Only hit moles with YOUR color!</p>
+        <p>⚡ Speed increases each round!</p>
       </div>
     </div>
   `;
@@ -2036,33 +2050,60 @@ function setupMoleClickHandlers() {
 }
 
 function handleMoleRoundStart(data) {
-  console.log('🎯 Mole round started:', data.round);
+  console.log('🎯 Mole round started:', data.round, 'intensity:', data.intensity);
   if (state.gameState) {
     state.gameState.round = data.round;
-    state.gameState.activeMoles = new Set();
+    state.gameState.activeMoles = new Map();
   }
   
   const statusEl = document.getElementById('moleStatus');
   const roundEl = document.getElementById('moleRound');
   const maxRounds = state.gameState?.maxRounds || 5;
   
-  if (statusEl) statusEl.textContent = '🔨 WHACK THE MOLES!';
+  // Show intensity level
+  const intensityLabel = data.round === 1 ? '🐢 Slow' : 
+                         data.round === 2 ? '🚶 Normal' :
+                         data.round === 3 ? '🏃 Fast' :
+                         data.round === 4 ? '⚡ Very Fast' : '🔥 INSANE!';
+  
+  if (statusEl) statusEl.innerHTML = `🔨 WHACK YOUR MOLES! <span class="intensity">${intensityLabel}</span>`;
   if (roundEl) roundEl.textContent = `Round ${data.round}/${maxRounds}`;
   
   // Clear all moles - reset their visibility
   document.querySelectorAll('.mole').forEach(m => {
-    m.classList.remove('visible', 'hit', 'whacked');
+    m.classList.remove('visible', 'hit', 'whacked', 'my-mole', 'other-mole');
+    m.dataset.color = '';
+    m.dataset.playerId = '';
   });
 }
 
 function handleMoleSpawned(data) {
-  console.log('🐹 Mole spawned at:', data.moleIndex);
+  console.log('🐹 Mole spawned at:', data.moleIndex, 'for player:', data.playerName, 'color:', data.color);
   const mole = document.getElementById(`mole-${data.moleIndex}`);
   if (mole) {
     mole.classList.remove('hit', 'whacked');
     mole.classList.add('visible');
+    mole.dataset.color = data.color || '';
+    mole.dataset.playerId = data.playerId || '';
+    
+    // Set headband color
+    const headband = mole.querySelector('.mole-headband');
+    if (headband) {
+      headband.style.background = data.color || '#888';
+      headband.style.boxShadow = `0 0 8px ${data.color || '#888'}`;
+    }
+    
+    // Check if it's the current player's mole
+    const isMyMole = data.playerId === state.playerId;
+    mole.classList.toggle('my-mole', isMyMole);
+    mole.classList.toggle('other-mole', !isMyMole);
+    
     if (state.gameState && state.gameState.activeMoles) {
-      state.gameState.activeMoles.add(data.moleIndex);
+      state.gameState.activeMoles.set(data.moleIndex, {
+        playerId: data.playerId,
+        color: data.color,
+        playerName: data.playerName
+      });
     }
   } else {
     console.warn('Mole element not found:', `mole-${data.moleIndex}`);
@@ -2072,31 +2113,60 @@ function handleMoleSpawned(data) {
 function handleMoleWhacked(data) {
   const mole = document.getElementById(`mole-${data.moleIndex}`);
   if (mole) {
-    mole.classList.remove('visible');
+    mole.classList.remove('visible', 'my-mole', 'other-mole');
     mole.classList.add('whacked');
-    state.gameState.activeMoles.delete(data.moleIndex);
-    setTimeout(() => mole.classList.remove('whacked'), 300);
+    if (state.gameState && state.gameState.activeMoles) {
+      state.gameState.activeMoles.delete(data.moleIndex);
+    }
+    setTimeout(() => {
+      mole.classList.remove('whacked');
+      mole.dataset.color = '';
+      mole.dataset.playerId = '';
+    }, 300);
   }
   
-  // Show who whacked it
+  // Show feedback based on whether they hit their own mole
+  const feedbackMsg = data.isOwnMole 
+    ? `🔨 ${data.whackerName} whacked their mole! (+10)` 
+    : `❌ ${data.whackerName} hit ${data.moleOwnerName}'s mole! (${data.pointsChange})`;
+  
   addChatMessage({
     system: true,
-    message: `🔨 ${data.playerName} whacked a mole! (+10)`
+    message: feedbackMsg
   }, elements.gameChatMessages);
+  
+  // Show floating feedback on the mole position
+  showMoleHitFeedback(data.moleIndex, data.isOwnMole, data.pointsChange);
   
   // Update personal score display
   const myScore = data.players.find(p => p.id === state.playerId)?.score || 0;
   const scoreEl = document.getElementById('moleScore');
-  if (scoreEl) scoreEl.textContent = `Your Score: ${myScore}`;
+  if (scoreEl) scoreEl.textContent = `Score: ${myScore}`;
   
   updateScoreBoard(data.players);
+}
+
+function showMoleHitFeedback(moleIndex, isOwnMole, points) {
+  const hole = document.querySelector(`.mole-hole[data-index="${moleIndex}"]`);
+  if (!hole) return;
+  
+  const feedback = document.createElement('div');
+  feedback.className = `mole-feedback ${isOwnMole ? 'positive' : 'negative'}`;
+  feedback.textContent = points > 0 ? `+${points}` : `${points}`;
+  hole.appendChild(feedback);
+  
+  setTimeout(() => feedback.remove(), 800);
 }
 
 function handleMoleHidden(data) {
   const mole = document.getElementById(`mole-${data.moleIndex}`);
   if (mole) {
-    mole.classList.remove('visible');
-    state.gameState.activeMoles.delete(data.moleIndex);
+    mole.classList.remove('visible', 'my-mole', 'other-mole');
+    mole.dataset.color = '';
+    mole.dataset.playerId = '';
+    if (state.gameState && state.gameState.activeMoles) {
+      state.gameState.activeMoles.delete(data.moleIndex);
+    }
   }
 }
 
