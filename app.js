@@ -197,9 +197,12 @@ function setupEventListeners() {
   });
   elements.leaveRoomBtn.addEventListener('click', leaveRoom);
   
-  // Game selection
-  document.querySelectorAll('.game-card').forEach(card => {
-    card.addEventListener('click', () => startGame(card.dataset.game));
+  // Game selection - use event delegation since cards are dynamic
+  elements.gameSelection.addEventListener('click', (e) => {
+    const card = e.target.closest('.game-card');
+    if (card && card.dataset.game) {
+      handleGameSelection(card.dataset.game);
+    }
   });
   
   // Game screen
@@ -357,10 +360,7 @@ function updatePlayersList(players) {
         </button>
       </div>
     `;
-    // Re-attach event listeners for game cards
-    document.querySelectorAll('.game-card').forEach(card => {
-      card.addEventListener('click', () => handleGameSelection(card.dataset.game));
-    });
+    // Event delegation handles clicks - no need to attach individual listeners
   } else {
     elements.gameSelection.style.display = 'block';
     elements.gameSelection.innerHTML = '<h3 style="text-align: center; color: var(--text-secondary); font-family: Cinzel, serif;">⏳ Waiting for host to select a game... ⏳</h3>';
@@ -573,6 +573,8 @@ function endGame() {
 
 function closeResults() {
   elements.resultsModal.classList.remove('active');
+  // Actually return to lobby - send endGame to server
+  socket.emit('endGame');
 }
 
 function updateScoreBoard(players, currentPlayer = null) {
@@ -911,7 +913,15 @@ function renderChessBoard(board, isWhiteTurn, whiteName, blackName) {
   
   let statusText = '';
   if (state.gameState.gameOver) {
-    statusText = `👑 ${state.gameState.winnerName} wins by checkmate!`;
+    if (state.gameState.isCheckmate) {
+      statusText = `👑 CHECKMATE! ${state.gameState.winnerName} wins!`;
+    } else if (state.gameState.isStalemate) {
+      statusText = `🤝 STALEMATE! It's a draw!`;
+    } else if (state.gameState.winnerName) {
+      statusText = `👑 ${state.gameState.winnerName} wins!`;
+    } else {
+      statusText = `🏁 Game Over!`;
+    }
   } else if (state.gameState.inCheck) {
     statusText = `⚠️ ${isWhiteTurn ? whiteName : blackName} is in CHECK!`;
   } else {
@@ -1237,6 +1247,8 @@ function handleChessUpdate(data) {
   state.gameState.winner = data.winner;
   state.gameState.winnerName = data.winnerName;
   state.gameState.lastMove = data.lastMove;
+  state.gameState.isCheckmate = data.isCheckmate;
+  state.gameState.isStalemate = data.isStalemate;
   
   chessState.isMyTurn = data.currentPlayer === state.playerId;
   chessState.selectedSquare = null;
@@ -1256,10 +1268,22 @@ function handleChessUpdate(data) {
   }
   
   if (data.gameOver) {
-    addChatMessage({
-      system: true,
-      message: `👑 ${data.winnerName} wins the game!`
-    }, elements.gameChatMessages);
+    if (data.isCheckmate) {
+      addChatMessage({
+        system: true,
+        message: `👑 CHECKMATE! ${data.winnerName} wins the game!`
+      }, elements.gameChatMessages);
+    } else if (data.isStalemate) {
+      addChatMessage({
+        system: true,
+        message: `🤝 STALEMATE! The game is a draw!`
+      }, elements.gameChatMessages);
+    } else {
+      addChatMessage({
+        system: true,
+        message: `👑 ${data.winnerName} wins the game!`
+      }, elements.gameChatMessages);
+    }
   }
 }
 
@@ -1536,7 +1560,12 @@ socket.on('gameUpdate', (data) => {
 
 socket.on('returnToLobby', (data) => {
   state.currentGame = null;
+  state.gameState = {};
   state.players = data.players;
+  // Clear game content
+  elements.gameContent.innerHTML = '';
+  // Close any open modals
+  elements.resultsModal.classList.remove('active');
   updatePlayersList(data.players);
   showScreen('lobby');
 });

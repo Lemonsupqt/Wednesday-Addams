@@ -80,7 +80,7 @@ function isBlackPiece(piece) {
   return piece && piece === piece.toLowerCase();
 }
 
-function isValidChessMove(board, from, to, isWhiteTurn) {
+function isValidChessMove(board, from, to, isWhiteTurn, castlingRights = null) {
   const [fromRow, fromCol] = from;
   const [toRow, toCol] = to;
   const piece = board[fromRow][fromCol];
@@ -134,7 +134,41 @@ function isValidChessMove(board, from, to, isWhiteTurn) {
       return isPathClear(board, from, to);
       
     case 'k': // King
-      return absRowDiff <= 1 && absColDiff <= 1;
+      // Normal king move
+      if (absRowDiff <= 1 && absColDiff <= 1) return true;
+      
+      // Castling
+      if (castlingRights && absRowDiff === 0 && absColDiff === 2) {
+        const row = isWhiteTurn ? 7 : 0;
+        if (fromRow !== row || fromCol !== 4) return false;
+        
+        // Kingside castling
+        if (colDiff === 2) {
+          if (isWhiteTurn && !castlingRights.whiteKingside) return false;
+          if (!isWhiteTurn && !castlingRights.blackKingside) return false;
+          // Check path is clear
+          if (board[row][5] || board[row][6]) return false;
+          // Check not in check, passing through check, or into check
+          if (isInCheck(board, isWhiteTurn)) return false;
+          const throughBoard = makeMove(board, from, [row, 5]);
+          if (isInCheck(throughBoard, isWhiteTurn)) return false;
+          return true;
+        }
+        
+        // Queenside castling
+        if (colDiff === -2) {
+          if (isWhiteTurn && !castlingRights.whiteQueenside) return false;
+          if (!isWhiteTurn && !castlingRights.blackQueenside) return false;
+          // Check path is clear
+          if (board[row][1] || board[row][2] || board[row][3]) return false;
+          // Check not in check, passing through check, or into check
+          if (isInCheck(board, isWhiteTurn)) return false;
+          const throughBoard = makeMove(board, from, [row, 3]);
+          if (isInCheck(throughBoard, isWhiteTurn)) return false;
+          return true;
+        }
+      }
+      return false;
       
     default:
       return false;
@@ -190,15 +224,75 @@ function isInCheck(board, isWhiteKing) {
 
 function makeMove(board, from, to) {
   const newBoard = board.map(row => [...row]);
-  newBoard[to[0]][to[1]] = newBoard[from[0]][from[1]];
+  const piece = newBoard[from[0]][from[1]];
+  newBoard[to[0]][to[1]] = piece;
   newBoard[from[0]][from[1]] = null;
   
+  // Handle castling - move the rook
+  if (piece && piece.toLowerCase() === 'k') {
+    const colDiff = to[1] - from[1];
+    if (Math.abs(colDiff) === 2) {
+      const row = from[0];
+      if (colDiff === 2) {
+        // Kingside castling
+        newBoard[row][5] = newBoard[row][7];
+        newBoard[row][7] = null;
+      } else {
+        // Queenside castling
+        newBoard[row][3] = newBoard[row][0];
+        newBoard[row][0] = null;
+      }
+    }
+  }
+  
   // Pawn promotion (auto-queen)
-  const piece = newBoard[to[0]][to[1]];
   if (piece === 'P' && to[0] === 0) newBoard[to[0]][to[1]] = 'Q';
   if (piece === 'p' && to[0] === 7) newBoard[to[0]][to[1]] = 'q';
   
   return newBoard;
+}
+
+// Check if player has any legal moves
+function hasLegalMoves(board, isWhiteTurn, castlingRights) {
+  for (let fromRow = 0; fromRow < 8; fromRow++) {
+    for (let fromCol = 0; fromCol < 8; fromCol++) {
+      const piece = board[fromRow][fromCol];
+      if (!piece) continue;
+      if (isWhiteTurn && !isWhitePiece(piece)) continue;
+      if (!isWhiteTurn && !isBlackPiece(piece)) continue;
+      
+      // Try all possible destinations
+      for (let toRow = 0; toRow < 8; toRow++) {
+        for (let toCol = 0; toCol < 8; toCol++) {
+          if (fromRow === toRow && fromCol === toCol) continue;
+          
+          if (isValidChessMove(board, [fromRow, fromCol], [toRow, toCol], isWhiteTurn, castlingRights)) {
+            // Check if move would leave king in check
+            const testBoard = makeMove(board, [fromRow, fromCol], [toRow, toCol]);
+            if (!isInCheck(testBoard, isWhiteTurn)) {
+              return true; // Found at least one legal move
+            }
+          }
+        }
+      }
+    }
+  }
+  return false;
+}
+
+// Check for checkmate or stalemate
+function getGameEndState(board, isWhiteTurn, castlingRights) {
+  const inCheck = isInCheck(board, isWhiteTurn);
+  const hasMovesLeft = hasLegalMoves(board, isWhiteTurn, castlingRights);
+  
+  if (!hasMovesLeft) {
+    if (inCheck) {
+      return 'checkmate';
+    } else {
+      return 'stalemate';
+    }
+  }
+  return null;
 }
 
 // Player colors
@@ -366,9 +460,10 @@ io.on('connection', (socket) => {
     if (socket.id !== state.currentPlayer) return;
 
     const isWhiteTurn = state.isWhiteTurn;
+    const piece = state.board[from[0]][from[1]];
     
-    // Validate the move
-    if (!isValidChessMove(state.board, from, to, isWhiteTurn)) {
+    // Validate the move (with castling rights)
+    if (!isValidChessMove(state.board, from, to, isWhiteTurn, state.castlingRights)) {
       socket.emit('invalidMove', { message: 'Invalid move' });
       return;
     }
@@ -382,6 +477,28 @@ io.on('connection', (socket) => {
       return;
     }
 
+    // Update castling rights based on piece moved
+    if (piece) {
+      const pieceType = piece.toLowerCase();
+      if (pieceType === 'k') {
+        if (isWhiteTurn) {
+          state.castlingRights.whiteKingside = false;
+          state.castlingRights.whiteQueenside = false;
+        } else {
+          state.castlingRights.blackKingside = false;
+          state.castlingRights.blackQueenside = false;
+        }
+      } else if (pieceType === 'r') {
+        if (isWhiteTurn) {
+          if (from[0] === 7 && from[1] === 0) state.castlingRights.whiteQueenside = false;
+          if (from[0] === 7 && from[1] === 7) state.castlingRights.whiteKingside = false;
+        } else {
+          if (from[0] === 0 && from[1] === 0) state.castlingRights.blackQueenside = false;
+          if (from[0] === 0 && from[1] === 7) state.castlingRights.blackKingside = false;
+        }
+      }
+    }
+
     // Update state
     state.board = newBoard;
     state.moveHistory.push({ from, to, piece: state.board[to[0]][to[1]] });
@@ -391,12 +508,17 @@ io.on('connection', (socket) => {
     // Check if opponent is in check
     state.inCheck = isInCheck(state.board, !isWhiteTurn);
     
-    // Check for king capture (simplified win condition)
-    const opponentKing = findKing(state.board, !isWhiteTurn);
-    if (!opponentKing) {
+    // Check for checkmate or stalemate
+    const gameEndState = getGameEndState(state.board, !isWhiteTurn, state.castlingRights);
+    if (gameEndState === 'checkmate') {
       state.gameOver = true;
+      state.isCheckmate = true;
       state.winner = socket.id;
       room.players.get(socket.id).score += 10;
+    } else if (gameEndState === 'stalemate') {
+      state.gameOver = true;
+      state.isStalemate = true;
+      // No winner in stalemate
     }
 
     io.to(roomId).emit('chessUpdate', {
@@ -407,6 +529,8 @@ io.on('connection', (socket) => {
       gameOver: state.gameOver,
       winner: state.winner,
       winnerName: state.winner ? room.players.get(state.winner).name : null,
+      isCheckmate: state.isCheckmate,
+      isStalemate: state.isStalemate,
       lastMove: { from, to },
       players: room.getPlayerList()
     });
@@ -1148,7 +1272,15 @@ function initializeGame(gameType, room, options = {}) {
         moveHistory: [],
         gameOver: false,
         winner: null,
-        inCheck: false
+        inCheck: false,
+        isCheckmate: false,
+        isStalemate: false,
+        castlingRights: {
+          whiteKingside: true,
+          whiteQueenside: true,
+          blackKingside: true,
+          blackQueenside: true
+        }
       };
 
     case 'psychic':
