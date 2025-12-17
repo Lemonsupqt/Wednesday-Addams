@@ -3295,7 +3295,7 @@ input[type="text"]::placeholder {
 .fullscreen-toggle {
   position: fixed;
   bottom: 20px;
-  right: 20px;
+  left: 20px;  /* Changed from right to left to avoid collision with send button */
   width: 50px;
   height: 50px;
   border-radius: 50%;
@@ -3339,7 +3339,7 @@ input[type="text"]::placeholder {
   
   .fullscreen-toggle {
     bottom: max(20px, env(safe-area-inset-bottom));
-    right: max(20px, env(safe-area-inset-right));
+    left: max(20px, env(safe-area-inset-left));
   }
 }
 

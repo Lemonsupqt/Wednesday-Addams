@@ -536,8 +536,10 @@ function addChatMessage(msg, container = elements.chatMessages) {
   if (msg.system) {
     div.innerHTML = `<span class="message">${escapeHtml(msg.message)}</span>`;
   } else {
+    // Use player color if available, fallback to default
+    const senderColor = msg.playerColor || '#ff2a6d';
     div.innerHTML = `
-      <span class="sender">${escapeHtml(msg.playerName)}:</span>
+      <span class="sender" style="color: ${senderColor}">${escapeHtml(msg.playerName)}:</span>
       <span class="message">${escapeHtml(msg.message)}</span>
     `;
   }

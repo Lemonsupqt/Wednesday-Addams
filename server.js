@@ -391,6 +391,7 @@ io.on('connection', (socket) => {
       id: uuidv4(),
       playerId: socket.id,
       playerName: player.name,
+      playerColor: player.color,  // Include player color
       message: message,
       timestamp: Date.now()
     };
