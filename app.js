@@ -330,16 +330,6 @@ function updatePlayersList(players) {
           <span class="game-name">Nevermore<br>Trivia</span>
           <span class="game-players">2+ players</span>
         </button>
-        <button class="game-card" data-game="reaction">
-          <span class="game-icon">👹🎯</span>
-          <span class="game-name">Demogorgon<br>Hunt</span>
-          <span class="game-players">2+ players</span>
-        </button>
-        <button class="game-card" data-game="wordchain">
-          <span class="game-icon">🔤⛓️</span>
-          <span class="game-name">Word<br>Chain</span>
-          <span class="game-players">2+ players</span>
-        </button>
         <button class="game-card" data-game="sudoku">
           <span class="game-icon">🔢🧩</span>
           <span class="game-name">Vecna's<br>Sudoku</span>
@@ -355,20 +345,15 @@ function updatePlayersList(players) {
           <span class="game-name">Mole<br>Whacker</span>
           <span class="game-players">2+ players</span>
         </button>
-        <button class="game-card" data-game="knife">
-          <span class="game-icon">🔪🎯</span>
-          <span class="game-name">Knife<br>Thrower</span>
-          <span class="game-players">2+ players</span>
-        </button>
         <button class="game-card" data-game="mathquiz">
           <span class="game-icon">🔢➕</span>
           <span class="game-name">Math<br>Quiz</span>
           <span class="game-players">2+ players</span>
         </button>
-        <button class="game-card" data-game="darts">
-          <span class="game-icon">🎯</span>
-          <span class="game-name">Darts</span>
-          <span class="game-players">2+ players</span>
+        <button class="game-card" data-game="ludo">
+          <span class="game-icon">🎲🦇</span>
+          <span class="game-name">Upside Down<br>Ludo</span>
+          <span class="game-players">2-4 players</span>
         </button>
       </div>
     `;
@@ -1437,283 +1422,6 @@ function handleNextPsychicRound(data) {
   showPsychicRound(data.round);
 }
 
-// ============================================
-// DEMOGORGON HUNT (REACTION GAME)
-// ============================================
-
-function initReactionGame(gameState, players) {
-  state.gameState = gameState;
-  elements.gameTitle.textContent = '👹 Demogorgon Hunt 🎯';
-  
-  elements.gameContent.innerHTML = `
-    <div class="reaction-container">
-      <div class="reaction-round">Round ${gameState.round}/${gameState.maxRounds}</div>
-      <div class="reaction-title">Get Ready to Hunt!</div>
-      <div class="reaction-instructions">
-        <p>🎯 Click the Demogorgon as fast as you can when it appears!</p>
-        <p>⚡ Fastest player wins each round</p>
-        <p>🏆 +10 points per round won</p>
-      </div>
-      <div class="reaction-arena" id="reactionArena">
-        <div class="reaction-waiting">
-          <span class="waiting-icon">👁️</span>
-          <span>Watching the Upside Down...</span>
-        </div>
-      </div>
-    </div>
-  `;
-  
-  updateScoreBoard(players);
-  
-  // First round starts after a random delay (handled by server)
-}
-
-function handleReactionShowTarget(data) {
-  const arena = document.getElementById('reactionArena');
-  if (!arena) return;
-  
-  arena.innerHTML = `
-    <div class="demogorgon-target" id="demogorgonTarget" 
-         style="left: ${data.position.x}%; top: ${data.position.y}%;">
-      👹
-    </div>
-  `;
-  
-  const target = document.getElementById('demogorgonTarget');
-  if (target) {
-    target.addEventListener('click', () => {
-      socket.emit('reactionClick', { timestamp: Date.now() });
-      target.classList.add('clicked');
-    });
-  }
-}
-
-function handleReactionRoundResult(data) {
-  const arena = document.getElementById('reactionArena');
-  if (!arena) return;
-  
-  arena.innerHTML = `
-    <div class="reaction-result">
-      <div class="result-winner-icon">🏆</div>
-      <div class="result-winner-name">${escapeHtml(data.winnerName)}</div>
-      <div class="result-reaction-time">${data.reactionTime}ms</div>
-      <div class="result-caught">caught the Demogorgon!</div>
-    </div>
-  `;
-  
-  updateScoreBoard(data.players);
-}
-
-function handleReactionNextRound(data) {
-  state.gameState.round = data.round;
-  
-  const container = document.querySelector('.reaction-container');
-  if (container) {
-    const roundEl = container.querySelector('.reaction-round');
-    if (roundEl) {
-      roundEl.textContent = `Round ${data.round}/${state.gameState.maxRounds}`;
-    }
-  }
-  
-  const arena = document.getElementById('reactionArena');
-  if (arena) {
-    arena.innerHTML = `
-      <div class="reaction-waiting">
-        <span class="waiting-icon">👁️</span>
-        <span>Watching the Upside Down...</span>
-      </div>
-    `;
-  }
-}
-
-// ============================================
-// WORD CHAIN GAME
-// ============================================
-
-function initWordChainGame(gameState, players) {
-  state.gameState = gameState;
-  state.gameState.timerInterval = null;
-  elements.gameTitle.textContent = '🔤 Word Chain ⛓️';
-  
-  const isMyTurn = gameState.currentPlayer === state.playerId;
-  const currentPlayerName = players.find(p => p.id === gameState.currentPlayer)?.name || 'Unknown';
-  
-  elements.gameContent.innerHTML = `
-    <div class="wordchain-container">
-      <div class="wordchain-category">Category: ${escapeHtml(gameState.category)}</div>
-      <div class="wordchain-letter">
-        Next word must start with: <span class="letter-highlight">${gameState.currentLetter}</span>
-      </div>
-      <div class="wordchain-turn" id="wordchainTurn">
-        ${isMyTurn ? "🎯 Your turn!" : `Waiting for ${escapeHtml(currentPlayerName)}...`}
-      </div>
-      <div class="wordchain-timer" id="wordchainTimer">${gameState.timeLeft}</div>
-      ${isMyTurn ? `
-        <div class="wordchain-input-container">
-          <input type="text" id="wordchainInput" placeholder="Type a word..." maxlength="20" autocomplete="off">
-          <button class="btn btn-primary" id="wordchainSubmitBtn">Submit</button>
-        </div>
-      ` : ''}
-      <div class="wordchain-history" id="wordchainHistory">
-        <h4>Words Used:</h4>
-        <div class="word-list">
-          ${gameState.usedWords.length > 0 ? gameState.usedWords.map(w => `<span class="used-word">${escapeHtml(w)}</span>`).join('') : '<span class="no-words">No words yet...</span>'}
-        </div>
-      </div>
-      <div class="wordchain-rules">
-        <p>📝 Type a word starting with the shown letter</p>
-        <p>⏰ You have 10 seconds per turn</p>
-        <p>⭐ Longer words = more points!</p>
-      </div>
-    </div>
-  `;
-  
-  updateScoreBoard(players, gameState.currentPlayer);
-  
-  if (isMyTurn) {
-    const input = document.getElementById('wordchainInput');
-    const submitBtn = document.getElementById('wordchainSubmitBtn');
-    
-    input.focus();
-    
-    submitBtn.addEventListener('click', () => submitWord());
-    input.addEventListener('keypress', (e) => {
-      if (e.key === 'Enter') submitWord();
-    });
-    
-    // Start local timer
-    startWordChainTimer();
-  }
-}
-
-function submitWord() {
-  const input = document.getElementById('wordchainInput');
-  if (!input) return;
-  
-  const word = input.value.trim();
-  if (!word) {
-    showError('Please enter a word!');
-    return;
-  }
-  
-  socket.emit('wordchainSubmit', word);
-  input.value = '';
-}
-
-function startWordChainTimer() {
-  if (state.gameState.timerInterval) {
-    clearInterval(state.gameState.timerInterval);
-  }
-  
-  state.gameState.timeLeft = 10;
-  const timerEl = document.getElementById('wordchainTimer');
-  
-  state.gameState.timerInterval = setInterval(() => {
-    state.gameState.timeLeft--;
-    if (timerEl) {
-      timerEl.textContent = state.gameState.timeLeft;
-      if (state.gameState.timeLeft <= 3) {
-        timerEl.classList.add('warning');
-      }
-    }
-    
-    if (state.gameState.timeLeft <= 0) {
-      clearInterval(state.gameState.timerInterval);
-      socket.emit('wordchainTimeout');
-    }
-  }, 1000);
-}
-
-function handleWordchainUpdate(data) {
-  if (state.gameState.timerInterval) {
-    clearInterval(state.gameState.timerInterval);
-  }
-  
-  state.gameState.currentPlayer = data.currentPlayer;
-  state.gameState.usedWords = data.usedWords;
-  state.gameState.currentLetter = data.nextLetter;
-  
-  const isMyTurn = data.currentPlayer === state.playerId;
-  const currentPlayerName = state.players.find(p => p.id === data.currentPlayer)?.name || 'Unknown';
-  
-  // Update letter
-  const letterEl = document.querySelector('.wordchain-letter .letter-highlight');
-  if (letterEl) letterEl.textContent = data.nextLetter;
-  
-  // Update turn indicator
-  const turnEl = document.getElementById('wordchainTurn');
-  if (turnEl) {
-    turnEl.textContent = isMyTurn ? "🎯 Your turn!" : `Waiting for ${escapeHtml(currentPlayerName)}...`;
-  }
-  
-  // Update word history
-  const historyEl = document.getElementById('wordchainHistory');
-  if (historyEl) {
-    historyEl.innerHTML = `
-      <h4>Words Used:</h4>
-      <div class="word-list">
-        ${data.usedWords.map(w => `<span class="used-word">${escapeHtml(w)}</span>`).join('')}
-      </div>
-    `;
-  }
-  
-  // Add/remove input based on turn
-  const container = document.querySelector('.wordchain-container');
-  const existingInput = container.querySelector('.wordchain-input-container');
-  
-  if (isMyTurn && !existingInput) {
-    const timerEl = document.getElementById('wordchainTimer');
-    const inputHtml = `
-      <div class="wordchain-input-container">
-        <input type="text" id="wordchainInput" placeholder="Type a word..." maxlength="20" autocomplete="off">
-        <button class="btn btn-primary" id="wordchainSubmitBtn">Submit</button>
-      </div>
-    `;
-    timerEl.insertAdjacentHTML('afterend', inputHtml);
-    
-    const input = document.getElementById('wordchainInput');
-    const submitBtn = document.getElementById('wordchainSubmitBtn');
-    
-    input.focus();
-    submitBtn.addEventListener('click', () => submitWord());
-    input.addEventListener('keypress', (e) => {
-      if (e.key === 'Enter') submitWord();
-    });
-    
-    startWordChainTimer();
-  } else if (!isMyTurn && existingInput) {
-    existingInput.remove();
-  }
-  
-  // Reset timer display
-  const timerEl = document.getElementById('wordchainTimer');
-  if (timerEl) {
-    timerEl.textContent = '10';
-    timerEl.classList.remove('warning');
-  }
-  
-  updateScoreBoard(data.players, data.currentPlayer);
-}
-
-function handleWordchainTimeout(data) {
-  if (state.gameState.timerInterval) {
-    clearInterval(state.gameState.timerInterval);
-  }
-  
-  addChatMessage({
-    system: true,
-    message: `⏰ ${data.playerName} ran out of time! (-5 points)`
-  }, elements.gameChatMessages);
-  
-  handleWordchainUpdate({
-    currentPlayer: data.currentPlayer,
-    usedWords: state.gameState.usedWords,
-    nextLetter: state.gameState.currentLetter,
-    players: data.players
-  });
-}
-
-// ============================================
 // SOCKET EVENT HANDLERS
 // ============================================
 
@@ -1804,12 +1512,6 @@ socket.on('gameStarted', (data) => {
     case 'psychic':
       initPsychicGame(data.gameState, data.players);
       break;
-    case 'reaction':
-      initReactionGame(data.gameState, data.players);
-      break;
-    case 'wordchain':
-      initWordChainGame(data.gameState, data.players);
-      break;
     case 'sudoku':
       initSudokuGame(data.gameState, data.players);
       break;
@@ -1819,14 +1521,11 @@ socket.on('gameStarted', (data) => {
     case 'molewhack':
       initMoleWhackGame(data.gameState, data.players);
       break;
-    case 'knife':
-      initKnifeGame(data.gameState, data.players);
-      break;
     case 'mathquiz':
       initMathQuizGame(data.gameState, data.players);
       break;
-    case 'darts':
-      initDartsGame(data.gameState, data.players);
+    case 'ludo':
+      initLudoGame(data.gameState, data.players);
       break;
   }
 });
@@ -1866,16 +1565,6 @@ socket.on('playerChose', handlePlayerChose);
 socket.on('psychicResults', handlePsychicResults);
 socket.on('nextPsychicRound', handleNextPsychicRound);
 
-// Reaction Game (Demogorgon Hunt)
-socket.on('reactionShowTarget', handleReactionShowTarget);
-socket.on('reactionRoundResult', handleReactionRoundResult);
-socket.on('reactionNextRound', handleReactionNextRound);
-
-// Word Chain
-socket.on('wordchainUpdate', handleWordchainUpdate);
-socket.on('wordchainError', (data) => showError(data.message));
-socket.on('wordchainTimeout', handleWordchainTimeout);
-
 // Sudoku
 socket.on('sudokuUpdate', handleSudokuUpdate);
 socket.on('sudokuComplete', handleSudokuComplete);
@@ -1890,21 +1579,17 @@ socket.on('moleWhacked', handleMoleWhacked);
 socket.on('moleHidden', handleMoleHidden);
 socket.on('moleRoundEnd', handleMoleRoundEnd);
 
-// Knife Thrower
-socket.on('knifeThrown', handleKnifeThrown);
-socket.on('knifeCollision', handleKnifeCollision);
-socket.on('knifeNextTurn', handleKnifeNextTurn);
-
 // Math Quiz
 socket.on('mathTimer', (data) => updateMathTimer(data.timeLeft));
 socket.on('mathPlayerAnswered', handleMathPlayerAnswered);
 socket.on('mathReveal', handleMathReveal);
 socket.on('mathNextQuestion', handleMathNextQuestion);
 
-// Darts
-socket.on('dartThrown', handleDartThrown);
-socket.on('dartNextTurn', handleDartNextTurn);
-socket.on('dartNextThrow', handleDartNextThrow);
+// Ludo
+socket.on('ludoUpdate', handleLudoUpdate);
+socket.on('ludoDiceRoll', handleLudoDiceRoll);
+socket.on('ludoTokenMoved', handleLudoTokenMoved);
+socket.on('ludoTurnChange', handleLudoTurnChange);
 
 // Player color changed
 socket.on('playerColorChanged', (data) => {
@@ -1978,12 +1663,6 @@ socket.on('gameRestarted', (data) => {
     case 'psychic':
       initPsychicGame(data.gameState, data.players);
       break;
-    case 'reaction':
-      initReactionGame(data.gameState, data.players);
-      break;
-    case 'wordchain':
-      initWordChainGame(data.gameState, data.players);
-      break;
     case 'sudoku':
       initSudokuGame(data.gameState, data.players);
       break;
@@ -1993,14 +1672,11 @@ socket.on('gameRestarted', (data) => {
     case 'molewhack':
       initMoleWhackGame(data.gameState, data.players);
       break;
-    case 'knife':
-      initKnifeGame(data.gameState, data.players);
-      break;
     case 'mathquiz':
       initMathQuizGame(data.gameState, data.players);
       break;
-    case 'darts':
-      initDartsGame(data.gameState, data.players);
+    case 'ludo':
+      initLudoGame(data.gameState, data.players);
       break;
   }
 });
@@ -2359,198 +2035,6 @@ function handleMoleRoundEnd(data) {
 }
 
 // ============================================
-// KNIFE THROWER GAME
-// ============================================
-
-let knifeAnimationId = null;
-
-function initKnifeGame(gameState, players) {
-  state.gameState = gameState;
-  state.gameState.rotation = 0;
-  state.gameState.canThrow = true;
-  elements.gameTitle.textContent = '🔪 Knife Thrower 🎯';
-  
-  // Cancel any previous animation
-  if (knifeAnimationId) {
-    cancelAnimationFrame(knifeAnimationId);
-  }
-  
-  const currentPlayerName = players.find(p => p.id === gameState.currentPlayer)?.name || 'Unknown';
-  const isMyTurn = gameState.currentPlayer === state.playerId;
-  
-  elements.gameContent.innerHTML = `
-    <div class="knife-container">
-      <div class="knife-status" id="knifeStatus">
-        ${isMyTurn ? '🎯 Tap to throw your knife!' : `⏳ ${escapeHtml(currentPlayerName)}'s turn...`}
-      </div>
-      <div class="knife-info">Round ${gameState.round}/${gameState.maxRounds}</div>
-      <div class="knife-target-container" id="knifeTargetContainer">
-        <div class="knife-target" id="knifeTarget">
-          <div class="target-center">🎯</div>
-          <div class="stuck-knives" id="stuckKnives">
-            ${(gameState.thrownKnives || []).map(angle => `
-              <div class="thrown-knife" style="transform: rotate(${angle}deg) translateY(-100px);">🗡️</div>
-            `).join('')}
-          </div>
-        </div>
-      </div>
-      <div class="knife-ready-area">
-        <div class="knife-ready" id="knifeReady">🗡️</div>
-        <div class="knife-hint">${isMyTurn ? '👆 TAP ABOVE' : ''}</div>
-      </div>
-      <div class="knife-scores">
-        ${players.map(p => `
-          <div class="knife-player ${p.id === gameState.currentPlayer ? 'active' : ''}">
-            <span>${escapeHtml(p.name)}</span>
-            <span>${p.score || 0} pts</span>
-          </div>
-        `).join('')}
-      </div>
-    </div>
-  `;
-  
-  if (isMyTurn && !gameState.winner) {
-    const container = document.getElementById('knifeTargetContainer');
-    if (container) {
-      container.style.cursor = 'pointer';
-      container.addEventListener('click', handleKnifeThrowClick);
-    }
-  }
-  
-  // Start rotation animation
-  animateKnifeTarget();
-  updateScoreBoard(players, gameState.currentPlayer);
-}
-
-function handleKnifeThrowClick() {
-  if (!state.gameState.canThrow) return;
-  state.gameState.canThrow = false;
-  
-  const container = document.getElementById('knifeTargetContainer');
-  if (container) {
-    container.removeEventListener('click', handleKnifeThrowClick);
-    container.style.cursor = 'default';
-  }
-  
-  const angle = (state.gameState.rotation || 0) % 360;
-  socket.emit('throwKnife', angle);
-  
-  // Animate knife throw
-  const knife = document.getElementById('knifeReady');
-  if (knife) {
-    knife.classList.add('throwing');
-  }
-}
-
-function animateKnifeTarget() {
-  if (state.currentGame !== 'knife') {
-    knifeAnimationId = null;
-    return;
-  }
-  
-  const target = document.getElementById('knifeTarget');
-  if (!target) {
-    knifeAnimationId = null;
-    return;
-  }
-  
-  state.gameState.rotation = ((state.gameState.rotation || 0) + 2) % 360;
-  target.style.transform = `rotate(${state.gameState.rotation}deg)`;
-  
-  knifeAnimationId = requestAnimationFrame(animateKnifeTarget);
-}
-
-function handleKnifeThrown(data) {
-  state.gameState.thrownKnives = data.thrownKnives;
-  
-  const knife = document.getElementById('knifeReady');
-  if (knife) {
-    knife.classList.remove('throwing');
-  }
-  
-  // Add the knife to the target
-  const stuckKnives = document.getElementById('stuckKnives');
-  if (stuckKnives && data.angle !== undefined) {
-    const newKnife = document.createElement('div');
-    newKnife.className = 'thrown-knife new';
-    newKnife.style.transform = `rotate(${data.angle}deg) translateY(-100px)`;
-    newKnife.innerHTML = '🗡️';
-    stuckKnives.appendChild(newKnife);
-  }
-  
-  const statusEl = document.getElementById('knifeStatus');
-  if (statusEl) {
-    statusEl.innerHTML = '✅ <span style="color: #22c55e;">Clean throw!</span> +10 points';
-  }
-  
-  updateScoreBoard(data.players);
-}
-
-function handleKnifeCollision(data) {
-  const statusEl = document.getElementById('knifeStatus');
-  if (statusEl) {
-    statusEl.innerHTML = `💥 <span style="color: #ef4444;">${escapeHtml(data.playerName)} hit another knife!</span>`;
-  }
-  
-  const knife = document.getElementById('knifeReady');
-  if (knife) {
-    knife.classList.remove('throwing');
-    knife.classList.add('collision');
-    setTimeout(() => knife.classList.remove('collision'), 500);
-  }
-}
-
-function handleKnifeNextTurn(data) {
-  if (data.winner) {
-    const winner = state.players.find(p => p.id === data.winner);
-    const statusEl = document.getElementById('knifeStatus');
-    if (statusEl) {
-      statusEl.textContent = `🏆 ${winner?.name || 'Winner'} wins!`;
-    }
-    if (knifeAnimationId) {
-      cancelAnimationFrame(knifeAnimationId);
-      knifeAnimationId = null;
-    }
-    showPlayAgainButton('knife');
-    return;
-  }
-  
-  state.gameState.currentPlayer = data.currentPlayer;
-  state.gameState.round = data.round;
-  state.gameState.canThrow = true;
-  
-  const currentPlayerName = state.players.find(p => p.id === data.currentPlayer)?.name || 'Unknown';
-  const isMyTurn = data.currentPlayer === state.playerId;
-  
-  const statusEl = document.getElementById('knifeStatus');
-  if (statusEl) {
-    statusEl.textContent = isMyTurn ? '🎯 Tap to throw your knife!' : `⏳ ${escapeHtml(currentPlayerName)}'s turn...`;
-  }
-  
-  const infoEl = document.querySelector('.knife-info');
-  if (infoEl) {
-    infoEl.textContent = `Round ${data.round}/${state.gameState.maxRounds}`;
-  }
-  
-  const hint = document.querySelector('.knife-hint');
-  if (hint) {
-    hint.textContent = isMyTurn ? '👆 TAP ABOVE' : '';
-  }
-  
-  // Update player scores visual
-  document.querySelectorAll('.knife-player').forEach(el => el.classList.remove('active'));
-  
-  // Re-attach click handler if it's our turn
-  if (isMyTurn) {
-    const container = document.getElementById('knifeTargetContainer');
-    if (container) {
-      container.style.cursor = 'pointer';
-      container.addEventListener('click', handleKnifeThrowClick);
-    }
-  }
-}
-
-// ============================================
 // MATH QUIZ GAME
 // ============================================
 
@@ -2623,198 +2107,275 @@ function handleMathNextQuestion(data) {
 }
 
 // ============================================
-// DARTS GAME
+// LUDO GAME (Upside Down / Wednesday Theme)
 // ============================================
 
-function initDartsGame(gameState, players) {
+const LUDO_COLORS = {
+  0: { name: 'Eleven', color: '#e50914', emoji: '🔴' },      // Red - Eleven
+  1: { name: 'Wednesday', color: '#9333ea', emoji: '🖤' },   // Purple - Wednesday
+  2: { name: 'Dustin', color: '#05d9e8', emoji: '🧢' },      // Cyan - Dustin
+  3: { name: 'Enid', color: '#f59e0b', emoji: '🐺' }         // Orange - Enid
+};
+
+function initLudoGame(gameState, players) {
   state.gameState = gameState;
-  state.gameState.canThrow = true;
-  elements.gameTitle.textContent = '🎯 Darts';
+  state.gameState.selectedToken = null;
+  state.gameState.canRoll = gameState.currentPlayer === state.playerId && !gameState.diceRolled;
+  elements.gameTitle.textContent = '🎲 Upside Down Ludo 🦇';
   
-  renderDartsBoard(gameState, players);
+  renderLudoBoard(gameState, players);
   updateScoreBoard(players, gameState.currentPlayer);
 }
 
-function renderDartsBoard(gameState, players) {
+function renderLudoBoard(gameState, players) {
   const currentPlayerName = players.find(p => p.id === gameState.currentPlayer)?.name || 'Unknown';
   const isMyTurn = gameState.currentPlayer === state.playerId;
-  const throwsLeft = gameState.maxThrowsPerRound - (gameState.throwsThisRound || 0);
+  const myPlayerIndex = gameState.playerOrder.indexOf(state.playerId);
+  const myColor = myPlayerIndex >= 0 ? LUDO_COLORS[myPlayerIndex] : null;
+  
+  let statusText = '';
+  if (gameState.winner) {
+    const winnerName = players.find(p => p.id === gameState.winner)?.name || 'Winner';
+    statusText = `🏆 ${winnerName} wins!`;
+  } else if (isMyTurn) {
+    if (!gameState.diceRolled) {
+      statusText = '🎲 Roll the dice!';
+    } else if (gameState.validMoves && gameState.validMoves.length > 0) {
+      statusText = '👆 Select a token to move';
+    } else {
+      statusText = '❌ No valid moves - passing turn...';
+    }
+  } else {
+    statusText = `⏳ ${escapeHtml(currentPlayerName)}'s turn...`;
+  }
   
   elements.gameContent.innerHTML = `
-    <div class="darts-container">
-      <div class="darts-status" id="dartsStatus">
-        ${isMyTurn ? '🎯 Tap the dartboard to throw!' : `⏳ ${escapeHtml(currentPlayerName)}'s turn...`}
+    <div class="ludo-container">
+      <div class="ludo-status" id="ludoStatus">${statusText}</div>
+      
+      <div class="ludo-board" id="ludoBoard">
+        ${renderLudoBoardHTML(gameState)}
       </div>
-      <div class="darts-info">
-        Round ${gameState.round}/${gameState.maxRounds} • Throws left: ${throwsLeft}
-      </div>
-      <div class="dartboard-wrapper">
-        <div class="dartboard" id="dartboard">
-          <div class="dartboard-ring ring-outer"></div>
-          <div class="dartboard-ring ring-1"></div>
-          <div class="dartboard-ring ring-2"></div>
-          <div class="dartboard-ring ring-3"></div>
-          <div class="dartboard-ring ring-4"></div>
-          <div class="dartboard-bullseye"></div>
-          <div class="dartboard-double-bull"></div>
+      
+      <div class="ludo-controls">
+        <div class="ludo-dice-area">
+          <div class="ludo-dice" id="ludoDice">
+            ${gameState.lastDice ? getDiceEmoji(gameState.lastDice) : '🎲'}
+          </div>
+          ${isMyTurn && !gameState.diceRolled && !gameState.winner ? `
+            <button class="btn btn-primary ludo-roll-btn" id="ludoRollBtn">
+              Roll Dice
+            </button>
+          ` : ''}
+        </div>
+        
+        <div class="ludo-player-info">
+          <p>You are: ${myColor ? `${myColor.emoji} ${myColor.name}` : '👁️ Spectating'}</p>
         </div>
       </div>
-      <div class="darts-scores" id="dartsScores">
-        ${players.map(p => `
-          <div class="dart-player-score ${p.id === gameState.currentPlayer ? 'active' : ''}">
-            <span class="dart-player-name">${escapeHtml(p.name)}</span>
-            <span class="dart-player-points">${gameState.scores?.[p.id] || 0}</span>
-          </div>
-        `).join('')}
-      </div>
-      <div class="darts-legend">
-        <span>🟡 Bull: 50 pts</span>
-        <span>🔴 Double Bull: 25 pts</span>
-        <span>Rings: 20-5 pts</span>
+      
+      <div class="ludo-players">
+        ${gameState.playerOrder.map((playerId, idx) => {
+          const player = players.find(p => p.id === playerId);
+          const colorInfo = LUDO_COLORS[idx];
+          const tokensHome = gameState.tokens[playerId].filter(t => t.position === 'home').length;
+          const tokensFinished = gameState.tokens[playerId].filter(t => t.position === 'finished').length;
+          return `
+            <div class="ludo-player-card ${gameState.currentPlayer === playerId ? 'active' : ''}">
+              <span class="ludo-player-emoji">${colorInfo.emoji}</span>
+              <span class="ludo-player-name">${escapeHtml(player?.name || 'Player')}</span>
+              <span class="ludo-player-progress">🏠${tokensHome} ✅${tokensFinished}</span>
+            </div>
+          `;
+        }).join('')}
       </div>
     </div>
   `;
   
-  if (isMyTurn && !gameState.winner) {
-    const dartboard = document.getElementById('dartboard');
-    if (dartboard) {
-      dartboard.style.cursor = 'crosshair';
-      dartboard.addEventListener('click', handleDartClick);
-    }
+  // Add roll button handler
+  const rollBtn = document.getElementById('ludoRollBtn');
+  if (rollBtn) {
+    rollBtn.addEventListener('click', () => {
+      socket.emit('ludoRollDice');
+      rollBtn.disabled = true;
+    });
+  }
+  
+  // Add token click handlers
+  if (isMyTurn && gameState.diceRolled && gameState.validMoves && gameState.validMoves.length > 0) {
+    document.querySelectorAll('.ludo-token.movable').forEach(token => {
+      token.addEventListener('click', () => {
+        const tokenIndex = parseInt(token.dataset.tokenIndex);
+        socket.emit('ludoMoveToken', tokenIndex);
+      });
+    });
+  }
+  
+  if (gameState.winner) {
+    showPlayAgainButton('ludo');
   }
 }
 
-function handleDartClick(e) {
-  if (!state.gameState.canThrow) return;
-  state.gameState.canThrow = false;
+function renderLudoBoardHTML(gameState) {
+  // Simplified Ludo board - a path with home bases and finish
+  const pathLength = 52; // Standard Ludo path
   
-  const dartboard = document.getElementById('dartboard');
-  if (!dartboard) return;
+  let html = '<div class="ludo-path">';
   
-  dartboard.removeEventListener('click', handleDartClick);
-  dartboard.style.cursor = 'default';
-  
-  const rect = dartboard.getBoundingClientRect();
-  const x = e.clientX - rect.left;
-  const y = e.clientY - rect.top;
-  const centerX = rect.width / 2;
-  const centerY = rect.height / 2;
-  
-  // Send normalized position (0-1) relative to center
-  socket.emit('throwDart', { 
-    x: (x - centerX) / centerX,
-    y: (y - centerY) / centerY,
-    rawX: x,
-    rawY: y
-  });
-}
-
-function handleDartThrown(data) {
-  const dartboard = document.getElementById('dartboard');
-  if (dartboard) {
-    const dart = document.createElement('div');
-    dart.className = 'dart-marker';
-    dart.style.left = `${data.position.x}px`;
-    dart.style.top = `${data.position.y}px`;
-    dart.innerHTML = `<span class="dart-icon">🎯</span><span class="dart-points">+${data.points}</span>`;
-    dartboard.appendChild(dart);
-  }
-  
-  state.gameState.scores = data.scores;
-  state.gameState.throwsThisRound = (state.gameState.throwsThisRound || 0) + 1;
-  
-  // Update scores display
-  const scoresEl = document.getElementById('dartsScores');
-  if (scoresEl) {
-    scoresEl.innerHTML = state.players.map(p => `
-      <div class="dart-player-score ${p.id === state.gameState.currentPlayer ? 'active' : ''}">
-        <span class="dart-player-name">${escapeHtml(p.name)}</span>
-        <span class="dart-player-points">${data.scores[p.id] || 0}</span>
+  // Render home bases
+  gameState.playerOrder.forEach((playerId, playerIdx) => {
+    const colorInfo = LUDO_COLORS[playerIdx];
+    const tokens = gameState.tokens[playerId] || [];
+    const homeTokens = tokens.filter(t => t.position === 'home');
+    
+    html += `
+      <div class="ludo-home ludo-home-${playerIdx}" style="background: ${colorInfo.color}20; border-color: ${colorInfo.color}">
+        <div class="ludo-home-label">${colorInfo.emoji} Home</div>
+        <div class="ludo-home-tokens">
+          ${homeTokens.map((t, i) => {
+            const isMovable = gameState.validMoves && 
+                             gameState.validMoves.some(m => m.tokenIndex === tokens.indexOf(t)) &&
+                             playerId === state.playerId;
+            return `<div class="ludo-token ${isMovable ? 'movable' : ''}" 
+                        data-token-index="${tokens.indexOf(t)}"
+                        style="background: ${colorInfo.color}">${colorInfo.emoji}</div>`;
+          }).join('')}
+        </div>
       </div>
-    `).join('');
+    `;
+  });
+  
+  // Render the track (simplified circular display)
+  html += '<div class="ludo-track">';
+  for (let i = 0; i < pathLength; i++) {
+    const tokensHere = [];
+    gameState.playerOrder.forEach((playerId, playerIdx) => {
+      const tokens = gameState.tokens[playerId] || [];
+      tokens.forEach((t, tIdx) => {
+        if (t.position === i) {
+          const colorInfo = LUDO_COLORS[playerIdx];
+          const isMovable = gameState.validMoves && 
+                           gameState.validMoves.some(m => m.tokenIndex === tIdx) &&
+                           playerId === state.playerId;
+          tokensHere.push({ playerIdx, tIdx, colorInfo, isMovable, playerId });
+        }
+      });
+    });
+    
+    // Highlight special squares
+    const isStartSquare = i === 0 || i === 13 || i === 26 || i === 39;
+    const isSafeSquare = i === 8 || i === 21 || i === 34 || i === 47;
+    
+    html += `
+      <div class="ludo-square ${isStartSquare ? 'start-square' : ''} ${isSafeSquare ? 'safe-square' : ''}">
+        ${tokensHere.map(t => `
+          <div class="ludo-token ${t.isMovable ? 'movable' : ''}" 
+               data-token-index="${t.tIdx}"
+               data-player-id="${t.playerId}"
+               style="background: ${t.colorInfo.color}">${t.colorInfo.emoji}</div>
+        `).join('')}
+      </div>
+    `;
   }
+  html += '</div>';
   
-  // Update throws left
-  const throwsLeft = state.gameState.maxThrowsPerRound - state.gameState.throwsThisRound;
-  const infoEl = document.querySelector('.darts-info');
-  if (infoEl) {
-    infoEl.textContent = `Round ${state.gameState.round}/${state.gameState.maxRounds} • Throws left: ${throwsLeft}`;
-  }
+  // Render finish areas
+  html += '<div class="ludo-finish-area">';
+  gameState.playerOrder.forEach((playerId, playerIdx) => {
+    const colorInfo = LUDO_COLORS[playerIdx];
+    const tokens = gameState.tokens[playerId] || [];
+    const finishedTokens = tokens.filter(t => t.position === 'finished');
+    
+    html += `
+      <div class="ludo-finish ludo-finish-${playerIdx}" style="border-color: ${colorInfo.color}">
+        <div class="ludo-finish-label">✅</div>
+        ${finishedTokens.map(() => `
+          <div class="ludo-token finished" style="background: ${colorInfo.color}">${colorInfo.emoji}</div>
+        `).join('')}
+      </div>
+    `;
+  });
+  html += '</div>';
   
-  state.gameState.canThrow = true;
-  
-  // Re-enable clicking if still our turn
-  if (state.gameState.currentPlayer === state.playerId && throwsLeft > 0) {
-    const dartboard = document.getElementById('dartboard');
-    if (dartboard) {
-      dartboard.style.cursor = 'crosshair';
-      dartboard.addEventListener('click', handleDartClick);
-    }
-  }
-  
-  updateScoreBoard(data.players);
+  html += '</div>';
+  return html;
 }
 
-function handleDartNextTurn(data) {
-  if (data.winner) {
-    const winner = state.players.find(p => p.id === data.winner);
-    const statusEl = document.getElementById('dartsStatus');
-    if (statusEl) {
-      statusEl.textContent = `🏆 ${winner?.name || 'Winner'} wins with ${data.scores?.[data.winner] || 0} points!`;
-    }
-    showPlayAgainButton('darts');
-    return;
+function getDiceEmoji(value) {
+  const diceEmojis = ['', '⚀', '⚁', '⚂', '⚃', '⚄', '⚅'];
+  return diceEmojis[value] || '🎲';
+}
+
+function handleLudoDiceRoll(data) {
+  state.gameState.lastDice = data.value;
+  state.gameState.diceRolled = true;
+  state.gameState.validMoves = data.validMoves;
+  
+  const dice = document.getElementById('ludoDice');
+  if (dice) {
+    dice.classList.add('rolling');
+    setTimeout(() => {
+      dice.classList.remove('rolling');
+      dice.textContent = getDiceEmoji(data.value);
+    }, 500);
   }
   
+  // Update status
+  const status = document.getElementById('ludoStatus');
+  const isMyTurn = state.gameState.currentPlayer === state.playerId;
+  if (status && isMyTurn) {
+    if (data.validMoves && data.validMoves.length > 0) {
+      status.textContent = '👆 Select a token to move';
+    } else {
+      status.textContent = '❌ No valid moves - passing turn...';
+    }
+  }
+  
+  // Re-render to show movable tokens
+  renderLudoBoard(state.gameState, state.players);
+}
+
+function handleLudoTokenMoved(data) {
+  state.gameState.tokens = data.tokens;
+  
+  addChatMessage({
+    system: true,
+    message: `${data.playerName} moved a token!`
+  }, elements.gameChatMessages);
+  
+  if (data.captured) {
+    addChatMessage({
+      system: true,
+      message: `💥 ${data.playerName} sent a token back home!`
+    }, elements.gameChatMessages);
+  }
+  
+  renderLudoBoard(state.gameState, state.players);
+}
+
+function handleLudoTurnChange(data) {
   state.gameState.currentPlayer = data.currentPlayer;
-  state.gameState.round = data.round;
-  state.gameState.throwsThisRound = 0;
-  state.gameState.canThrow = true;
+  state.gameState.diceRolled = false;
+  state.gameState.lastDice = null;
+  state.gameState.validMoves = [];
   
-  // Clear darts from board
-  document.querySelectorAll('.dart-marker').forEach(d => d.remove());
-  
-  const currentPlayerName = state.players.find(p => p.id === data.currentPlayer)?.name || 'Unknown';
-  const isMyTurn = data.currentPlayer === state.playerId;
-  
-  const statusEl = document.getElementById('dartsStatus');
-  if (statusEl) {
-    statusEl.textContent = isMyTurn ? '🎯 Tap the dartboard to throw!' : `⏳ ${escapeHtml(currentPlayerName)}'s turn...`;
-  }
-  
-  const infoEl = document.querySelector('.darts-info');
-  if (infoEl) {
-    infoEl.textContent = `Round ${data.round}/${state.gameState.maxRounds} • Throws left: ${data.throwsRemaining || state.gameState.maxThrowsPerRound}`;
-  }
-  
-  // Update active player highlight
-  document.querySelectorAll('.dart-player-score').forEach(el => el.classList.remove('active'));
-  
-  if (isMyTurn) {
-    const dartboard = document.getElementById('dartboard');
-    if (dartboard) {
-      dartboard.style.cursor = 'crosshair';
-      dartboard.addEventListener('click', handleDartClick);
-    }
-  }
+  renderLudoBoard(state.gameState, state.players);
+  updateScoreBoard(state.players, data.currentPlayer);
 }
 
-function handleDartNextThrow(data) {
-  state.gameState.canThrow = true;
+function handleLudoUpdate(data) {
+  state.gameState = { ...state.gameState, ...data };
   
-  const infoEl = document.querySelector('.darts-info');
-  if (infoEl) {
-    infoEl.textContent = `Round ${state.gameState.round}/${state.gameState.maxRounds} • Throws left: ${data.throwsRemaining}`;
+  if (data.winner) {
+    const winnerName = state.players.find(p => p.id === data.winner)?.name || 'Winner';
+    addChatMessage({
+      system: true,
+      message: `🏆 ${winnerName} wins the game!`
+    }, elements.gameChatMessages);
   }
   
-  // Re-enable clicking
-  if (state.gameState.currentPlayer === state.playerId) {
-    const dartboard = document.getElementById('dartboard');
-    if (dartboard) {
-      dartboard.style.cursor = 'crosshair';
-      dartboard.addEventListener('click', handleDartClick);
-    }
-  }
+  renderLudoBoard(state.gameState, data.players || state.players);
+  updateScoreBoard(data.players || state.players, state.gameState.currentPlayer);
 }
 
 // ============================================

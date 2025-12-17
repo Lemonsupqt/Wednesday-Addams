@@ -3416,3 +3416,284 @@ input[type="text"]::placeholder {
     flex-wrap: wrap;
   }
 }
+
+/* ============================================
+   LUDO GAME (Upside Down / Wednesday Theme)
+   ============================================ */
+
+.ludo-container {
+  text-align: center;
+  width: 100%;
+  max-width: 600px;
+}
+
+.ludo-status {
+  font-family: 'Cinzel', serif;
+  font-size: 1.5rem;
+  color: var(--text-primary);
+  margin-bottom: 20px;
+}
+
+.ludo-board {
+  background: linear-gradient(135deg, var(--bg-card), var(--wed-dark-purple));
+  border: 3px solid var(--wed-gold);
+  border-radius: 20px;
+  padding: 20px;
+  margin-bottom: 20px;
+}
+
+.ludo-path {
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+}
+
+/* Home bases - 2x2 grid */
+.ludo-home {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 15px;
+  border-radius: 15px;
+  border: 2px solid;
+  margin: 5px;
+  min-width: 100px;
+}
+
+.ludo-home-label {
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+}
+
+.ludo-home-tokens {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+/* Track - circular path */
+.ludo-track {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 3px;
+  padding: 15px;
+  background: rgba(0, 0, 0, 0.3);
+  border-radius: 15px;
+}
+
+.ludo-square {
+  width: 30px;
+  height: 30px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 5px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.8rem;
+}
+
+.ludo-square.start-square {
+  background: rgba(229, 9, 20, 0.3);
+  border-color: var(--st-red);
+}
+
+.ludo-square.safe-square {
+  background: rgba(212, 175, 55, 0.3);
+  border-color: var(--wed-gold);
+}
+
+/* Finish area */
+.ludo-finish-area {
+  display: flex;
+  justify-content: center;
+  gap: 15px;
+  flex-wrap: wrap;
+}
+
+.ludo-finish {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  padding: 10px;
+  border: 2px dashed;
+  border-radius: 10px;
+  min-width: 60px;
+}
+
+.ludo-finish-label {
+  font-size: 1.2rem;
+}
+
+/* Tokens */
+.ludo-token {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.9rem;
+  transition: all 0.2s ease;
+  cursor: default;
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.3);
+}
+
+.ludo-token.movable {
+  cursor: pointer;
+  animation: tokenPulse 1s ease infinite;
+  box-shadow: 0 0 10px currentColor;
+}
+
+.ludo-token.movable:hover {
+  transform: scale(1.2);
+}
+
+.ludo-token.finished {
+  opacity: 0.8;
+}
+
+@keyframes tokenPulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.1); }
+}
+
+/* Controls */
+.ludo-controls {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 15px;
+  margin-bottom: 20px;
+}
+
+.ludo-dice-area {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 15px;
+}
+
+.ludo-dice {
+  font-size: 4rem;
+  transition: transform 0.1s ease;
+}
+
+.ludo-dice.rolling {
+  animation: diceRoll 0.5s ease;
+}
+
+@keyframes diceRoll {
+  0% { transform: rotate(0deg) scale(1); }
+  25% { transform: rotate(90deg) scale(1.2); }
+  50% { transform: rotate(180deg) scale(1); }
+  75% { transform: rotate(270deg) scale(1.2); }
+  100% { transform: rotate(360deg) scale(1); }
+}
+
+.ludo-roll-btn {
+  width: auto;
+  padding: 15px 40px;
+  font-size: 1.2rem;
+}
+
+.ludo-player-info {
+  color: var(--text-secondary);
+  font-size: 1rem;
+}
+
+/* Player cards */
+.ludo-players {
+  display: flex;
+  justify-content: center;
+  gap: 15px;
+  flex-wrap: wrap;
+}
+
+.ludo-player-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  padding: 10px 15px;
+  background: var(--bg-card);
+  border: 2px solid transparent;
+  border-radius: 10px;
+  transition: all 0.3s ease;
+}
+
+.ludo-player-card.active {
+  border-color: var(--wed-gold);
+  box-shadow: 0 0 15px rgba(212, 175, 55, 0.3);
+}
+
+.ludo-player-emoji {
+  font-size: 1.5rem;
+}
+
+.ludo-player-name {
+  font-size: 0.9rem;
+  color: var(--text-primary);
+}
+
+.ludo-player-progress {
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+}
+
+/* Ludo Mobile */
+@media (max-width: 600px) {
+  .ludo-container {
+    width: 100%;
+  }
+  
+  .ludo-status {
+    font-size: 1.2rem;
+    margin-bottom: 15px;
+  }
+  
+  .ludo-board {
+    padding: 15px;
+  }
+  
+  .ludo-track {
+    gap: 2px;
+    padding: 10px;
+  }
+  
+  .ludo-square {
+    width: 22px;
+    height: 22px;
+  }
+  
+  .ludo-token {
+    width: 22px;
+    height: 22px;
+    font-size: 0.7rem;
+  }
+  
+  .ludo-dice {
+    font-size: 3rem;
+  }
+  
+  .ludo-roll-btn {
+    padding: 12px 30px;
+    font-size: 1rem;
+  }
+  
+  .ludo-player-card {
+    padding: 8px 12px;
+  }
+  
+  .ludo-player-emoji {
+    font-size: 1.2rem;
+  }
+  
+  .ludo-player-name {
+    font-size: 0.8rem;
+  }
+}
