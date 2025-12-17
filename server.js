@@ -313,7 +313,14 @@ class GameRoom {
     this.id = id;
     this.hostId = hostId;
     this.players = new Map();
-    this.players.set(hostId, { id: hostId, name: hostName, score: 0, ready: false, color: PLAYER_COLORS[0] });
+    this.players.set(hostId, { 
+      id: hostId, 
+      name: hostName, 
+      tournamentPoints: 0,  // Persistent points across games
+      sessionWins: 0,       // Wins in current game session
+      ready: false, 
+      color: PLAYER_COLORS[0] 
+    });
     this.currentGame = null;
     this.gameState = {};
     this.chat = [];
@@ -323,7 +330,14 @@ class GameRoom {
   addPlayer(playerId, playerName) {
     const color = PLAYER_COLORS[this.colorIndex % PLAYER_COLORS.length];
     this.colorIndex++;
-    this.players.set(playerId, { id: playerId, name: playerName, score: 0, ready: false, color });
+    this.players.set(playerId, { 
+      id: playerId, 
+      name: playerName, 
+      tournamentPoints: 0,
+      sessionWins: 0,
+      ready: false, 
+      color 
+    });
   }
 
   removePlayer(playerId) {
@@ -334,8 +348,29 @@ class GameRoom {
     return Array.from(this.players.values());
   }
 
-  resetScores() {
-    this.players.forEach(player => player.score = 0);
+  resetSessionWins() {
+    this.players.forEach(player => player.sessionWins = 0);
+  }
+
+  // Award tournament point to the player with most session wins
+  awardTournamentPoint() {
+    const playerList = this.getPlayerList();
+    if (playerList.length < 2) return null;
+    
+    // Find player(s) with most session wins
+    const maxWins = Math.max(...playerList.map(p => p.sessionWins));
+    if (maxWins === 0) return null; // No wins at all
+    
+    const winners = playerList.filter(p => p.sessionWins === maxWins);
+    
+    // Only award if there's a single winner (not a tie)
+    if (winners.length === 1) {
+      const winner = this.players.get(winners[0].id);
+      winner.tournamentPoints += 1;
+      return winners[0];
+    }
+    
+    return null; // Tie - no points awarded
   }
 }
 
@@ -413,6 +448,9 @@ io.on('connection', (socket) => {
     const gameType = typeof gameData === 'string' ? gameData : gameData.type;
     const options = typeof gameData === 'object' ? gameData.options || {} : {};
 
+    // Reset session wins when starting a new game from lobby
+    room.resetSessionWins();
+    
     room.currentGame = gameType;
     room.gameState = initializeGame(gameType, room, options);
     
@@ -515,7 +553,7 @@ io.on('connection', (socket) => {
       state.gameOver = true;
       state.isCheckmate = true;
       state.winner = socket.id;
-      room.players.get(socket.id).score += 10;
+      room.players.get(socket.id).sessionWins += 1;  // Track session win
     } else if (gameEndState === 'stalemate') {
       state.gameOver = true;
       state.isStalemate = true;
@@ -555,14 +593,15 @@ io.on('connection', (socket) => {
     const isCorrect = answerIndex === currentQ.correct;
 
     if (isCorrect) {
-      const player = room.players.get(socket.id);
-      const timeBonus = Math.max(0, Math.floor((state.timeLeft / 15) * 5));
-      player.score += 10 + timeBonus;
+      // Track correct answers per player
+      if (!state.correctAnswers) state.correctAnswers = {};
+      state.correctAnswers[socket.id] = (state.correctAnswers[socket.id] || 0) + 1;
     }
 
     io.to(roomId).emit('playerAnswered', {
       playerId: socket.id,
       isCorrect,
+      correctAnswers: state.correctAnswers || {},
       players: room.getPlayerList(),
       answeredCount: state.answered.length,
       totalPlayers: room.players.size
@@ -621,16 +660,30 @@ io.on('connection', (socket) => {
       setTimeout(() => {
         if (match) {
           state.matched.push(first, second);
-          room.players.get(socket.id).score += 10;
+          // Track matches per player for this round
+          if (!state.matchesPerPlayer) state.matchesPerPlayer = {};
+          state.matchesPerPlayer[socket.id] = (state.matchesPerPlayer[socket.id] || 0) + 1;
           
           io.to(roomId).emit('memoryMatch', {
             cards: [first, second],
             matched: state.matched,
+            matcherId: socket.id,
+            matcherName: room.players.get(socket.id).name,
+            matchesPerPlayer: state.matchesPerPlayer,
             players: room.getPlayerList()
           });
 
-          // Check win
+          // Check win - award session win to player with most matches
           if (state.matched.length === state.cards.length) {
+            const maxMatches = Math.max(...Object.values(state.matchesPerPlayer));
+            const winners = Object.entries(state.matchesPerPlayer)
+              .filter(([id, matches]) => matches === maxMatches);
+            
+            if (winners.length === 1) {
+              room.players.get(winners[0][0]).sessionWins += 1;
+            }
+            // If tie, no session win awarded
+            
             endGame(room, roomId);
           }
         } else {
@@ -666,7 +719,7 @@ io.on('connection', (socket) => {
     const winner = checkTTTWinner(state.board);
     if (winner) {
       state.winner = socket.id;
-      room.players.get(socket.id).score += 10;
+      room.players.get(socket.id).sessionWins += 1;  // Track session win
       io.to(roomId).emit('tttUpdate', {
         board: state.board,
         winner: socket.id,
@@ -769,16 +822,6 @@ io.on('connection', (socket) => {
     // Check if correct
     const isCorrect = value === 0 || value === state.solution[row][col];
     
-    // Award/deduct points
-    const player = room.players.get(socket.id);
-    if (value !== 0) {
-      if (isCorrect) {
-        player.score += 5;
-      } else {
-        player.score = Math.max(0, player.score - 2);
-      }
-    }
-    
     // Check if puzzle is complete
     let isComplete = true;
     for (let i = 0; i < 9 && isComplete; i++) {
@@ -793,9 +836,7 @@ io.on('connection', (socket) => {
       state.completed = true;
       const completionTime = Math.floor((Date.now() - state.startTime) / 1000);
       
-      // Bonus points for completion
-      room.players.forEach(p => p.score += 20);
-      
+      // Sudoku is collaborative - no individual winner
       io.to(roomId).emit('sudokuComplete', {
         completionTime,
         players: room.getPlayerList()
@@ -844,7 +885,7 @@ io.on('connection', (socket) => {
     if (winner) {
       state.winner = socket.id;
       state.winningCells = winner;
-      room.players.get(socket.id).score += 10;
+      room.players.get(socket.id).sessionWins += 1;  // Track session win
     }
     
     // Check for draw
@@ -891,13 +932,11 @@ io.on('connection', (socket) => {
       if (isOwnMole) {
         // Hit own mole: +10 points
         pointsChange = 10;
-        state.scores[socket.id] += 10;
-        room.players.get(socket.id).score += 10;
+        state.scores[socket.id] = (state.scores[socket.id] || 0) + 10;
       } else {
         // Hit someone else's mole: -5 points
         pointsChange = -5;
         state.scores[socket.id] = Math.max(0, (state.scores[socket.id] || 0) - 5);
-        room.players.get(socket.id).score = Math.max(0, room.players.get(socket.id).score - 5);
       }
       
       io.to(roomId).emit('moleWhacked', {
@@ -929,14 +968,15 @@ io.on('connection', (socket) => {
     const isCorrect = answerIndex === currentQ.correct;
 
     if (isCorrect) {
-      const player = room.players.get(socket.id);
-      const timeBonus = Math.max(0, Math.floor((state.timeLeft / 15) * 5));
-      player.score += 10 + timeBonus;
+      // Track correct answers per player
+      if (!state.correctAnswers) state.correctAnswers = {};
+      state.correctAnswers[socket.id] = (state.correctAnswers[socket.id] || 0) + 1;
     }
 
     io.to(roomId).emit('mathPlayerAnswered', {
       playerId: socket.id,
       isCorrect,
+      correctAnswers: state.correctAnswers || {},
       players: room.getPlayerList(),
       answeredCount: state.answered.length,
       totalPlayers: room.players.size
@@ -1030,7 +1070,6 @@ io.on('connection', (socket) => {
     let captured = false;
     if (validMove.newPosition === 'finished') {
       token.position = 'finished';
-      room.players.get(socket.id).score += 25;
     } else {
       // Check for capture
       const safeSquares = [0, 8, 13, 21, 26, 34, 39, 47];
@@ -1042,7 +1081,6 @@ io.on('connection', (socket) => {
                 otherToken.position = 'home';
                 otherToken.distanceTraveled = 0;
                 captured = true;
-                room.players.get(socket.id).score += 10;
               }
             });
           }
@@ -1066,7 +1104,7 @@ io.on('connection', (socket) => {
     const allFinished = playerTokens.every(t => t.position === 'finished');
     if (allFinished) {
       state.winner = socket.id;
-      room.players.get(socket.id).score += 50;
+      room.players.get(socket.id).sessionWins += 1;  // Track session win
       
       io.to(roomId).emit('ludoUpdate', {
         winner: socket.id,
@@ -1110,9 +1148,19 @@ io.on('connection', (socket) => {
     const room = rooms.get(roomId);
     if (!room) return;
 
+    // Award tournament point to session winner before returning to lobby
+    const sessionWinner = room.awardTournamentPoint();
+    
+    // Reset session wins for next game
+    room.resetSessionWins();
+    
     room.currentGame = null;
     room.gameState = {};
-    io.to(roomId).emit('returnToLobby', { players: room.getPlayerList() });
+    
+    io.to(roomId).emit('returnToLobby', { 
+      players: room.getPlayerList(),
+      sessionWinner: sessionWinner ? { id: sessionWinner.id, name: sessionWinner.name } : null
+    });
   });
 
   // Disconnect
@@ -1539,6 +1587,7 @@ function revealMathAnswer(room, roomId) {
 
   io.to(roomId).emit('mathReveal', {
     correctAnswer: currentQ.correct,
+    correctAnswers: state.correctAnswers || {},
     players: room.getPlayerList()
   });
 
@@ -1547,6 +1596,17 @@ function revealMathAnswer(room, roomId) {
     state.answered = [];
 
     if (state.currentQuestion >= state.questions.length) {
+      // Award session win to player with most correct answers
+      const correctAnswers = state.correctAnswers || {};
+      if (Object.keys(correctAnswers).length > 0) {
+        const maxCorrect = Math.max(...Object.values(correctAnswers));
+        const winners = Object.entries(correctAnswers)
+          .filter(([id, count]) => count === maxCorrect);
+        
+        if (winners.length === 1) {
+          room.players.get(winners[0][0]).sessionWins += 1;
+        }
+      }
       endGame(room, roomId);
     } else {
       state.timeLeft = 15;
@@ -1584,6 +1644,7 @@ function revealTriviaAnswer(room, roomId) {
 
   io.to(roomId).emit('triviaReveal', {
     correctAnswer: currentQ.correct,
+    correctAnswers: state.correctAnswers || {},
     players: room.getPlayerList()
   });
 
@@ -1592,6 +1653,17 @@ function revealTriviaAnswer(room, roomId) {
     state.answered = [];
 
     if (state.currentQuestion >= state.questions.length) {
+      // Award session win to player with most correct answers
+      const correctAnswers = state.correctAnswers || {};
+      if (Object.keys(correctAnswers).length > 0) {
+        const maxCorrect = Math.max(...Object.values(correctAnswers));
+        const winners = Object.entries(correctAnswers)
+          .filter(([id, count]) => count === maxCorrect);
+        
+        if (winners.length === 1) {
+          room.players.get(winners[0][0]).sessionWins += 1;
+        }
+      }
       endGame(room, roomId);
     } else {
       state.timeLeft = 15;
@@ -1628,12 +1700,15 @@ function resolvePsychicRound(room, roomId) {
       
       if (c1 === c2) continue;
       
+      // Track total wins across all rounds
+      if (!state.totalWins) state.totalWins = {};
+      
       if (beats[c1] === c2) {
-        room.players.get(p1).score += 5;
+        state.totalWins[p1] = (state.totalWins[p1] || 0) + 1;
         roundResults[p1].wins++;
         roundResults[p2].losses++;
       } else {
-        room.players.get(p2).score += 5;
+        state.totalWins[p2] = (state.totalWins[p2] || 0) + 1;
         roundResults[p2].wins++;
         roundResults[p1].losses++;
       }
@@ -1644,7 +1719,8 @@ function resolvePsychicRound(room, roomId) {
     choices: Object.fromEntries(state.choices),
     players: room.getPlayerList(),
     round: state.round,
-    roundResults
+    roundResults,
+    totalWins: state.totalWins || {}
   });
 
   // Increased delay to 5 seconds so players can see results properly
@@ -1653,6 +1729,17 @@ function resolvePsychicRound(room, roomId) {
     state.choices.clear();
 
     if (state.round > state.maxRounds) {
+      // Award session win to player with most total wins
+      const totalWins = state.totalWins || {};
+      if (Object.keys(totalWins).length > 0) {
+        const maxWins = Math.max(...Object.values(totalWins));
+        const winners = Object.entries(totalWins)
+          .filter(([id, wins]) => wins === maxWins);
+        
+        if (winners.length === 1) {
+          room.players.get(winners[0][0]).sessionWins += 1;
+        }
+      }
       endGame(room, roomId);
     } else {
       io.to(roomId).emit('nextPsychicRound', { round: state.round });
@@ -1661,10 +1748,18 @@ function resolvePsychicRound(room, roomId) {
 }
 
 function endGame(room, roomId) {
-  const players = room.getPlayerList().sort((a, b) => b.score - a.score);
+  const players = room.getPlayerList();
+  
+  // Find the winner of this round (most session wins in current session)
+  const sortedBySessionWins = [...players].sort((a, b) => b.sessionWins - a.sessionWins);
+  const roundWinner = sortedBySessionWins[0];
+  
+  // Sort by tournament points for display
+  const sortedByTournament = [...players].sort((a, b) => b.tournamentPoints - a.tournamentPoints);
+  
   io.to(roomId).emit('gameEnded', {
-    winner: players[0],
-    players
+    sessionWinner: roundWinner,
+    players: sortedByTournament
   });
   room.currentGame = null;
 }
@@ -1786,6 +1881,17 @@ function startMoleWhackRound(room, roomId) {
       state.round++;
       
       if (state.round > state.maxRounds) {
+        // Award session win to player with highest score
+        const scores = state.scores || {};
+        if (Object.keys(scores).length > 0) {
+          const maxScore = Math.max(...Object.values(scores));
+          const winners = Object.entries(scores)
+            .filter(([id, score]) => score === maxScore);
+          
+          if (winners.length === 1) {
+            room.players.get(winners[0][0]).sessionWins += 1;
+          }
+        }
         endGame(room, roomId);
       } else {
         // Start next round after 3 seconds
@@ -1855,7 +1961,7 @@ setInterval(() => {
           if (state.score2 >= state.maxScore) {
             state.winner = state.player2;
             state.gameActive = false;
-            room.players.get(state.player2).score += 20;
+            room.players.get(state.player2).sessionWins += 1;  // Track session win
             endGame(room, roomId);
           }
         } else {
@@ -1874,7 +1980,7 @@ setInterval(() => {
           if (state.score1 >= state.maxScore) {
             state.winner = state.player1;
             state.gameActive = false;
-            room.players.get(state.player1).score += 20;
+            room.players.get(state.player1).sessionWins += 1;  // Track session win
             endGame(room, roomId);
           }
         } else {

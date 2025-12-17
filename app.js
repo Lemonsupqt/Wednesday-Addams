@@ -233,6 +233,22 @@ function showError(message) {
   }, 4000);
 }
 
+function showNotification(message, type = 'info') {
+  const notification = document.createElement('div');
+  notification.className = `notification notification-${type}`;
+  notification.innerHTML = `<span>${message}</span>`;
+  document.body.appendChild(notification);
+  
+  // Trigger animation
+  setTimeout(() => notification.classList.add('active'), 10);
+  
+  // Remove after delay
+  setTimeout(() => {
+    notification.classList.remove('active');
+    setTimeout(() => notification.remove(), 300);
+  }, 4000);
+}
+
 // ============================================
 // ROOM MANAGEMENT
 // ============================================
@@ -291,7 +307,7 @@ function updatePlayersList(players) {
       <span class="player-name" style="color: ${p.color || '#e50914'}">${escapeHtml(p.name)}</span>
       ${p.id === state.playerId && state.isHost ? '<span class="host-badge">👑 Host</span>' : ''}
       ${state.isHost && p.id !== state.playerId ? `<button class="color-change-btn" data-player-id="${p.id}" title="Change color">🎨</button>` : ''}
-      <span class="score">⭐ ${p.score}</span>
+      <span class="score">🏆 ${p.tournamentPoints || 0}</span>
     </div>
   `).join('');
   
@@ -573,7 +589,7 @@ function updateScoreBoard(players, currentPlayer = null) {
   elements.scoreBoard.innerHTML = players.map(p => `
     <div class="score-item ${p.id === currentPlayer ? 'current-turn' : ''}">
       <span class="name">${escapeHtml(p.name)}</span>
-      <span class="points">${p.score}</span>
+      <span class="points" title="Session Wins">🏅 ${p.sessionWins || 0}</span>
     </div>
   `).join('');
 }
@@ -1569,6 +1585,11 @@ socket.on('returnToLobby', (data) => {
   elements.resultsModal.classList.remove('active');
   updatePlayersList(data.players);
   showScreen('lobby');
+  
+  // Show notification about tournament point
+  if (data.sessionWinner) {
+    showNotification(`🏆 ${data.sessionWinner.name} earned +1 Tournament Point!`, 'success');
+  }
 });
 
 // Tic Tac Toe
@@ -1630,17 +1651,28 @@ socket.on('playerColorChanged', (data) => {
 
 // Game end
 socket.on('gameEnded', (data) => {
-  elements.resultsTitle.textContent = '🏆 Game Over! 🏆';
+  const sessionWinner = data.sessionWinner;
+  const hasWinner = sessionWinner && sessionWinner.sessionWins > 0;
+  
+  elements.resultsTitle.textContent = '🏆 Round Over! 🏆';
   elements.resultsContent.innerHTML = `
     <div class="results-winner">
-      👑 Winner: <span class="winner-name">${escapeHtml(data.winner.name)}</span>
-      with ${data.winner.score} points!
+      ${hasWinner 
+        ? `🥇 Session Winner: <span class="winner-name">${escapeHtml(sessionWinner.name)}</span> with ${sessionWinner.sessionWins} win${sessionWinner.sessionWins > 1 ? 's' : ''}!`
+        : `🤝 No clear winner this session!`
+      }
+    </div>
+    <div class="results-info">
+      <p>Play again to accumulate wins, or return to lobby.</p>
+      <p>Session winner gets <strong>+1 Tournament Point</strong> when returning to lobby!</p>
     </div>
     <div class="results-list">
+      <h4>Session Standings:</h4>
       ${data.players.map((p, i) => `
-        <div class="results-item">
+        <div class="results-item ${p.id === sessionWinner?.id ? 'session-leader' : ''}">
           <span><span class="rank">#${i + 1}</span> ${escapeHtml(p.name)}</span>
-          <span class="score">${p.score} pts</span>
+          <span class="session-wins">🏅 ${p.sessionWins || 0} wins</span>
+          <span class="tournament-pts">🏆 ${p.tournamentPoints || 0} pts</span>
         </div>
       `).join('')}
     </div>
@@ -1649,7 +1681,10 @@ socket.on('gameEnded', (data) => {
         <button class="btn btn-primary" id="modalPlayAgainBtn">
           <span class="btn-icon">🔄</span> Play Again
         </button>
-      ` : '<p style="color: var(--text-secondary); margin-top: 15px;">Waiting for host to restart...</p>'}
+        <button class="btn btn-secondary" id="modalBackToLobbyBtn">
+          <span class="btn-icon">🏠</span> Back to Lobby (+1 pt to winner)
+        </button>
+      ` : '<p style="color: var(--text-secondary); margin-top: 15px;">Waiting for host decision...</p>'}
     </div>
   `;
   elements.resultsModal.classList.add('active');
@@ -1667,6 +1702,14 @@ socket.on('gameEnded', (data) => {
       } else {
         socket.emit('restartGame', state.currentGame);
       }
+    });
+  }
+  
+  // Add back to lobby handler
+  const modalBackToLobbyBtn = document.getElementById('modalBackToLobbyBtn');
+  if (modalBackToLobbyBtn) {
+    modalBackToLobbyBtn.addEventListener('click', () => {
+      socket.emit('endGame');
     });
   }
 });
