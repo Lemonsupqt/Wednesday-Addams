@@ -449,11 +449,6 @@ function showMemoryDifficultyModal() {
           <span class="diff-name">Insane</span>
           <span class="diff-desc">6×4 Grid (12 pairs, 24 cards)</span>
         </button>
-        <button class="difficulty-btn impossible" data-difficulty="impossible">
-          <span class="diff-icon">☠️</span>
-          <span class="diff-name">IMPOSSIBLE</span>
-          <span class="diff-desc">10×5 Grid (25 pairs, 50 cards)</span>
-        </button>
       </div>
       <button class="btn btn-secondary" id="cancelDifficultyBtn" style="margin-top: 20px;">Cancel</button>
     </div>
@@ -485,22 +480,17 @@ function showSudokuDifficultyModal() {
         <button class="difficulty-btn" data-difficulty="easy">
           <span class="diff-icon">😊</span>
           <span class="diff-name">Easy</span>
-          <span class="diff-desc">~35 empty cells</span>
+          <span class="diff-desc">~30 empty cells</span>
         </button>
         <button class="difficulty-btn" data-difficulty="medium">
           <span class="diff-icon">🤔</span>
           <span class="diff-name">Medium</span>
-          <span class="diff-desc">~45 empty cells</span>
+          <span class="diff-desc">~40 empty cells</span>
         </button>
         <button class="difficulty-btn" data-difficulty="hard">
           <span class="diff-icon">😈</span>
           <span class="diff-name">Hard</span>
-          <span class="diff-desc">~55 empty cells</span>
-        </button>
-        <button class="difficulty-btn impossible" data-difficulty="evil">
-          <span class="diff-icon">👁️</span>
-          <span class="diff-name">EVIL</span>
-          <span class="diff-desc">~60 empty cells (Vecna mode)</span>
+          <span class="diff-desc">~50 empty cells</span>
         </button>
       </div>
       <button class="btn btn-secondary" id="cancelDifficultyBtn" style="margin-top: 20px;">Cancel</button>
@@ -1516,41 +1506,50 @@ socket.on('error', (data) => {
 
 // Game events
 socket.on('gameStarted', (data) => {
+  console.log('🎮 Game started:', data.gameType, data.gameState);
   state.currentGame = data.gameType;
   state.players = data.players;
   showScreen('gameScreen');
   
-  switch (data.gameType) {
-    case 'tictactoe':
-      initTicTacToe(data.gameState, data.players);
-      break;
-    case 'memory':
-      initMemoryGame(data.gameState, data.players);
-      break;
-    case 'trivia':
-      initTrivia(data.gameState, data.players);
-      break;
-    case 'chess':
-      initChessGame(data.gameState, data.players);
-      break;
-    case 'psychic':
-      initPsychicGame(data.gameState, data.players);
-      break;
-    case 'sudoku':
-      initSudokuGame(data.gameState, data.players);
-      break;
-    case 'connect4':
-      initConnect4Game(data.gameState, data.players);
-      break;
-    case 'molewhack':
-      initMoleWhackGame(data.gameState, data.players);
-      break;
-    case 'mathquiz':
-      initMathQuizGame(data.gameState, data.players);
-      break;
-    case 'ludo':
-      initLudoGame(data.gameState, data.players);
-      break;
+  try {
+    switch (data.gameType) {
+      case 'tictactoe':
+        initTicTacToe(data.gameState, data.players);
+        break;
+      case 'memory':
+        initMemoryGame(data.gameState, data.players);
+        break;
+      case 'trivia':
+        initTrivia(data.gameState, data.players);
+        break;
+      case 'chess':
+        initChessGame(data.gameState, data.players);
+        break;
+      case 'psychic':
+        initPsychicGame(data.gameState, data.players);
+        break;
+      case 'sudoku':
+        initSudokuGame(data.gameState, data.players);
+        break;
+      case 'connect4':
+        initConnect4Game(data.gameState, data.players);
+        break;
+      case 'molewhack':
+        initMoleWhackGame(data.gameState, data.players);
+        break;
+      case 'mathquiz':
+        initMathQuizGame(data.gameState, data.players);
+        break;
+      case 'ludo':
+        initLudoGame(data.gameState, data.players);
+        break;
+      default:
+        console.error('Unknown game type:', data.gameType);
+        elements.gameContent.innerHTML = '<div style="text-align:center;color:red;">Unknown game type</div>';
+    }
+  } catch (err) {
+    console.error('Error initializing game:', err);
+    elements.gameContent.innerHTML = `<div style="text-align:center;color:red;">Error loading game: ${err.message}</div>`;
   }
 });
 
@@ -1672,41 +1671,49 @@ socket.on('gameEnded', (data) => {
 
 // Game restarted
 socket.on('gameRestarted', (data) => {
+  console.log('🔄 Game restarted:', data.gameType, data.gameState);
   elements.resultsModal.classList.remove('active');
   state.currentGame = data.gameType;
   state.players = data.players;
   
-  switch (data.gameType) {
-    case 'tictactoe':
-      initTicTacToe(data.gameState, data.players);
-      break;
-    case 'memory':
-      initMemoryGame(data.gameState, data.players);
-      break;
-    case 'trivia':
-      initTrivia(data.gameState, data.players);
-      break;
-    case 'chess':
-      initChessGame(data.gameState, data.players);
-      break;
-    case 'psychic':
-      initPsychicGame(data.gameState, data.players);
-      break;
-    case 'sudoku':
-      initSudokuGame(data.gameState, data.players);
-      break;
-    case 'connect4':
-      initConnect4Game(data.gameState, data.players);
-      break;
-    case 'molewhack':
-      initMoleWhackGame(data.gameState, data.players);
-      break;
-    case 'mathquiz':
-      initMathQuizGame(data.gameState, data.players);
-      break;
-    case 'ludo':
-      initLudoGame(data.gameState, data.players);
-      break;
+  try {
+    switch (data.gameType) {
+      case 'tictactoe':
+        initTicTacToe(data.gameState, data.players);
+        break;
+      case 'memory':
+        initMemoryGame(data.gameState, data.players);
+        break;
+      case 'trivia':
+        initTrivia(data.gameState, data.players);
+        break;
+      case 'chess':
+        initChessGame(data.gameState, data.players);
+        break;
+      case 'psychic':
+        initPsychicGame(data.gameState, data.players);
+        break;
+      case 'sudoku':
+        initSudokuGame(data.gameState, data.players);
+        break;
+      case 'connect4':
+        initConnect4Game(data.gameState, data.players);
+        break;
+      case 'molewhack':
+        initMoleWhackGame(data.gameState, data.players);
+        break;
+      case 'mathquiz':
+        initMathQuizGame(data.gameState, data.players);
+        break;
+      case 'ludo':
+        initLudoGame(data.gameState, data.players);
+        break;
+      default:
+        console.error('Unknown game type:', data.gameType);
+    }
+  } catch (err) {
+    console.error('Error restarting game:', err);
+    elements.gameContent.innerHTML = `<div style="text-align:center;color:red;">Error loading game: ${err.message}</div>`;
   }
 });
 
@@ -1715,8 +1722,17 @@ socket.on('gameRestarted', (data) => {
 // ============================================
 
 function initSudokuGame(gameState, players) {
-  state.gameState = gameState;
+  console.log('Initializing Sudoku:', gameState);
+  state.gameState = gameState || {};
   state.gameState.selectedCell = null;
+  
+  // Ensure currentBoard exists
+  if (!state.gameState.currentBoard || !Array.isArray(state.gameState.currentBoard)) {
+    console.error('Sudoku: Invalid currentBoard');
+    elements.gameTitle.textContent = '🔢 Vecna\'s Sudoku 🧩';
+    elements.gameContent.innerHTML = '<div style="text-align:center;color:red;">Error loading Sudoku puzzle</div>';
+    return;
+  }
   
   const difficultyLabel = gameState.difficulty ? gameState.difficulty.charAt(0).toUpperCase() + gameState.difficulty.slice(1) : 'Medium';
   elements.gameTitle.textContent = `🔢 Vecna's Sudoku (${difficultyLabel}) 🧩`;
@@ -1727,6 +1743,10 @@ function initSudokuGame(gameState, players) {
 
 function renderSudokuBoard(gameState) {
   const selectedCell = state.gameState.selectedCell;
+  const puzzle = gameState.puzzle || [];
+  const solution = gameState.solution || [];
+  const currentBoard = gameState.currentBoard || [];
+  const playerMoves = gameState.playerMoves || {};
   
   elements.gameContent.innerHTML = `
     <div class="sudoku-container">
@@ -1735,17 +1755,20 @@ function renderSudokuBoard(gameState) {
         <p>✅ Correct = +5 points | ❌ Wrong = -2 points</p>
       </div>
       <div class="sudoku-board" id="sudokuBoard">
-        ${gameState.currentBoard.map((row, rowIndex) => 
-          row.map((cell, colIndex) => {
-            const isOriginal = gameState.puzzle[rowIndex][colIndex] !== 0;
+        ${currentBoard.map((row, rowIndex) => 
+          (row || []).map((cell, colIndex) => {
+            const puzzleRow = puzzle[rowIndex] || [];
+            const solutionRow = solution[rowIndex] || [];
+            const isOriginal = puzzleRow[colIndex] !== 0;
             const isSelected = selectedCell && selectedCell[0] === rowIndex && selectedCell[1] === colIndex;
-            const isWrong = cell !== 0 && cell !== gameState.solution[rowIndex][colIndex];
+            const isWrong = cell !== 0 && cell !== solutionRow[colIndex];
             const cellKey = `${rowIndex}-${colIndex}`;
-            const filledBy = gameState.playerMoves[cellKey];
+            const filledBy = playerMoves[cellKey];
             const playerName = filledBy ? state.players.find(p => p.id === filledBy)?.name : null;
             
             // Highlight same number
-            const selectedValue = selectedCell ? gameState.currentBoard[selectedCell[0]][selectedCell[1]] : 0;
+            const selectedRow = selectedCell ? currentBoard[selectedCell[0]] || [] : [];
+            const selectedValue = selectedCell ? selectedRow[selectedCell[1]] : 0;
             const isSameNumber = cell !== 0 && cell === selectedValue;
             
             return `
@@ -1868,8 +1891,16 @@ function handleSudokuComplete(data) {
 // ============================================
 
 function initConnect4Game(gameState, players) {
-  state.gameState = gameState;
+  console.log('Initializing Connect 4:', gameState);
+  state.gameState = gameState || {};
   elements.gameTitle.textContent = '🔴 4 in a Row 🟡';
+  
+  // Ensure board exists
+  if (!state.gameState.board || !Array.isArray(state.gameState.board)) {
+    console.error('Connect4: Invalid board');
+    elements.gameContent.innerHTML = '<div style="text-align:center;color:red;">Error loading Connect 4</div>';
+    return;
+  }
   
   renderConnect4Board(gameState, players);
   updateScoreBoard(players, gameState.currentPlayer);
@@ -1905,7 +1936,7 @@ function renderConnect4Board(gameState, players) {
       <div class="connect4-board" id="connect4Board">
         ${[0,1,2,3,4,5].map(row => 
           [0,1,2,3,4,5,6].map(col => {
-            const cell = gameState.board[row][col];
+            const cell = gameState.board && gameState.board[row] ? gameState.board[row][col] : null;
             const isWinning = gameState.winningCells?.some(([r,c]) => r === row && c === col);
             return `<div class="c4-cell ${cell ? 'filled' : 'empty'} ${isWinning ? 'winning' : ''}" data-col="${col}">
               ${cell || ''}
@@ -1947,14 +1978,17 @@ function handleConnect4Update(data) {
 // ============================================
 
 function initMoleWhackGame(gameState, players) {
-  state.gameState = gameState;
+  console.log('Initializing Mole Whack:', gameState);
+  state.gameState = gameState || { maxRounds: 5, round: 1 };
   state.gameState.activeMoles = new Set();
   elements.gameTitle.textContent = '🔨 Mole Whacker 🐹';
+  
+  const maxRounds = state.gameState.maxRounds || 5;
   
   elements.gameContent.innerHTML = `
     <div class="mole-container">
       <div class="mole-status" id="moleStatus">🎯 Get Ready!</div>
-      <div class="mole-round" id="moleRound">Round 1/${gameState.maxRounds}</div>
+      <div class="mole-round" id="moleRound">Round 1/${maxRounds}</div>
       <div class="mole-score" id="moleScore">Your Whacks: 0</div>
       <div class="mole-board" id="moleBoard">
         ${[0,1,2,3,4,5,6,7,8].map(i => `
@@ -1972,43 +2006,64 @@ function initMoleWhackGame(gameState, players) {
   
   updateScoreBoard(players);
   setupMoleClickHandlers();
+  console.log('Mole Whack initialized, waiting for moles...');
 }
 
 function setupMoleClickHandlers() {
+  console.log('Setting up mole click handlers');
   document.querySelectorAll('.mole-hole').forEach(hole => {
-    hole.addEventListener('click', (e) => {
+    // Use both click and touchstart for better mobile support
+    const handleWhack = (e) => {
       e.preventDefault();
+      e.stopPropagation();
       const index = parseInt(hole.dataset.index);
       const mole = document.getElementById(`mole-${index}`);
       if (mole && mole.classList.contains('visible')) {
+        console.log('🔨 Whacking mole at:', index);
         socket.emit('whackMole', index);
         // Immediate visual feedback
         mole.classList.add('hit');
+        mole.classList.remove('visible');
         setTimeout(() => mole.classList.remove('hit'), 150);
       }
-    });
+    };
+    
+    hole.addEventListener('click', handleWhack);
+    hole.addEventListener('touchstart', handleWhack, { passive: false });
   });
 }
 
 function handleMoleRoundStart(data) {
-  state.gameState.round = data.round;
-  state.gameState.activeMoles = new Set();
+  console.log('🎯 Mole round started:', data.round);
+  if (state.gameState) {
+    state.gameState.round = data.round;
+    state.gameState.activeMoles = new Set();
+  }
   
   const statusEl = document.getElementById('moleStatus');
   const roundEl = document.getElementById('moleRound');
-  if (statusEl) statusEl.textContent = '🔨 WHACK THE MOLES!';
-  if (roundEl) roundEl.textContent = `Round ${data.round}/${state.gameState.maxRounds}`;
+  const maxRounds = state.gameState?.maxRounds || 5;
   
-  // Clear all moles
-  document.querySelectorAll('.mole').forEach(m => m.classList.remove('visible', 'hit'));
+  if (statusEl) statusEl.textContent = '🔨 WHACK THE MOLES!';
+  if (roundEl) roundEl.textContent = `Round ${data.round}/${maxRounds}`;
+  
+  // Clear all moles - reset their visibility
+  document.querySelectorAll('.mole').forEach(m => {
+    m.classList.remove('visible', 'hit', 'whacked');
+  });
 }
 
 function handleMoleSpawned(data) {
+  console.log('🐹 Mole spawned at:', data.moleIndex);
   const mole = document.getElementById(`mole-${data.moleIndex}`);
   if (mole) {
-    mole.classList.remove('hit');
+    mole.classList.remove('hit', 'whacked');
     mole.classList.add('visible');
-    state.gameState.activeMoles.add(data.moleIndex);
+    if (state.gameState && state.gameState.activeMoles) {
+      state.gameState.activeMoles.add(data.moleIndex);
+    }
+  } else {
+    console.warn('Mole element not found:', `mole-${data.moleIndex}`);
   }
 }
 
@@ -2068,9 +2123,17 @@ function handleMoleRoundEnd(data) {
 // ============================================
 
 function initMathQuizGame(gameState, players) {
-  state.gameState = gameState;
+  console.log('Initializing Math Quiz:', gameState);
+  state.gameState = gameState || {};
   state.gameState.selectedAnswer = null;
   elements.gameTitle.textContent = '🔢 Math Quiz ➕';
+  
+  // Ensure questions exist
+  if (!state.gameState.questions || !Array.isArray(state.gameState.questions) || state.gameState.questions.length === 0) {
+    console.error('MathQuiz: Invalid questions');
+    elements.gameContent.innerHTML = '<div style="text-align:center;color:red;">Error loading Math Quiz</div>';
+    return;
+  }
   
   showMathQuestion(0, gameState.questions[0], 15);
   updateScoreBoard(players);
@@ -2147,10 +2210,18 @@ const LUDO_COLORS = {
 };
 
 function initLudoGame(gameState, players) {
-  state.gameState = gameState;
+  console.log('Initializing Ludo:', gameState);
+  state.gameState = gameState || {};
   state.gameState.selectedToken = null;
   state.gameState.canRoll = gameState.currentPlayer === state.playerId && !gameState.diceRolled;
   elements.gameTitle.textContent = '🎲 Upside Down Ludo 🦇';
+  
+  // Ensure required data exists
+  if (!state.gameState.tokens || !state.gameState.playerOrder) {
+    console.error('Ludo: Invalid game state');
+    elements.gameContent.innerHTML = '<div style="text-align:center;color:red;">Error loading Ludo</div>';
+    return;
+  }
   
   renderLudoBoard(gameState, players);
   updateScoreBoard(players, gameState.currentPlayer);
@@ -2246,83 +2317,96 @@ function renderLudoBoard(gameState, players) {
 }
 
 function renderLudoBoardHTML(gameState) {
-  // Simplified Ludo board - a path with home bases and finish
-  const pathLength = 52; // Standard Ludo path
+  // Simplified Ludo board display
+  if (!gameState.playerOrder || !gameState.tokens) {
+    return '<div style="color:red;">Error rendering Ludo board</div>';
+  }
   
   let html = '<div class="ludo-path">';
   
-  // Render home bases
+  // Render home bases for each player
+  html += '<div style="display:flex;flex-wrap:wrap;justify-content:center;gap:15px;margin-bottom:20px;">';
   gameState.playerOrder.forEach((playerId, playerIdx) => {
-    const colorInfo = LUDO_COLORS[playerIdx];
+    const colorInfo = LUDO_COLORS[playerIdx] || { color: '#888', emoji: '⚪', name: 'Player' };
     const tokens = gameState.tokens[playerId] || [];
     const homeTokens = tokens.filter(t => t.position === 'home');
+    const onBoardTokens = tokens.filter(t => typeof t.position === 'number');
+    const finishedTokens = tokens.filter(t => t.position === 'finished');
     
     html += `
-      <div class="ludo-home ludo-home-${playerIdx}" style="background: ${colorInfo.color}20; border-color: ${colorInfo.color}">
-        <div class="ludo-home-label">${colorInfo.emoji} Home</div>
-        <div class="ludo-home-tokens">
+      <div class="ludo-home" style="background: ${colorInfo.color}20; border-color: ${colorInfo.color}; padding:15px; border-radius:10px; border:2px solid; min-width:120px;">
+        <div style="text-align:center;margin-bottom:10px;">${colorInfo.emoji} ${colorInfo.name}</div>
+        <div style="display:flex;gap:5px;justify-content:center;flex-wrap:wrap;">
           ${homeTokens.map((t, i) => {
+            const tokenIdx = tokens.indexOf(t);
             const isMovable = gameState.validMoves && 
-                             gameState.validMoves.some(m => m.tokenIndex === tokens.indexOf(t)) &&
+                             gameState.validMoves.some(m => m.tokenIndex === tokenIdx) &&
                              playerId === state.playerId;
             return `<div class="ludo-token ${isMovable ? 'movable' : ''}" 
-                        data-token-index="${tokens.indexOf(t)}"
-                        style="background: ${colorInfo.color}">${colorInfo.emoji}</div>`;
+                        data-token-index="${tokenIdx}"
+                        style="background: ${colorInfo.color}; width:30px; height:30px; border-radius:50%; display:flex; align-items:center; justify-content:center; cursor:${isMovable ? 'pointer' : 'default'}; ${isMovable ? 'box-shadow: 0 0 10px gold; animation: tokenPulse 1s infinite;' : ''}">${colorInfo.emoji}</div>`;
           }).join('')}
+        </div>
+        <div style="font-size:0.8rem;color:var(--text-secondary);margin-top:8px;text-align:center;">
+          🏠 ${homeTokens.length} | 🎯 ${onBoardTokens.length} | ✅ ${finishedTokens.length}
         </div>
       </div>
     `;
   });
-  
-  // Render the track (simplified circular display)
-  html += '<div class="ludo-track">';
-  for (let i = 0; i < pathLength; i++) {
-    const tokensHere = [];
-    gameState.playerOrder.forEach((playerId, playerIdx) => {
-      const tokens = gameState.tokens[playerId] || [];
-      tokens.forEach((t, tIdx) => {
-        if (t.position === i) {
-          const colorInfo = LUDO_COLORS[playerIdx];
-          const isMovable = gameState.validMoves && 
-                           gameState.validMoves.some(m => m.tokenIndex === tIdx) &&
-                           playerId === state.playerId;
-          tokensHere.push({ playerIdx, tIdx, colorInfo, isMovable, playerId });
-        }
-      });
-    });
-    
-    // Highlight special squares
-    const isStartSquare = i === 0 || i === 13 || i === 26 || i === 39;
-    const isSafeSquare = i === 8 || i === 21 || i === 34 || i === 47;
-    
-    html += `
-      <div class="ludo-square ${isStartSquare ? 'start-square' : ''} ${isSafeSquare ? 'safe-square' : ''}">
-        ${tokensHere.map(t => `
-          <div class="ludo-token ${t.isMovable ? 'movable' : ''}" 
-               data-token-index="${t.tIdx}"
-               data-player-id="${t.playerId}"
-               style="background: ${t.colorInfo.color}">${t.colorInfo.emoji}</div>
-        `).join('')}
-      </div>
-    `;
-  }
   html += '</div>';
   
-  // Render finish areas
-  html += '<div class="ludo-finish-area">';
+  // Simplified track - just show tokens on board
+  const onBoardInfo = [];
   gameState.playerOrder.forEach((playerId, playerIdx) => {
-    const colorInfo = LUDO_COLORS[playerIdx];
+    const colorInfo = LUDO_COLORS[playerIdx] || { color: '#888', emoji: '⚪' };
+    const tokens = gameState.tokens[playerId] || [];
+    tokens.forEach((t, tIdx) => {
+      if (typeof t.position === 'number') {
+        const isMovable = gameState.validMoves && 
+                         gameState.validMoves.some(m => m.tokenIndex === tIdx) &&
+                         playerId === state.playerId;
+        onBoardInfo.push({
+          position: t.position,
+          colorInfo,
+          isMovable,
+          tokenIdx: tIdx,
+          playerId
+        });
+      }
+    });
+  });
+  
+  if (onBoardInfo.length > 0) {
+    html += '<div style="background:rgba(0,0,0,0.3);padding:15px;border-radius:10px;margin-bottom:20px;">';
+    html += '<div style="text-align:center;margin-bottom:10px;color:var(--text-secondary);">Tokens on Track:</div>';
+    html += '<div style="display:flex;flex-wrap:wrap;gap:10px;justify-content:center;">';
+    onBoardInfo.forEach(info => {
+      html += `<div class="ludo-token ${info.isMovable ? 'movable' : ''}" 
+                   data-token-index="${info.tokenIdx}"
+                   data-player-id="${info.playerId}"
+                   style="background: ${info.colorInfo.color}; width:35px; height:35px; border-radius:50%; display:flex; align-items:center; justify-content:center; position:relative; cursor:${info.isMovable ? 'pointer' : 'default'}; ${info.isMovable ? 'box-shadow: 0 0 10px gold; animation: tokenPulse 1s infinite;' : ''}">
+                ${info.colorInfo.emoji}
+                <span style="position:absolute;bottom:-15px;font-size:0.7rem;color:var(--text-secondary);">${info.position}</span>
+              </div>`;
+    });
+    html += '</div></div>';
+  }
+  
+  // Finish area
+  html += '<div style="display:flex;justify-content:center;gap:15px;flex-wrap:wrap;">';
+  gameState.playerOrder.forEach((playerId, playerIdx) => {
+    const colorInfo = LUDO_COLORS[playerIdx] || { color: '#888', emoji: '⚪' };
     const tokens = gameState.tokens[playerId] || [];
     const finishedTokens = tokens.filter(t => t.position === 'finished');
     
-    html += `
-      <div class="ludo-finish ludo-finish-${playerIdx}" style="border-color: ${colorInfo.color}">
-        <div class="ludo-finish-label">✅</div>
-        ${finishedTokens.map(() => `
-          <div class="ludo-token finished" style="background: ${colorInfo.color}">${colorInfo.emoji}</div>
-        `).join('')}
-      </div>
-    `;
+    if (finishedTokens.length > 0) {
+      html += `<div style="border:2px dashed ${colorInfo.color}; padding:10px; border-radius:10px; text-align:center;">
+                <div>✅ Finished</div>
+                <div style="display:flex;gap:5px;margin-top:5px;">
+                  ${finishedTokens.map(() => `<div style="background:${colorInfo.color};width:25px;height:25px;border-radius:50%;display:flex;align-items:center;justify-content:center;">${colorInfo.emoji}</div>`).join('')}
+                </div>
+              </div>`;
+    }
   });
   html += '</div>';
   

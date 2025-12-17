@@ -1154,10 +1154,9 @@ function initializeGame(gameType, room, options = {}) {
       };
 
     case 'memory':
-      // Difficulty levels: easy (6 pairs), hard (8 pairs), insane (12 pairs), impossible (25 pairs = 50 cards)
+      // Difficulty levels: easy (6 pairs), hard (8 pairs), insane (12 pairs)
       const difficulty = options.difficulty || 'easy';
       const memoryItemsAll = [
-        // Original items
         { id: 'demogorgon', emoji: '👹', name: 'Demogorgon' },
         { id: 'eleven', emoji: '🔴', name: 'Eleven' },
         { id: 'wednesday', emoji: '🖤', name: 'Wednesday' },
@@ -1169,42 +1168,7 @@ function initializeGame(gameType, room, options = {}) {
         { id: 'vecna', emoji: '👁️', name: 'Vecna' },
         { id: 'mindflayer', emoji: '🌑', name: 'Mind Flayer' },
         { id: 'hopper', emoji: '🚔', name: 'Hopper' },
-        { id: 'enid', emoji: '🐺', name: 'Enid' },
-        { id: 'upside', emoji: '🙃', name: 'Upside Down' },
-        { id: 'raven', emoji: '🐦‍⬛', name: 'Raven' },
-        { id: 'gate', emoji: '🚪', name: 'Gate' },
-        { id: 'lab', emoji: '🔬', name: 'Hawkins Lab' },
-        // Additional items for impossible mode
-        { id: 'dustin', emoji: '🧢', name: 'Dustin' },
-        { id: 'mike', emoji: '🚲', name: 'Mike' },
-        { id: 'lucas', emoji: '🏹', name: 'Lucas' },
-        { id: 'will', emoji: '🎨', name: 'Will' },
-        { id: 'max', emoji: '🛹', name: 'Max' },
-        { id: 'steve', emoji: '🦇', name: 'Steve' },
-        { id: 'nancy', emoji: '📰', name: 'Nancy' },
-        { id: 'jonathan', emoji: '📷', name: 'Jonathan' },
-        { id: 'joyce', emoji: '🎄', name: 'Joyce' },
-        { id: 'murray', emoji: '📡', name: 'Murray' },
-        { id: 'robin', emoji: '🎬', name: 'Robin' },
-        { id: 'eddie', emoji: '🎸', name: 'Eddie' },
-        { id: 'morticia', emoji: '🥀', name: 'Morticia' },
-        { id: 'gomez', emoji: '⚔️', name: 'Gomez' },
-        { id: 'pugsley', emoji: '💣', name: 'Pugsley' },
-        { id: 'lurch', emoji: '🚪', name: 'Lurch' },
-        { id: 'fester', emoji: '💡', name: 'Fester' },
-        { id: 'bianca', emoji: '🧜‍♀️', name: 'Bianca' },
-        { id: 'xavier', emoji: '🎨', name: 'Xavier' },
-        { id: 'tyler', emoji: '☕', name: 'Tyler' },
-        { id: 'weems', emoji: '👩‍💼', name: 'Weems' },
-        { id: 'demodogs', emoji: '🐕', name: 'Demodogs' },
-        { id: 'demobats', emoji: '🦇', name: 'Demobats' },
-        { id: 'clock', emoji: '🕰️', name: 'Vecna Clock' },
-        { id: 'walkie', emoji: '📻', name: 'Walkie' },
-        { id: 'christmas', emoji: '🎅', name: 'Christmas' },
-        { id: 'arcade', emoji: '🕹️', name: 'Arcade' },
-        { id: 'pool', emoji: '🏊', name: 'Pool' },
-        { id: 'mall', emoji: '🛒', name: 'Starcourt' },
-        { id: 'russia', emoji: '🇷🇺', name: 'Russia' }
+        { id: 'enid', emoji: '🐺', name: 'Enid' }
       ];
       
       let pairCount;
@@ -1221,10 +1185,6 @@ function initializeGame(gameType, room, options = {}) {
         case 'insane':
           pairCount = 12;
           gridCols = 6; // 6x4 grid
-          break;
-        case 'impossible':
-          pairCount = 25;
-          gridCols = 10; // 10x5 grid = 50 cards
           break;
         default:
           pairCount = 6;
@@ -1318,7 +1278,7 @@ function initializeGame(gameType, room, options = {}) {
     case 'molewhack':
       return {
         round: 1,
-        maxRounds: 10,
+        maxRounds: 5,  // Reduced from 10 to 5 for faster games
         molePositions: [],
         scores: {},
         roundActive: false,
@@ -1364,7 +1324,7 @@ function initializeGame(gameType, room, options = {}) {
 // Generate math questions
 function generateMathQuestions(count) {
   const questions = [];
-  const operations = ['+', '-', '×', '÷'];
+  const operations = ['+', '-', '×'];  // Removed division to simplify
   
   for (let i = 0; i < count; i++) {
     const op = operations[Math.floor(Math.random() * operations.length)];
@@ -1372,34 +1332,37 @@ function generateMathQuestions(count) {
     
     switch (op) {
       case '+':
-        a = Math.floor(Math.random() * 50) + 1;
-        b = Math.floor(Math.random() * 50) + 1;
+        a = Math.floor(Math.random() * 50) + 10;
+        b = Math.floor(Math.random() * 50) + 10;
         answer = a + b;
         break;
       case '-':
-        a = Math.floor(Math.random() * 50) + 20;
-        b = Math.floor(Math.random() * 20) + 1;
+        a = Math.floor(Math.random() * 50) + 30;
+        b = Math.floor(Math.random() * 25) + 5;
         answer = a - b;
         break;
       case '×':
-        a = Math.floor(Math.random() * 12) + 1;
-        b = Math.floor(Math.random() * 12) + 1;
+        a = Math.floor(Math.random() * 10) + 2;
+        b = Math.floor(Math.random() * 10) + 2;
         answer = a * b;
-        break;
-      case '÷':
-        b = Math.floor(Math.random() * 10) + 1;
-        answer = Math.floor(Math.random() * 10) + 1;
-        a = b * answer;
         break;
     }
     
-    // Generate wrong options
+    // Generate wrong options - ensure we always get 3 unique wrongs
     const options = [answer];
-    while (options.length < 4) {
-      const wrong = answer + (Math.floor(Math.random() * 20) - 10);
+    const wrongOffsets = [-15, -10, -5, -3, -2, -1, 1, 2, 3, 5, 10, 15];
+    let attempts = 0;
+    while (options.length < 4 && attempts < 50) {
+      attempts++;
+      const offset = wrongOffsets[Math.floor(Math.random() * wrongOffsets.length)];
+      const wrong = answer + offset;
       if (wrong !== answer && wrong > 0 && !options.includes(wrong)) {
         options.push(wrong);
       }
+    }
+    // Fallback if we couldn't generate enough options
+    while (options.length < 4) {
+      options.push(answer + options.length * 7);
     }
     options.sort(() => Math.random() - 0.5);
     
@@ -1419,14 +1382,13 @@ function generateSudoku(difficulty) {
   const solution = generateCompleteSudoku();
   const puzzle = solution.map(row => [...row]);
   
-  // Remove numbers based on difficulty
+  // Remove numbers based on difficulty (simplified)
   let cellsToRemove;
   switch (difficulty) {
-    case 'easy': cellsToRemove = 35; break;
-    case 'medium': cellsToRemove = 45; break;
-    case 'hard': cellsToRemove = 55; break;
-    case 'evil': cellsToRemove = 60; break;
-    default: cellsToRemove = 45;
+    case 'easy': cellsToRemove = 30; break;
+    case 'medium': cellsToRemove = 40; break;
+    case 'hard': cellsToRemove = 50; break;
+    default: cellsToRemove = 35;
   }
   
   const positions = [];
@@ -1701,32 +1663,44 @@ function startMoleWhackRound(room, roomId) {
   
   io.to(roomId).emit('moleRoundStart', { round: state.round });
   
-  // Spawn moles during the round
-  const moleSpawner = setInterval(() => {
+  // Helper function to spawn a mole
+  const spawnMole = () => {
     if (!room.currentGame || room.currentGame !== 'molewhack' || !state.roundActive) {
-      clearInterval(moleSpawner);
       return;
     }
     
-    // Spawn a mole at random position (0-8)
-    const moleIndex = Math.floor(Math.random() * 9);
+    // Find an available position
+    const availablePositions = [0,1,2,3,4,5,6,7,8].filter(i => !state.molePositions.includes(i));
+    if (availablePositions.length === 0) return;
     
-    // Don't spawn at same position if already there
-    if (!state.molePositions.includes(moleIndex)) {
-      state.molePositions.push(moleIndex);
-      io.to(roomId).emit('moleSpawned', { moleIndex });
-      
-      // Hide mole after 1-2 seconds if not whacked
-      const hideDelay = 1000 + Math.random() * 1000;
-      setTimeout(() => {
+    const moleIndex = availablePositions[Math.floor(Math.random() * availablePositions.length)];
+    state.molePositions.push(moleIndex);
+    io.to(roomId).emit('moleSpawned', { moleIndex });
+    
+    // Hide mole after 1.2-1.8 seconds if not whacked
+    const hideDelay = 1200 + Math.random() * 600;
+    setTimeout(() => {
+      if (room.currentGame === 'molewhack' && state.roundActive) {
         const idx = state.molePositions.indexOf(moleIndex);
         if (idx !== -1) {
           state.molePositions.splice(idx, 1);
           io.to(roomId).emit('moleHidden', { moleIndex });
         }
-      }, hideDelay);
+      }
+    }, hideDelay);
+  };
+  
+  // Spawn first mole immediately after a short delay (let UI render)
+  setTimeout(() => spawnMole(), 500);
+  
+  // Then spawn more moles regularly
+  const moleSpawner = setInterval(() => {
+    if (!room.currentGame || room.currentGame !== 'molewhack' || !state.roundActive) {
+      clearInterval(moleSpawner);
+      return;
     }
-  }, 600); // Spawn every 600ms
+    spawnMole();
+  }, 700);
   
   // End round after 10 seconds
   setTimeout(() => {
@@ -1758,7 +1732,7 @@ function startMoleWhackRound(room, roomId) {
   }, 10000);
 }
 
-// Trivia timer
+// Trivia and Math quiz timer only (mole spawning handled separately)
 setInterval(() => {
   rooms.forEach((room, roomId) => {
     if (room.currentGame === 'trivia' && room.gameState.timeLeft > 0) {
@@ -1779,27 +1753,7 @@ setInterval(() => {
         revealMathAnswer(room, roomId);
       }
     }
-    
-    // Mole whack game - spawn moles
-    if (room.currentGame === 'molewhack' && room.gameState.roundActive) {
-      // Randomly spawn moles
-      if (Math.random() < 0.3 && room.gameState.molePositions.length < 3) {
-        const newMole = Math.floor(Math.random() * 9);
-        if (!room.gameState.molePositions.includes(newMole)) {
-          room.gameState.molePositions.push(newMole);
-          io.to(roomId).emit('moleSpawned', { moleIndex: newMole });
-          
-          // Auto-hide mole after 1.5 seconds
-          setTimeout(() => {
-            const idx = room.gameState.molePositions.indexOf(newMole);
-            if (idx !== -1) {
-              room.gameState.molePositions.splice(idx, 1);
-              io.to(roomId).emit('moleHidden', { moleIndex: newMole });
-            }
-          }, 1500);
-        }
-      }
-    }
+    // NOTE: Mole spawning is handled ONLY in startMoleWhackRound - no duplicate here
   });
 }, 1000);
 
