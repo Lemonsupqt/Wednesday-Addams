@@ -19,17 +19,35 @@ const socket = io(BACKEND_URL, {
 
 // DOM Elements
 const screens = {
+  authScreen: document.getElementById('authScreen'),
   mainMenu: document.getElementById('mainMenu'),
   lobby: document.getElementById('lobby'),
-  gameScreen: document.getElementById('gameScreen')
+  gameScreen: document.getElementById('gameScreen'),
+  leaderboardScreen: document.getElementById('leaderboardScreen')
 };
 
 const elements = {
+  // Auth screen
+  authTabs: document.querySelectorAll('.auth-tab'),
+  loginForm: document.getElementById('loginForm'),
+  registerForm: document.getElementById('registerForm'),
+  loginUsername: document.getElementById('loginUsername'),
+  loginPassword: document.getElementById('loginPassword'),
+  loginBtn: document.getElementById('loginBtn'),
+  registerUsername: document.getElementById('registerUsername'),
+  registerPassword: document.getElementById('registerPassword'),
+  registerDisplayName: document.getElementById('registerDisplayName'),
+  registerBtn: document.getElementById('registerBtn'),
+  guestBtn: document.getElementById('guestBtn'),
+  
   // Main menu
   playerName: document.getElementById('playerName'),
   createRoomBtn: document.getElementById('createRoomBtn'),
   roomCode: document.getElementById('roomCode'),
   joinRoomBtn: document.getElementById('joinRoomBtn'),
+  userInfoDisplay: document.getElementById('userInfoDisplay'),
+  leaderboardBtn: document.getElementById('leaderboardBtn'),
+  logoutBtn: document.getElementById('logoutBtn'),
   
   // Lobby
   displayRoomCode: document.getElementById('displayRoomCode'),
@@ -40,6 +58,7 @@ const elements = {
   sendChatBtn: document.getElementById('sendChatBtn'),
   gameSelection: document.getElementById('gameSelection'),
   leaveRoomBtn: document.getElementById('leaveRoomBtn'),
+  startVotingBtn: document.getElementById('startVotingBtn'),
   
   // Game screen
   gameTitle: document.getElementById('gameTitle'),
@@ -50,11 +69,17 @@ const elements = {
   gameChatInput: document.getElementById('gameChatInput'),
   sendGameChatBtn: document.getElementById('sendGameChatBtn'),
   
+  // Leaderboard
+  leaderboardList: document.getElementById('leaderboardList'),
+  backFromLeaderboardBtn: document.getElementById('backFromLeaderboardBtn'),
+  
   // Modal
   resultsModal: document.getElementById('resultsModal'),
   resultsTitle: document.getElementById('resultsTitle'),
   resultsContent: document.getElementById('resultsContent'),
   closeResultsBtn: document.getElementById('closeResultsBtn'),
+  votingModal: document.getElementById('votingModal'),
+  votingContent: document.getElementById('votingContent'),
   
   // Toast
   errorToast: document.getElementById('errorToast')
@@ -65,10 +90,13 @@ let state = {
   playerId: null,
   playerName: '',
   roomId: null,
-  isHost: false,
+  isAuthenticated: false,
+  username: null,
+  userStats: null,
   players: [],
   currentGame: null,
-  gameState: {}
+  gameState: {},
+  votingActive: false
 };
 
 // Chess state
@@ -86,14 +114,207 @@ let chessState = {
 document.addEventListener('DOMContentLoaded', () => {
   initParticles();
   setupEventListeners();
+  setupAuthListeners();
   setupFullscreenToggle();
   
-  // Load saved name
-  const savedName = localStorage.getItem('playerName');
-  if (savedName) {
-    elements.playerName.value = savedName;
+  // Check for saved session
+  const savedAuth = localStorage.getItem('authSession');
+  if (savedAuth) {
+    try {
+      const auth = JSON.parse(savedAuth);
+      if (auth.username && auth.password) {
+        socket.emit('login', auth);
+      } else {
+        showScreen('authScreen');
+      }
+    } catch (e) {
+      showScreen('authScreen');
+    }
+  } else {
+    showScreen('authScreen');
   }
 });
+
+// ============================================
+// AUTHENTICATION (The Nevermore Archives)
+// ============================================
+
+function setupAuthListeners() {
+  // Tab switching
+  document.querySelectorAll('.auth-tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+      document.querySelectorAll('.auth-tab').forEach(t => t.classList.remove('active'));
+      tab.classList.add('active');
+      
+      const formType = tab.dataset.tab;
+      document.getElementById('loginForm').style.display = formType === 'login' ? 'block' : 'none';
+      document.getElementById('registerForm').style.display = formType === 'register' ? 'block' : 'none';
+    });
+  });
+  
+  // Login
+  document.getElementById('loginBtn')?.addEventListener('click', () => {
+    const username = document.getElementById('loginUsername').value.trim();
+    const password = document.getElementById('loginPassword').value;
+    
+    if (!username || !password) {
+      showError('Enter username and password');
+      return;
+    }
+    
+    socket.emit('login', { username, password });
+  });
+  
+  // Register
+  document.getElementById('registerBtn')?.addEventListener('click', () => {
+    const username = document.getElementById('registerUsername').value.trim();
+    const password = document.getElementById('registerPassword').value;
+    const displayName = document.getElementById('registerDisplayName').value.trim();
+    
+    if (!username || !password) {
+      showError('Enter username and password');
+      return;
+    }
+    
+    socket.emit('register', { username, password, displayName: displayName || username });
+  });
+  
+  // Guest mode
+  document.getElementById('guestBtn')?.addEventListener('click', () => {
+    state.isAuthenticated = false;
+    state.username = null;
+    state.userStats = null;
+    showScreen('mainMenu');
+    updateUserInfoDisplay();
+  });
+  
+  // Logout
+  document.getElementById('logoutBtn')?.addEventListener('click', () => {
+    socket.emit('logout');
+    localStorage.removeItem('authSession');
+    state.isAuthenticated = false;
+    state.username = null;
+    state.userStats = null;
+    showScreen('authScreen');
+  });
+  
+  // Leaderboard
+  document.getElementById('leaderboardBtn')?.addEventListener('click', () => {
+    socket.emit('getLeaderboard');
+    showScreen('leaderboardScreen');
+  });
+  
+  document.getElementById('backFromLeaderboardBtn')?.addEventListener('click', () => {
+    showScreen('mainMenu');
+  });
+  
+  // Enter key for forms
+  document.getElementById('loginPassword')?.addEventListener('keypress', (e) => {
+    if (e.key === 'Enter') document.getElementById('loginBtn')?.click();
+  });
+  document.getElementById('registerDisplayName')?.addEventListener('keypress', (e) => {
+    if (e.key === 'Enter') document.getElementById('registerBtn')?.click();
+  });
+}
+
+function updateUserInfoDisplay() {
+  const container = document.getElementById('userInfoDisplay');
+  if (!container) return;
+  
+  if (state.isAuthenticated && state.userStats) {
+    container.innerHTML = `
+      <div class="user-info-card">
+        <div class="user-title">${state.userStats.title}</div>
+        <div class="user-name">${escapeHtml(state.userStats.displayName)}</div>
+        <div class="user-stats">
+          <span>🏆 ${state.userStats.trophies} Trophies</span>
+          <span>⭐ ${state.userStats.totalWins} Wins</span>
+          <span>🎮 ${state.userStats.gamesPlayed} Games</span>
+        </div>
+      </div>
+    `;
+    container.style.display = 'block';
+    document.getElementById('logoutBtn').style.display = 'inline-block';
+  } else {
+    container.innerHTML = `
+      <div class="user-info-card guest">
+        <div class="user-title">👻 Guest Mode</div>
+        <div class="user-name">Playing without account</div>
+        <div class="user-stats">
+          <span>Stats won't be saved</span>
+        </div>
+      </div>
+    `;
+    container.style.display = 'block';
+    document.getElementById('logoutBtn').style.display = 'none';
+  }
+}
+
+// Auth socket events
+socket.on('authSuccess', (data) => {
+  state.isAuthenticated = true;
+  state.username = data.username;
+  state.userStats = data;
+  
+  // Save session (for auto-login)
+  const loginUsername = document.getElementById('loginUsername')?.value.trim();
+  const loginPassword = document.getElementById('loginPassword')?.value;
+  if (loginUsername && loginPassword) {
+    localStorage.setItem('authSession', JSON.stringify({ 
+      username: loginUsername, 
+      password: loginPassword 
+    }));
+  }
+  
+  // Use display name for player name
+  if (elements.playerName) {
+    elements.playerName.value = data.displayName;
+  }
+  
+  showScreen('mainMenu');
+  updateUserInfoDisplay();
+  showNotification(`Welcome back, ${data.displayName}! ${data.title}`, 'success');
+});
+
+socket.on('authError', (data) => {
+  showError(data.message);
+});
+
+socket.on('loggedOut', () => {
+  state.isAuthenticated = false;
+  state.username = null;
+  state.userStats = null;
+  showScreen('authScreen');
+});
+
+socket.on('leaderboardData', (data) => {
+  renderLeaderboard(data);
+});
+
+function renderLeaderboard(players) {
+  const container = document.getElementById('leaderboardList');
+  if (!container) return;
+  
+  if (players.length === 0) {
+    container.innerHTML = '<div class="empty-leaderboard">No rankings yet. Be the first to earn trophies!</div>';
+    return;
+  }
+  
+  container.innerHTML = players.map((p, i) => `
+    <div class="leaderboard-item ${i < 3 ? 'top-' + (i + 1) : ''} ${p.username === state.username ? 'is-me' : ''}">
+      <div class="rank">${i === 0 ? '👑' : i === 1 ? '🥈' : i === 2 ? '🥉' : '#' + (i + 1)}</div>
+      <div class="player-info">
+        <div class="player-name">${escapeHtml(p.displayName)}</div>
+        <div class="player-title">${p.title}</div>
+      </div>
+      <div class="player-stats">
+        <span class="trophies">🏆 ${p.trophies}</span>
+        <span class="wins">⭐ ${p.totalWins}</span>
+        <span class="games">🎮 ${p.gamesPlayed}</span>
+      </div>
+    </div>
+  `).join('');
+}
 
 // ============================================
 // FULLSCREEN TOGGLE
@@ -197,11 +418,22 @@ function setupEventListeners() {
   });
   elements.leaveRoomBtn.addEventListener('click', leaveRoom);
   
-  // Game selection - use event delegation since cards are dynamic
+  // Start voting button
+  document.getElementById('startVotingBtn')?.addEventListener('click', () => {
+    socket.emit('startVoting');
+  });
+  
+  // Game selection - use event delegation for voting
   elements.gameSelection.addEventListener('click', (e) => {
     const card = e.target.closest('.game-card');
     if (card && card.dataset.game) {
-      handleGameSelection(card.dataset.game);
+      if (state.votingActive) {
+        // Cast vote during voting phase
+        handleVote(card.dataset.game);
+      } else {
+        // Legacy: direct selection (backward compatible)
+        handleGameSelection(card.dataset.game);
+      }
     }
   });
   
@@ -214,6 +446,149 @@ function setupEventListeners() {
   
   // Modal
   elements.closeResultsBtn.addEventListener('click', closeResults);
+}
+
+// ============================================
+// GAME VOTING (The Séance Circle)
+// ============================================
+
+function handleVote(gameType) {
+  // Show vote confirmation
+  const card = document.querySelector(`.game-card[data-game="${gameType}"]`);
+  if (card) {
+    document.querySelectorAll('.game-card').forEach(c => c.classList.remove('voted'));
+    card.classList.add('voted');
+  }
+  
+  // Check for games that need difficulty selection
+  if (gameType === 'memory') {
+    showMemoryVoteOptions(gameType);
+  } else if (gameType === 'sudoku') {
+    showSudokuVoteOptions(gameType);
+  } else {
+    socket.emit('voteGame', { gameType });
+    showNotification(`Voted for ${getGameName(gameType)}! 🗳️`, 'info');
+  }
+}
+
+function showMemoryVoteOptions(gameType) {
+  const modal = document.getElementById('votingModal');
+  if (!modal) {
+    socket.emit('voteGame', { gameType, options: { difficulty: 'medium' } });
+    return;
+  }
+  
+  modal.innerHTML = `
+    <div class="voting-modal-content">
+      <h3>🧠 Memory Difficulty</h3>
+      <div class="difficulty-options">
+        <button class="difficulty-btn" data-difficulty="easy">Easy (8 pairs)</button>
+        <button class="difficulty-btn" data-difficulty="medium">Medium (12 pairs)</button>
+        <button class="difficulty-btn" data-difficulty="hard">Hard (18 pairs)</button>
+      </div>
+    </div>
+  `;
+  modal.classList.add('active');
+  
+  modal.querySelectorAll('.difficulty-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      socket.emit('voteGame', { gameType, options: { difficulty: btn.dataset.difficulty } });
+      modal.classList.remove('active');
+      showNotification(`Voted for Memory (${btn.dataset.difficulty})! 🗳️`, 'info');
+    });
+  });
+}
+
+function showSudokuVoteOptions(gameType) {
+  const modal = document.getElementById('votingModal');
+  if (!modal) {
+    socket.emit('voteGame', { gameType, options: { difficulty: 'medium' } });
+    return;
+  }
+  
+  modal.innerHTML = `
+    <div class="voting-modal-content">
+      <h3>🔢 Sudoku Difficulty</h3>
+      <div class="difficulty-options">
+        <button class="difficulty-btn" data-difficulty="easy">Easy</button>
+        <button class="difficulty-btn" data-difficulty="medium">Medium</button>
+        <button class="difficulty-btn" data-difficulty="hard">Hard</button>
+      </div>
+    </div>
+  `;
+  modal.classList.add('active');
+  
+  modal.querySelectorAll('.difficulty-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      socket.emit('voteGame', { gameType, options: { difficulty: btn.dataset.difficulty } });
+      modal.classList.remove('active');
+      showNotification(`Voted for Sudoku (${btn.dataset.difficulty})! 🗳️`, 'info');
+    });
+  });
+}
+
+function getGameName(gameType) {
+  const names = {
+    tictactoe: 'Tic Tac Toe',
+    memory: 'Memory Match',
+    trivia: 'Trivia',
+    chess: "Vecna's Chess",
+    psychic: 'Psychic Showdown',
+    sudoku: 'Sudoku',
+    connect4: 'Connect 4',
+    molewhack: 'Whack-a-Mole',
+    mathquiz: 'Math Quiz',
+    ludo: 'Ludo'
+  };
+  return names[gameType] || gameType;
+}
+
+// Socket events for voting
+socket.on('votingStarted', (data) => {
+  state.votingActive = true;
+  state.players = data.players;
+  updatePlayersList(data.players);
+  updateVoteDisplay(data.voteCounts);
+  showNotification('🗳️ Voting has begun! Choose a game!', 'info');
+  
+  // Highlight game selection
+  document.querySelectorAll('.game-card').forEach(card => {
+    card.classList.add('voting-mode');
+  });
+  
+  // Update button
+  const startVotingBtn = document.getElementById('startVotingBtn');
+  if (startVotingBtn) {
+    startVotingBtn.textContent = '⏳ Voting in progress...';
+    startVotingBtn.disabled = true;
+  }
+});
+
+socket.on('voteUpdate', (data) => {
+  updateVoteDisplay(data.voteCounts);
+  
+  // Show progress
+  const progress = document.getElementById('voteProgress');
+  if (progress) {
+    progress.textContent = `${data.voterCount}/${data.totalPlayers} voted`;
+  }
+});
+
+function updateVoteDisplay(voteCounts) {
+  document.querySelectorAll('.game-card').forEach(card => {
+    const game = card.dataset.game;
+    const count = voteCounts[game] || 0;
+    
+    let voteIndicator = card.querySelector('.vote-count');
+    if (!voteIndicator) {
+      voteIndicator = document.createElement('div');
+      voteIndicator.className = 'vote-count';
+      card.appendChild(voteIndicator);
+    }
+    
+    voteIndicator.textContent = count > 0 ? `🗳️ ${count}` : '';
+    voteIndicator.style.display = count > 0 ? 'block' : 'none';
+  });
 }
 
 // ============================================
@@ -302,89 +677,82 @@ function copyRoomCode() {
 function updatePlayersList(players) {
   state.players = players;
   elements.playersList.innerHTML = players.map(p => `
-    <div class="player-item ${p.id === state.playerId && state.isHost ? 'host' : ''}">
+    <div class="player-item ${p.id === state.playerId ? 'is-me' : ''}">
       <span class="player-color-indicator" style="background: ${p.color || '#e50914'}"></span>
       <span class="player-name" style="color: ${p.color || '#e50914'}">${escapeHtml(p.name)}</span>
-      ${p.id === state.playerId && state.isHost ? '<span class="host-badge">👑 Host</span>' : ''}
-      ${state.isHost && p.id !== state.playerId ? `<button class="color-change-btn" data-player-id="${p.id}" title="Change color">🎨</button>` : ''}
-      <span class="score">🏆 ${p.tournamentPoints || 0}</span>
+      ${p.username ? `<span class="verified-badge" title="Registered">✓</span>` : ''}
+      <span class="score" title="Trophies this session">🏆 ${p.trophies || 0}</span>
     </div>
   `).join('');
   
-  // Add color change click handlers for host
-  if (state.isHost) {
-    document.querySelectorAll('.color-change-btn').forEach(btn => {
-      btn.addEventListener('click', () => showColorPicker(btn.dataset.playerId));
-    });
-  }
-  
-  // Show game selection only for host, show waiting message for others
-  if (state.isHost) {
-    elements.gameSelection.style.display = 'block';
-    elements.gameSelection.innerHTML = `
-      <h3>⚔️ Choose Your Battle ⚔️</h3>
-      <div class="games-grid">
-        <button class="game-card" data-game="tictactoe">
-          <span class="game-icon">⭕❌</span>
-          <span class="game-name">Upside Down<br>Tic-Tac-Toe</span>
-          <span class="game-players">2 players</span>
-        </button>
-        <button class="game-card" data-game="memory">
-          <span class="game-icon">🃏</span>
-          <span class="game-name">Vecna's<br>Memory Match</span>
-          <span class="game-players">2+ players</span>
-        </button>
-        <button class="game-card" data-game="chess">
-          <span class="game-icon">♟️👑</span>
-          <span class="game-name">Vecna's<br>Chess</span>
-          <span class="game-players">2 players</span>
-        </button>
-        <button class="game-card" data-game="psychic">
-          <span class="game-icon">🔮⚡</span>
-          <span class="game-name">Psychic<br>Showdown</span>
-          <span class="game-players">2+ players</span>
-        </button>
-        <button class="game-card" data-game="trivia">
-          <span class="game-icon">🧠📺</span>
-          <span class="game-name">Nevermore<br>Trivia</span>
-          <span class="game-players">2+ players</span>
-        </button>
-        <button class="game-card" data-game="sudoku">
-          <span class="game-icon">🔢🧩</span>
-          <span class="game-name">Vecna's<br>Sudoku</span>
-          <span class="game-players">2+ players</span>
-        </button>
-        <button class="game-card" data-game="connect4">
-          <span class="game-icon">🔴🟡</span>
-          <span class="game-name">4 in<br>a Row</span>
-          <span class="game-players">2 players</span>
-        </button>
-        <button class="game-card" data-game="molewhack">
-          <span class="game-icon">🔨🐹</span>
-          <span class="game-name">Mole<br>Whacker</span>
-          <span class="game-players">2+ players</span>
-        </button>
-        <button class="game-card" data-game="mathquiz">
-          <span class="game-icon">🔢➕</span>
-          <span class="game-name">Math<br>Quiz</span>
-          <span class="game-players">2+ players</span>
-        </button>
-        <button class="game-card" data-game="ludo">
-          <span class="game-icon">🎲🦇</span>
-          <span class="game-name">Upside Down<br>Ludo</span>
-          <span class="game-players">2-4 players</span>
-        </button>
-      </div>
-    `;
-    // Event delegation handles clicks - no need to attach individual listeners
-  } else {
-    elements.gameSelection.style.display = 'block';
-    elements.gameSelection.innerHTML = '<h3 style="text-align: center; color: var(--text-secondary); font-family: Cinzel, serif;">⏳ Waiting for host to select a game... ⏳</h3>';
-  }
+  // Show game selection for everyone (voting-based)
+  elements.gameSelection.style.display = 'block';
+  elements.gameSelection.innerHTML = `
+    <div class="games-grid">
+      <button class="game-card" data-game="tictactoe">
+        <span class="game-icon">⭕❌</span>
+        <span class="game-name">Upside Down<br>Tic-Tac-Toe</span>
+        <span class="game-players">2 players</span>
+      </button>
+      <button class="game-card" data-game="memory">
+        <span class="game-icon">🃏</span>
+        <span class="game-name">Vecna's<br>Memory Match</span>
+        <span class="game-players">2+ players</span>
+      </button>
+      <button class="game-card" data-game="chess">
+        <span class="game-icon">♟️👑</span>
+        <span class="game-name">Vecna's<br>Chess</span>
+        <span class="game-players">2 players</span>
+      </button>
+      <button class="game-card" data-game="psychic">
+        <span class="game-icon">🔮⚡</span>
+        <span class="game-name">Psychic<br>Showdown</span>
+        <span class="game-players">2+ players</span>
+      </button>
+      <button class="game-card" data-game="trivia">
+        <span class="game-icon">🧠📺</span>
+        <span class="game-name">Nevermore<br>Trivia</span>
+        <span class="game-players">2+ players</span>
+      </button>
+      <button class="game-card" data-game="sudoku">
+        <span class="game-icon">🔢🧩</span>
+        <span class="game-name">Vecna's<br>Sudoku</span>
+        <span class="game-players">2+ players (Co-op)</span>
+      </button>
+      <button class="game-card" data-game="connect4">
+        <span class="game-icon">🔴🟡</span>
+        <span class="game-name">4 in<br>a Row</span>
+        <span class="game-players">2 players</span>
+      </button>
+      <button class="game-card" data-game="molewhack">
+        <span class="game-icon">🔨🐹</span>
+        <span class="game-name">Mole<br>Whacker</span>
+        <span class="game-players">2+ players</span>
+      </button>
+      <button class="game-card" data-game="mathquiz">
+        <span class="game-icon">🔢➕</span>
+        <span class="game-name">Math<br>Quiz</span>
+        <span class="game-players">2+ players</span>
+      </button>
+      <button class="game-card" data-game="ludo">
+        <span class="game-icon">🎲🦇</span>
+        <span class="game-name">Upside Down<br>Ludo</span>
+        <span class="game-players">2-4 players</span>
+      </button>
+    </div>
+    <p class="voting-hint">💡 Click "Start Voting" then everyone picks a game. Most votes wins!</p>
+  `;
 }
 
-// Handle game selection with options modal for certain games
+// Handle game selection (legacy - directly starts game without voting)
 function handleGameSelection(gameType) {
+  // If voting is active, this shouldn't be called - use handleVote instead
+  if (state.votingActive) {
+    handleVote(gameType);
+    return;
+  }
+  
+  // Legacy direct start (only if not in voting mode)
   if (gameType === 'memory') {
     showMemoryDifficultyModal();
   } else if (gameType === 'sudoku') {
@@ -569,7 +937,6 @@ function addChatMessage(msg, container = elements.chatMessages) {
 // ============================================
 
 function startGame(gameType) {
-  if (!state.isHost) return;
   socket.emit('startGame', gameType);
 }
 
@@ -586,12 +953,22 @@ function closeResults() {
 }
 
 function updateScoreBoard(players, currentPlayer = null) {
-  elements.scoreBoard.innerHTML = players.map(p => `
-    <div class="score-item ${p.id === currentPlayer ? 'current-turn' : ''}">
-      <span class="name">${escapeHtml(p.name)}</span>
-      <span class="points" title="Session Wins">🏅 ${p.sessionWins || 0}</span>
+  elements.scoreBoard.innerHTML = `
+    <div class="score-header">
+      <span>Player</span>
+      <span title="In-game Points">Pts</span>
+      <span title="Session Wins">Wins</span>
+      <span title="Trophies">🏆</span>
     </div>
-  `).join('');
+    ${players.map(p => `
+      <div class="score-item ${p.id === currentPlayer ? 'current-turn' : ''} ${p.id === state.playerId ? 'is-me' : ''}">
+        <span class="name" style="color: ${p.color || '#fff'}">${escapeHtml(p.name)}</span>
+        <span class="points">${p.points || 0}</span>
+        <span class="session-wins">${p.sessionWins || 0}</span>
+        <span class="trophies">${p.trophies || 0}</span>
+      </div>
+    `).join('')}
+  `;
 }
 
 // ============================================
@@ -686,17 +1063,13 @@ function showPlayAgainButton(gameType) {
   container.appendChild(playAgainDiv);
   
   document.getElementById('playAgainBtn').addEventListener('click', () => {
-    if (state.isHost) {
-      // For memory game, preserve the difficulty
-      if (state.currentGame === 'memory' && state.gameState.difficulty) {
-        socket.emit('restartGame', { type: 'memory', options: { difficulty: state.gameState.difficulty } });
-      } else if (state.currentGame === 'sudoku' && state.gameState.difficulty) {
-        socket.emit('restartGame', { type: 'sudoku', options: { difficulty: state.gameState.difficulty } });
-      } else {
-        socket.emit('restartGame', state.currentGame);
-      }
+    // Any player can trigger play again
+    if (state.currentGame === 'memory' && state.gameState.difficulty) {
+      socket.emit('restartGame', { type: 'memory', options: { difficulty: state.gameState.difficulty } });
+    } else if (state.currentGame === 'sudoku' && state.gameState.difficulty) {
+      socket.emit('restartGame', { type: 'sudoku', options: { difficulty: state.gameState.difficulty } });
     } else {
-      showError('Only the host can restart the game!');
+      socket.emit('restartGame', state.currentGame);
     }
   });
   
@@ -1579,16 +1952,37 @@ socket.on('returnToLobby', (data) => {
   state.currentGame = null;
   state.gameState = {};
   state.players = data.players;
+  state.votingActive = false;
+  
   // Clear game content
   elements.gameContent.innerHTML = '';
   // Close any open modals
   elements.resultsModal.classList.remove('active');
+  
+  // Reset voting UI
+  document.querySelectorAll('.game-card').forEach(card => {
+    card.classList.remove('voting-mode', 'voted');
+    const voteCount = card.querySelector('.vote-count');
+    if (voteCount) voteCount.remove();
+  });
+  const startVotingBtn = document.getElementById('startVotingBtn');
+  if (startVotingBtn) {
+    startVotingBtn.textContent = '🗳️ Start Voting';
+    startVotingBtn.disabled = false;
+  }
+  
   updatePlayersList(data.players);
   showScreen('lobby');
   
-  // Show notification about tournament point
-  if (data.sessionWinner) {
-    showNotification(`🏆 ${data.sessionWinner.name} earned +1 Tournament Point!`, 'success');
+  // Show notification about trophy
+  if (data.trophyWinner) {
+    showNotification(`🏆 ${data.trophyWinner.name} earned a Trophy! (Total: ${data.trophyWinner.totalTrophies})`, 'success');
+    
+    // Update own stats if we're the winner
+    if (data.trophyWinner.id === state.playerId && state.userStats) {
+      state.userStats.trophies = data.trophyWinner.totalTrophies;
+      updateUserInfoDisplay();
+    }
   }
 });
 
@@ -1654,43 +2048,56 @@ socket.on('gameEnded', (data) => {
   const sessionWinner = data.sessionWinner;
   const hasWinner = sessionWinner && sessionWinner.sessionWins > 0;
   
-  elements.resultsTitle.textContent = '🏆 Round Over! 🏆';
+  elements.resultsTitle.textContent = '🎭 Round Complete! 🎭';
   elements.resultsContent.innerHTML = `
     <div class="results-winner">
       ${hasWinner 
-        ? `🥇 Session Winner: <span class="winner-name">${escapeHtml(sessionWinner.name)}</span> with ${sessionWinner.sessionWins} win${sessionWinner.sessionWins > 1 ? 's' : ''}!`
-        : `🤝 No clear winner this session!`
+        ? `🥇 <span class="winner-name">${escapeHtml(sessionWinner.name)}</span> won this round!`
+        : `🤝 It's a tie! No winner this round.`
       }
     </div>
-    <div class="results-info">
-      <p>Play again to accumulate wins, or return to lobby.</p>
-      <p>Session winner gets <strong>+1 Tournament Point</strong> when returning to lobby!</p>
+    
+    <div class="scoring-explanation">
+      <h4>📊 How Scoring Works:</h4>
+      <div class="score-tiers">
+        <div class="tier"><span class="tier-icon">⭐</span> <strong>Points</strong> - In-game score (resets each round)</div>
+        <div class="tier"><span class="tier-icon">🏅</span> <strong>Wins</strong> - Rounds won this session</div>
+        <div class="tier"><span class="tier-icon">🏆</span> <strong>Trophy</strong> - Most wins when leaving = +1 Trophy!</div>
+      </div>
     </div>
+    
     <div class="results-list">
       <h4>Session Standings:</h4>
+      <div class="results-header">
+        <span>Player</span>
+        <span>Points</span>
+        <span>Wins</span>
+        <span>Trophies</span>
+      </div>
       ${data.players.map((p, i) => `
-        <div class="results-item ${p.id === sessionWinner?.id ? 'session-leader' : ''}">
-          <span><span class="rank">#${i + 1}</span> ${escapeHtml(p.name)}</span>
-          <span class="session-wins">🏅 ${p.sessionWins || 0} wins</span>
-          <span class="tournament-pts">🏆 ${p.tournamentPoints || 0} pts</span>
+        <div class="results-item ${p.id === sessionWinner?.id ? 'session-leader' : ''} ${p.id === state.playerId ? 'is-me' : ''}">
+          <span class="player-name">${escapeHtml(p.name)}</span>
+          <span class="points">⭐ ${p.points || 0}</span>
+          <span class="session-wins">🏅 ${p.sessionWins || 0}</span>
+          <span class="trophies">🏆 ${p.trophies || 0}</span>
         </div>
       `).join('')}
     </div>
+    
     <div class="results-actions">
-      ${state.isHost ? `
-        <button class="btn btn-primary" id="modalPlayAgainBtn">
-          <span class="btn-icon">🔄</span> Play Again
-        </button>
-        <button class="btn btn-secondary" id="modalBackToLobbyBtn">
-          <span class="btn-icon">🏠</span> Back to Lobby (+1 pt to winner)
-        </button>
-      ` : '<p style="color: var(--text-secondary); margin-top: 15px;">Waiting for host decision...</p>'}
+      <button class="btn btn-primary" id="modalPlayAgainBtn">
+        <span class="btn-icon">🔄</span> Play Again
+      </button>
+      <button class="btn btn-secondary" id="modalBackToLobbyBtn">
+        <span class="btn-icon">🏠</span> Back to Lobby
+      </button>
+      <p class="trophy-hint">🏆 Most session wins gets +1 Trophy when returning to lobby!</p>
     </div>
   `;
   elements.resultsModal.classList.add('active');
   state.players = data.players;
   
-  // Add play again handler in modal
+  // Add play again handler in modal - any player can trigger
   const modalPlayAgainBtn = document.getElementById('modalPlayAgainBtn');
   if (modalPlayAgainBtn) {
     modalPlayAgainBtn.addEventListener('click', () => {
@@ -1705,7 +2112,7 @@ socket.on('gameEnded', (data) => {
     });
   }
   
-  // Add back to lobby handler
+  // Add back to lobby handler - any player can trigger
   const modalBackToLobbyBtn = document.getElementById('modalBackToLobbyBtn');
   if (modalBackToLobbyBtn) {
     modalBackToLobbyBtn.addEventListener('click', () => {

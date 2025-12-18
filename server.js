@@ -3,6 +3,8 @@ const http = require('http');
 const { Server } = require('socket.io');
 const { v4: uuidv4 } = require('uuid');
 const path = require('path');
+const fs = require('fs');
+const crypto = require('crypto');
 
 const app = express();
 
@@ -18,6 +20,8 @@ app.use((req, res, next) => {
   next();
 });
 
+app.use(express.json());
+
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
@@ -30,9 +34,99 @@ const io = new Server(server, {
 
 app.use(express.static(path.join(__dirname)));
 
+// ============================================
+// USER ACCOUNTS & LEADERBOARD (The Nevermore Archives)
+// ============================================
+
+const USERS_FILE = path.join(__dirname, 'nevermore_archives.json');
+
+// Hash password using crypto (no external dependency)
+function hashPassword(password) {
+  return crypto.createHash('sha256').update(password + 'upsidedown_salt_2024').digest('hex');
+}
+
+// Load users from file
+function loadUsers() {
+  try {
+    if (fs.existsSync(USERS_FILE)) {
+      return JSON.parse(fs.readFileSync(USERS_FILE, 'utf8'));
+    }
+  } catch (err) {
+    console.error('Error loading users:', err);
+  }
+  return {};
+}
+
+// Save users to file
+function saveUsers(users) {
+  try {
+    fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2));
+  } catch (err) {
+    console.error('Error saving users:', err);
+  }
+}
+
+// User accounts storage
+let userAccounts = loadUsers();
+
+// Get leaderboard data
+function getLeaderboard() {
+  const users = Object.values(userAccounts);
+  return users
+    .map(u => ({
+      username: u.username,
+      displayName: u.displayName,
+      trophies: u.trophies || 0,
+      totalWins: u.totalWins || 0,
+      gamesPlayed: u.gamesPlayed || 0,
+      title: getUserTitle(u.trophies || 0)
+    }))
+    .sort((a, b) => {
+      if (b.trophies !== a.trophies) return b.trophies - a.trophies;
+      return b.totalWins - a.totalWins;
+    })
+    .slice(0, 50); // Top 50
+}
+
+// Get themed title based on trophies
+function getUserTitle(trophies) {
+  if (trophies >= 100) return '🖤 Supreme Overlord';
+  if (trophies >= 75) return '⚡ Vecna\'s Nemesis';
+  if (trophies >= 50) return '🦇 Nevermore Legend';
+  if (trophies >= 35) return '🕷️ Shadow Walker';
+  if (trophies >= 25) return '🌙 Nightshade Elite';
+  if (trophies >= 15) return '☠️ Upside Down Survivor';
+  if (trophies >= 10) return '🔮 Psychic Adept';
+  if (trophies >= 5) return '🎭 Outcast Initiate';
+  if (trophies >= 1) return '🕯️ Fresh Arrival';
+  return '👻 Unknown Entity';
+}
+
+// Update user stats after game
+function updateUserStats(username, won, earnedTrophy) {
+  if (!userAccounts[username]) return;
+  
+  userAccounts[username].gamesPlayed = (userAccounts[username].gamesPlayed || 0) + 1;
+  if (won) {
+    userAccounts[username].totalWins = (userAccounts[username].totalWins || 0) + 1;
+  }
+  if (earnedTrophy) {
+    userAccounts[username].trophies = (userAccounts[username].trophies || 0) + 1;
+  }
+  userAccounts[username].lastPlayed = Date.now();
+  
+  saveUsers(userAccounts);
+}
+
+// REST API for leaderboard
+app.get('/api/leaderboard', (req, res) => {
+  res.json(getLeaderboard());
+});
+
 // Game state storage
 const rooms = new Map();
 const players = new Map();
+const authenticatedSockets = new Map(); // socket.id -> username
 
 // Trivia questions - Stranger Things & Wednesday themed
 const triviaQuestions = [
@@ -309,15 +403,17 @@ const PLAYER_COLORS = [
 
 // Room class to manage game state
 class GameRoom {
-  constructor(id, hostId, hostName) {
+  constructor(id, creatorId, creatorName, creatorUsername = null) {
     this.id = id;
-    this.hostId = hostId;
+    this.creatorId = creatorId; // Original creator (for reference)
     this.players = new Map();
-    this.players.set(hostId, { 
-      id: hostId, 
-      name: hostName, 
-      tournamentPoints: 0,  // Persistent points across games
-      sessionWins: 0,       // Wins in current game session
+    this.players.set(creatorId, { 
+      id: creatorId, 
+      name: creatorName,
+      username: creatorUsername,  // Linked account username
+      trophies: 0,        // Trophies earned in this room session
+      sessionWins: 0,     // Wins in current game session  
+      points: 0,          // In-game points (resets each round)
       ready: false, 
       color: PLAYER_COLORS[0] 
     });
@@ -325,16 +421,22 @@ class GameRoom {
     this.gameState = {};
     this.chat = [];
     this.colorIndex = 1;
+    
+    // Game voting system
+    this.gameVotes = new Map(); // playerId -> gameType
+    this.votingActive = false;
   }
 
-  addPlayer(playerId, playerName) {
+  addPlayer(playerId, playerName, username = null) {
     const color = PLAYER_COLORS[this.colorIndex % PLAYER_COLORS.length];
     this.colorIndex++;
     this.players.set(playerId, { 
       id: playerId, 
-      name: playerName, 
-      tournamentPoints: 0,
+      name: playerName,
+      username: username,
+      trophies: 0,
       sessionWins: 0,
+      points: 0,
       ready: false, 
       color 
     });
@@ -342,18 +444,70 @@ class GameRoom {
 
   removePlayer(playerId) {
     this.players.delete(playerId);
+    this.gameVotes.delete(playerId);
   }
 
   getPlayerList() {
     return Array.from(this.players.values());
   }
 
+  resetPoints() {
+    this.players.forEach(player => player.points = 0);
+  }
+
   resetSessionWins() {
     this.players.forEach(player => player.sessionWins = 0);
   }
 
-  // Award tournament point to the player with most session wins
-  awardTournamentPoint() {
+  // Start voting for game selection
+  startVoting() {
+    this.gameVotes.clear();
+    this.votingActive = true;
+  }
+
+  // Cast a vote
+  castVote(playerId, gameType) {
+    if (!this.votingActive) return false;
+    this.gameVotes.set(playerId, gameType);
+    return true;
+  }
+
+  // Get vote counts
+  getVoteCounts() {
+    const counts = {};
+    this.gameVotes.forEach(game => {
+      counts[game] = (counts[game] || 0) + 1;
+    });
+    return counts;
+  }
+
+  // Check if all players voted
+  allVoted() {
+    return this.gameVotes.size >= this.players.size;
+  }
+
+  // Get winning game (most votes, random on tie)
+  getWinningGame() {
+    const counts = this.getVoteCounts();
+    if (Object.keys(counts).length === 0) return null;
+    
+    const maxVotes = Math.max(...Object.values(counts));
+    const winners = Object.keys(counts).filter(g => counts[g] === maxVotes);
+    
+    // Random selection on tie
+    return winners[Math.floor(Math.random() * winners.length)];
+  }
+
+  // End voting
+  endVoting() {
+    this.votingActive = false;
+    const winner = this.getWinningGame();
+    this.gameVotes.clear();
+    return winner;
+  }
+
+  // Award trophy to the player with most session wins
+  awardTrophy() {
     const playerList = this.getPlayerList();
     if (playerList.length < 2) return null;
     
@@ -366,11 +520,17 @@ class GameRoom {
     // Only award if there's a single winner (not a tie)
     if (winners.length === 1) {
       const winner = this.players.get(winners[0].id);
-      winner.tournamentPoints += 1;
+      winner.trophies += 1;
+      
+      // Update global account stats
+      if (winner.username && userAccounts[winner.username]) {
+        updateUserStats(winner.username, false, true);
+      }
+      
       return winners[0];
     }
     
-    return null; // Tie - no points awarded
+    return null; // Tie - no trophy awarded
   }
 }
 
@@ -378,20 +538,127 @@ class GameRoom {
 io.on('connection', (socket) => {
   console.log(`🎮 Player connected: ${socket.id}`);
 
+  // ============================================
+  // AUTHENTICATION (The Nevermore Archives)
+  // ============================================
+  
+  socket.on('register', ({ username, password, displayName }) => {
+    if (!username || !password) {
+      socket.emit('authError', { message: 'Username and password required' });
+      return;
+    }
+    
+    if (username.length < 3 || username.length > 20) {
+      socket.emit('authError', { message: 'Username must be 3-20 characters' });
+      return;
+    }
+    
+    if (password.length < 4) {
+      socket.emit('authError', { message: 'Password must be at least 4 characters' });
+      return;
+    }
+    
+    const cleanUsername = username.toLowerCase().trim();
+    
+    if (userAccounts[cleanUsername]) {
+      socket.emit('authError', { message: 'Username already taken. Try another.' });
+      return;
+    }
+    
+    // Create new account
+    userAccounts[cleanUsername] = {
+      username: cleanUsername,
+      displayName: displayName || username,
+      passwordHash: hashPassword(password),
+      trophies: 0,
+      totalWins: 0,
+      gamesPlayed: 0,
+      createdAt: Date.now(),
+      lastPlayed: null
+    };
+    
+    saveUsers(userAccounts);
+    
+    authenticatedSockets.set(socket.id, cleanUsername);
+    
+    socket.emit('authSuccess', { 
+      username: cleanUsername,
+      displayName: userAccounts[cleanUsername].displayName,
+      trophies: 0,
+      totalWins: 0,
+      gamesPlayed: 0,
+      title: getUserTitle(0)
+    });
+    
+    console.log(`📝 New account registered: ${cleanUsername}`);
+  });
+  
+  socket.on('login', ({ username, password }) => {
+    if (!username || !password) {
+      socket.emit('authError', { message: 'Username and password required' });
+      return;
+    }
+    
+    const cleanUsername = username.toLowerCase().trim();
+    const user = userAccounts[cleanUsername];
+    
+    if (!user) {
+      socket.emit('authError', { message: 'Account not found. Register first!' });
+      return;
+    }
+    
+    if (user.passwordHash !== hashPassword(password)) {
+      socket.emit('authError', { message: 'Incorrect password' });
+      return;
+    }
+    
+    authenticatedSockets.set(socket.id, cleanUsername);
+    
+    socket.emit('authSuccess', {
+      username: cleanUsername,
+      displayName: user.displayName,
+      trophies: user.trophies || 0,
+      totalWins: user.totalWins || 0,
+      gamesPlayed: user.gamesPlayed || 0,
+      title: getUserTitle(user.trophies || 0)
+    });
+    
+    console.log(`🔓 User logged in: ${cleanUsername}`);
+  });
+  
+  socket.on('logout', () => {
+    const username = authenticatedSockets.get(socket.id);
+    if (username) {
+      authenticatedSockets.delete(socket.id);
+      console.log(`🔒 User logged out: ${username}`);
+    }
+    socket.emit('loggedOut');
+  });
+  
+  socket.on('getLeaderboard', () => {
+    socket.emit('leaderboardData', getLeaderboard());
+  });
+
+  // ============================================
+  // ROOM MANAGEMENT
+  // ============================================
+
   // Create room
   socket.on('createRoom', (playerName) => {
+    const username = authenticatedSockets.get(socket.id);
     const roomId = uuidv4().substring(0, 6).toUpperCase();
-    const room = new GameRoom(roomId, socket.id, playerName);
+    const room = new GameRoom(roomId, socket.id, playerName, username);
     rooms.set(roomId, room);
     players.set(socket.id, roomId);
     
     socket.join(roomId);
     socket.emit('roomCreated', { roomId, players: room.getPlayerList() });
-    console.log(`🏠 Room created: ${roomId} by ${playerName}`);
+    console.log(`🏠 Room created: ${roomId} by ${playerName}${username ? ` (@${username})` : ''}`);
   });
 
   // Join room
   socket.on('joinRoom', ({ roomId, playerName }) => {
+    const username = authenticatedSockets.get(socket.id);
     const room = rooms.get(roomId.toUpperCase());
     if (!room) {
       socket.emit('error', { message: 'Room not found. Check the code and try again.' });
@@ -406,13 +673,13 @@ io.on('connection', (socket) => {
       return;
     }
 
-    room.addPlayer(socket.id, playerName);
+    room.addPlayer(socket.id, playerName, username);
     players.set(socket.id, roomId.toUpperCase());
     
     socket.join(roomId.toUpperCase());
     socket.emit('roomJoined', { roomId: roomId.toUpperCase(), players: room.getPlayerList() });
     socket.to(roomId.toUpperCase()).emit('playerJoined', { players: room.getPlayerList() });
-    console.log(`👤 ${playerName} joined room ${roomId}`);
+    console.log(`👤 ${playerName}${username ? ` (@${username})` : ''} joined room ${roomId}`);
   });
 
   // Chat message
@@ -434,11 +701,125 @@ io.on('connection', (socket) => {
     io.to(roomId).emit('chatMessage', chatMsg);
   });
 
-  // Start game
+  // ============================================
+  // GAME VOTING SYSTEM (The Séance Circle)
+  // ============================================
+  
+  // Start voting phase
+  socket.on('startVoting', () => {
+    const roomId = players.get(socket.id);
+    const room = rooms.get(roomId);
+    if (!room || room.players.size < 2) {
+      socket.emit('error', { message: 'Need at least 2 players to start!' });
+      return;
+    }
+    
+    room.startVoting();
+    io.to(roomId).emit('votingStarted', { 
+      players: room.getPlayerList(),
+      voteCounts: room.getVoteCounts()
+    });
+    console.log(`🗳️ Voting started in room ${roomId}`);
+  });
+  
+  // Cast vote for a game
+  socket.on('voteGame', ({ gameType, options }) => {
+    const roomId = players.get(socket.id);
+    const room = rooms.get(roomId);
+    if (!room) return;
+    
+    room.castVote(socket.id, gameType);
+    room.lastVoteOptions = room.lastVoteOptions || {};
+    room.lastVoteOptions[gameType] = options || {};
+    
+    const voteCounts = room.getVoteCounts();
+    const voterCount = room.gameVotes.size;
+    const totalPlayers = room.players.size;
+    
+    io.to(roomId).emit('voteUpdate', { 
+      voteCounts,
+      voterCount,
+      totalPlayers,
+      voters: Array.from(room.gameVotes.keys())
+    });
+    
+    // Auto-start when all voted
+    if (room.allVoted()) {
+      const winningGame = room.endVoting();
+      const options = room.lastVoteOptions[winningGame] || {};
+      
+      // Reset session wins when starting a new game
+      room.resetSessionWins();
+      room.resetPoints();
+      
+      room.currentGame = winningGame;
+      room.gameState = initializeGame(winningGame, room, options);
+      
+      // Save difficulty for future restarts
+      if (winningGame === 'memory' && options.difficulty) {
+        room.lastMemoryDifficulty = options.difficulty;
+      }
+      if (winningGame === 'sudoku' && options.difficulty) {
+        room.lastSudokuDifficulty = options.difficulty;
+      }
+      
+      io.to(roomId).emit('gameStarted', { 
+        gameType: winningGame, 
+        gameState: room.gameState,
+        players: room.getPlayerList(),
+        voteCounts
+      });
+      console.log(`🎮 Game started via vote: ${winningGame} in room ${roomId}`);
+      
+      if (winningGame === 'molewhack') {
+        startMoleWhackRound(room, roomId);
+      }
+    }
+  });
+
+  // Force start (if waiting too long) - any player can trigger after 10 seconds
+  socket.on('forceStartGame', () => {
+    const roomId = players.get(socket.id);
+    const room = rooms.get(roomId);
+    if (!room || !room.votingActive) return;
+    if (room.gameVotes.size === 0) {
+      socket.emit('error', { message: 'At least one vote needed to start!' });
+      return;
+    }
+    
+    const winningGame = room.endVoting();
+    const options = room.lastVoteOptions?.[winningGame] || {};
+    
+    room.resetSessionWins();
+    room.resetPoints();
+    
+    room.currentGame = winningGame;
+    room.gameState = initializeGame(winningGame, room, options);
+    
+    if (winningGame === 'memory' && options.difficulty) {
+      room.lastMemoryDifficulty = options.difficulty;
+    }
+    if (winningGame === 'sudoku' && options.difficulty) {
+      room.lastSudokuDifficulty = options.difficulty;
+    }
+    
+    io.to(roomId).emit('gameStarted', { 
+      gameType: winningGame, 
+      gameState: room.gameState,
+      players: room.getPlayerList()
+    });
+    console.log(`🎮 Game force-started: ${winningGame} in room ${roomId}`);
+    
+    if (winningGame === 'molewhack') {
+      startMoleWhackRound(room, roomId);
+    }
+  });
+
+  // Legacy startGame handler (for backward compatibility)
   socket.on('startGame', (gameData) => {
     const roomId = players.get(socket.id);
     const room = rooms.get(roomId);
-    if (!room || room.hostId !== socket.id) return;
+    if (!room) return;
     if (room.players.size < 2) {
       socket.emit('error', { message: 'Need at least 2 players to start!' });
       return;
@@ -450,6 +831,7 @@ io.on('connection', (socket) => {
 
     // Reset session wins when starting a new game from lobby
     room.resetSessionWins();
+    room.resetPoints();
     
     room.currentGame = gameType;
     room.gameState = initializeGame(gameType, room, options);
@@ -596,6 +978,10 @@ io.on('connection', (socket) => {
       // Track correct answers per player
       if (!state.correctAnswers) state.correctAnswers = {};
       state.correctAnswers[socket.id] = (state.correctAnswers[socket.id] || 0) + 1;
+      
+      // Award in-game points with time bonus
+      const timeBonus = Math.max(0, Math.floor((state.timeLeft / 15) * 5));
+      room.players.get(socket.id).points += 10 + timeBonus;
     }
 
     io.to(roomId).emit('playerAnswered', {
@@ -663,6 +1049,9 @@ io.on('connection', (socket) => {
           // Track matches per player for this round
           if (!state.matchesPerPlayer) state.matchesPerPlayer = {};
           state.matchesPerPlayer[socket.id] = (state.matchesPerPlayer[socket.id] || 0) + 1;
+          
+          // Award in-game points (10 per match)
+          room.players.get(socket.id).points += 10;
           
           io.to(roomId).emit('memoryMatch', {
             cards: [first, second],
@@ -750,11 +1139,11 @@ io.on('connection', (socket) => {
     handleDisconnect(socket);
   });
 
-  // Restart game (play again)
+  // Restart game (play again) - any player can trigger
   socket.on('restartGame', (gameData) => {
     const roomId = players.get(socket.id);
     const room = rooms.get(roomId);
-    if (!room || room.hostId !== socket.id) return;
+    if (!room) return;
     
     // Support both old format (string) and new format (object with options)
     const gameType = typeof gameData === 'string' ? gameData : gameData.type;
@@ -768,6 +1157,9 @@ io.on('connection', (socket) => {
     if (gameType === 'sudoku' && !options.difficulty && room.lastSudokuDifficulty) {
       options.difficulty = room.lastSudokuDifficulty;
     }
+    
+    // Reset points but keep session wins (accumulating for trophy)
+    room.resetPoints();
     
     // Re-initialize the game
     room.currentGame = gameType;
@@ -971,6 +1363,10 @@ io.on('connection', (socket) => {
       // Track correct answers per player
       if (!state.correctAnswers) state.correctAnswers = {};
       state.correctAnswers[socket.id] = (state.correctAnswers[socket.id] || 0) + 1;
+      
+      // Award in-game points with time bonus
+      const timeBonus = Math.max(0, Math.floor((state.timeLeft / 15) * 5));
+      room.players.get(socket.id).points += 10 + timeBonus;
     }
 
     io.to(roomId).emit('mathPlayerAnswered', {
@@ -1148,18 +1544,37 @@ io.on('connection', (socket) => {
     const room = rooms.get(roomId);
     if (!room) return;
 
-    // Award tournament point to session winner before returning to lobby
-    const sessionWinner = room.awardTournamentPoint();
+    // Award trophy to session winner before returning to lobby
+    const trophyWinner = room.awardTrophy();
+    
+    // Update all players' global stats (games played, wins)
+    room.getPlayerList().forEach(player => {
+      if (player.username && userAccounts[player.username]) {
+        const won = player.sessionWins > 0;
+        // Update games played (trophy already handled in awardTrophy)
+        userAccounts[player.username].gamesPlayed = (userAccounts[player.username].gamesPlayed || 0) + 1;
+        if (won) {
+          userAccounts[player.username].totalWins = (userAccounts[player.username].totalWins || 0) + player.sessionWins;
+        }
+        userAccounts[player.username].lastPlayed = Date.now();
+      }
+    });
+    saveUsers(userAccounts);
     
     // Reset session wins for next game
     room.resetSessionWins();
+    room.resetPoints();
     
     room.currentGame = null;
     room.gameState = {};
     
     io.to(roomId).emit('returnToLobby', { 
       players: room.getPlayerList(),
-      sessionWinner: sessionWinner ? { id: sessionWinner.id, name: sessionWinner.name } : null
+      trophyWinner: trophyWinner ? { 
+        id: trophyWinner.id, 
+        name: trophyWinner.name,
+        totalTrophies: trophyWinner.username ? (userAccounts[trophyWinner.username]?.trophies || 0) : trophyWinner.trophies
+      } : null
     });
   });
 
@@ -1707,10 +2122,14 @@ function resolvePsychicRound(room, roomId) {
         state.totalWins[p1] = (state.totalWins[p1] || 0) + 1;
         roundResults[p1].wins++;
         roundResults[p2].losses++;
+        // Award in-game points
+        room.players.get(p1).points += 5;
       } else {
         state.totalWins[p2] = (state.totalWins[p2] || 0) + 1;
         roundResults[p2].wins++;
         roundResults[p1].losses++;
+        // Award in-game points
+        room.players.get(p2).points += 5;
       }
     }
   }
@@ -1748,18 +2167,18 @@ function resolvePsychicRound(room, roomId) {
 }
 
 function endGame(room, roomId) {
-  const players = room.getPlayerList();
+  const playerList = room.getPlayerList();
   
   // Find the winner of this round (most session wins in current session)
-  const sortedBySessionWins = [...players].sort((a, b) => b.sessionWins - a.sessionWins);
+  const sortedBySessionWins = [...playerList].sort((a, b) => b.sessionWins - a.sessionWins);
   const roundWinner = sortedBySessionWins[0];
   
-  // Sort by tournament points for display
-  const sortedByTournament = [...players].sort((a, b) => b.tournamentPoints - a.tournamentPoints);
+  // Sort by trophies for display
+  const sortedByTrophies = [...playerList].sort((a, b) => b.trophies - a.trophies);
   
   io.to(roomId).emit('gameEnded', {
     sessionWinner: roundWinner,
-    players: sortedByTournament
+    players: sortedByTrophies
   });
   room.currentGame = null;
 }
