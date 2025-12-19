@@ -1250,8 +1250,15 @@ io.on('connection', (socket) => {
     const state = room.gameState;
     if (state.completed) return;
     
+    // Validate row and col
+    if (row < 0 || row > 8 || col < 0 || col > 8) return;
+    
     // Can't modify original puzzle cells
-    if (state.puzzle[row][col] !== 0) return;
+    if (!state.puzzle[row] || state.puzzle[row][col] !== 0) return;
+    
+    // Get the player info
+    const player = room.players.get(socket.id);
+    if (!player) return;
     
     // Update the board
     const previousValue = state.currentBoard[row][col];

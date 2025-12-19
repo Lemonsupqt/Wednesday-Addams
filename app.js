@@ -2560,31 +2560,35 @@ socket.on('gameRestarted', (data) => {
 // ============================================
 
 function initSudokuGame(gameState, players) {
-  console.log('Initializing Sudoku:', gameState);
-  state.gameState = gameState || {};
-  state.gameState.selectedCell = null;
-  
-  // Ensure currentBoard exists
-  if (!state.gameState.currentBoard || !Array.isArray(state.gameState.currentBoard)) {
-    console.error('Sudoku: Invalid currentBoard');
-    elements.gameTitle.textContent = '🔢 Vecna\'s Sudoku 🧩';
-    elements.gameContent.innerHTML = '<div style="text-align:center;color:red;">Error loading Sudoku puzzle</div>';
-    return;
+  try {
+    console.log('Initializing Sudoku:', gameState);
+    state.gameState = gameState || {};
+    state.gameState.selectedCell = null;
+    
+    // Ensure currentBoard exists
+    if (!state.gameState.currentBoard || !Array.isArray(state.gameState.currentBoard)) {
+      console.error('Sudoku: Invalid currentBoard');
+      elements.gameTitle.textContent = '🔢 Vecna\'s Sudoku 🧩';
+      elements.gameContent.innerHTML = '<div style="text-align:center;color:red;">Error loading Sudoku puzzle</div>';
+      return;
+    }
+    
+    const difficultyLabel = gameState.difficulty ? gameState.difficulty.charAt(0).toUpperCase() + gameState.difficulty.slice(1) : 'Medium';
+    elements.gameTitle.textContent = `🔢 Vecna's Sudoku (${difficultyLabel}) 🧩`;
+    
+    // Create the board structure ONCE
+    createSudokuBoard(gameState);
+    
+    // Set up event listeners ONCE
+    setupSudokuListeners();
+    
+    // Initial display update
+    updateSudokuDisplay();
+    
+    updateScoreBoard(players);
+  } catch (err) {
+    console.error('Sudoku init error:', err);
   }
-  
-  const difficultyLabel = gameState.difficulty ? gameState.difficulty.charAt(0).toUpperCase() + gameState.difficulty.slice(1) : 'Medium';
-  elements.gameTitle.textContent = `🔢 Vecna's Sudoku (${difficultyLabel}) 🧩`;
-  
-  // Create the board structure ONCE
-  createSudokuBoard(gameState);
-  
-  // Set up event listeners ONCE
-  setupSudokuListeners();
-  
-  // Update the visual state
-  updateSudokuDisplay();
-  
-  updateScoreBoard(players);
 }
 
 function createSudokuBoard(gameState) {
@@ -2624,33 +2628,30 @@ function createSudokuBoard(gameState) {
 }
 
 function setupSudokuListeners() {
-  // Remove any existing listeners first
+  // Remove any existing listeners
   document.removeEventListener('keydown', handleSudokuKeypress);
   
-  // Cell click handler using event delegation on gameContent
-  elements.gameContent.onclick = function(e) {
-    // Handle cell clicks
-    const cell = e.target.closest('.sudoku-cell');
-    if (cell) {
-      const row = parseInt(cell.dataset.row);
-      const col = parseInt(cell.dataset.col);
-      state.gameState.selectedCell = [row, col];
-      updateSudokuDisplay();
-      return;
-    }
-    
-    // Handle numpad clicks
-    const btn = e.target.closest('.numpad-btn');
-    if (btn && !btn.disabled && state.gameState.selectedCell) {
-      const num = parseInt(btn.dataset.num);
-      const [row, col] = state.gameState.selectedCell;
-      const puzzle = state.gameState.puzzle || [];
-      const isOriginal = puzzle[row] && puzzle[row][col] !== 0;
-      if (!isOriginal) {
-        socket.emit('sudokuMove', { row, col, value: num });
-      }
-    }
-  };
+  // Get the board and numpad elements
+  const board = document.getElementById('sudokuBoard');
+  const numpad = document.getElementById('sudokuNumpad');
+  
+  // Board click handler - attach directly to cells
+  if (board) {
+    const cells = board.querySelectorAll('.sudoku-cell');
+    cells.forEach(cell => {
+      cell.addEventListener('click', function() {
+        const row = parseInt(this.dataset.row);
+        const col = parseInt(this.dataset.col);
+        state.gameState.selectedCell = [row, col];
+        updateSudokuDisplay();
+      });
+    });
+  }
+  
+  // Numpad click handler - use event delegation on the numpad container
+  if (numpad) {
+    numpad.addEventListener('click', handleNumpadClick);
+  }
   
   // Keyboard handler
   document.addEventListener('keydown', handleSudokuKeypress);
@@ -2658,6 +2659,8 @@ function setupSudokuListeners() {
 
 function updateSudokuDisplay() {
   const gameState = state.gameState;
+  if (!gameState) return;
+  
   const selectedCell = gameState.selectedCell;
   const puzzle = gameState.puzzle || [];
   const solution = gameState.solution || [];
@@ -2667,7 +2670,6 @@ function updateSudokuDisplay() {
   // Get selected cell info
   const selectedRow = selectedCell ? selectedCell[0] : -1;
   const selectedCol = selectedCell ? selectedCell[1] : -1;
-  const selectedBox = selectedCell ? [Math.floor(selectedRow / 3), Math.floor(selectedCol / 3)] : [-1, -1];
   const selectedValue = selectedCell && currentBoard[selectedRow] ? currentBoard[selectedRow][selectedCol] : 0;
   
   // Count completed numbers
@@ -2700,9 +2702,8 @@ function updateSudokuDisplay() {
     const isSameNumber = cell !== 0 && cell === selectedValue && selectedValue !== 0;
     const isInSelectedRow = selectedRow === row && selectedRow !== -1;
     const isInSelectedCol = selectedCol === col && selectedCol !== -1;
-    const cellBox = [Math.floor(row / 3), Math.floor(col / 3)];
-    const isInSelectedBox = selectedBox[0] === cellBox[0] && selectedBox[1] === cellBox[1] && selectedBox[0] !== -1;
-    const isHighlighted = !isSelected && (isInSelectedRow || isInSelectedCol || isInSelectedBox);
+    // Only highlight row and column, not 3x3 box
+    const isHighlighted = !isSelected && (isInSelectedRow || isInSelectedCol);
     
     // Update classes
     cellEl.className = 'sudoku-cell';
@@ -2730,13 +2731,33 @@ function selectSudokuCell(row, col) {
   updateSudokuDisplay();
 }
 
+function handleNumpadClick(e) {
+  const btn = e.target.closest('.numpad-btn');
+  if (!btn || btn.disabled) return;
+  
+  if (!state.gameState || !state.gameState.selectedCell) return;
+  
+  const num = parseInt(btn.dataset.num);
+  const [row, col] = state.gameState.selectedCell;
+  const puzzle = state.gameState.puzzle || [];
+  
+  // Check if cell is an original puzzle cell (non-zero in original puzzle)
+  const puzzleValue = puzzle[row] !== undefined && puzzle[row][col] !== undefined ? puzzle[row][col] : 0;
+  const isOriginal = puzzleValue !== 0;
+  
+  if (!isOriginal) {
+    socket.emit('sudokuMove', { row, col, value: num });
+  }
+}
+
 function handleSudokuKeypress(e) {
   if (state.currentGame !== 'sudoku') return;
   if (!state.gameState.selectedCell) return;
   
   const [row, col] = state.gameState.selectedCell;
   const puzzle = state.gameState.puzzle || [];
-  const isOriginal = puzzle[row] && puzzle[row][col] !== 0;
+  const puzzleValue = puzzle[row] !== undefined && puzzle[row][col] !== undefined ? puzzle[row][col] : 0;
+  const isOriginal = puzzleValue !== 0;
   
   // Number keys 1-9 (only on editable cells)
   if (e.key >= '1' && e.key <= '9' && !isOriginal) {
