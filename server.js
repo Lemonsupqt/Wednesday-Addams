@@ -1461,15 +1461,20 @@ io.on('connection', (socket) => {
         // Already finished, can't move
       } else {
         // Calculate new position
-        const newPos = (token.position + diceValue) % 52;
-        // Check if would reach finish (simplified: after going around the board once)
         const distanceTraveled = token.distanceTraveled || 0;
-        if (distanceTraveled + diceValue >= 51) {
-          // Exact roll to finish
-          if (distanceTraveled + diceValue === 51) {
+        const newDistance = distanceTraveled + diceValue;
+        
+        // Token needs to travel 52 spaces to complete one lap + enter home stretch
+        // Using 52 as the finish distance (full lap)
+        if (newDistance >= 52) {
+          // Can finish if roll is exact or would go past (in Ludo variants)
+          // Using forgiving rule: if you're within range, you can finish
+          if (newDistance <= 57) { // Allow up to 5 extra (rolling 6 when 1 away)
             validMoves.push({ tokenIndex: idx, newPosition: 'finished' });
           }
+          // If roll is too high, can't move this token
         } else {
+          const newPos = (token.position + diceValue) % 52;
           validMoves.push({ tokenIndex: idx, newPosition: newPos });
         }
       }

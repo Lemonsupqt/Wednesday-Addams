@@ -117,6 +117,8 @@ document.addEventListener('DOMContentLoaded', () => {
   setupEventListeners();
   setupAuthListeners();
   setupFullscreenToggle();
+  setupMobileChatOverlay();
+  setupScoreToggle();
   
   // Restore saved player name for both guests and registered users
   const savedPlayerName = localStorage.getItem('playerName');
@@ -436,6 +438,81 @@ function setupFullscreenToggle() {
   updateFullscreenButton();
 }
 
+// Setup mobile chat overlay
+function setupMobileChatOverlay() {
+  const chatToggleBtn = document.getElementById('chatToggleBtn');
+  const chatOverlay = document.getElementById('gameChatOverlay');
+  const closeChatBtn = document.getElementById('closeChatOverlay');
+  const mobileChatInput = document.getElementById('mobileChatInput');
+  const sendMobileChatBtn = document.getElementById('sendMobileChatBtn');
+  const mobileChatMessages = document.getElementById('mobileChatMessages');
+  
+  if (!chatToggleBtn || !chatOverlay) return;
+  
+  // Toggle chat overlay
+  chatToggleBtn.addEventListener('click', () => {
+    chatOverlay.classList.add('active');
+    // Sync messages from main chat
+    syncMobileChat();
+  });
+  
+  // Close chat overlay
+  closeChatBtn?.addEventListener('click', () => {
+    chatOverlay.classList.remove('active');
+  });
+  
+  // Send message from mobile chat
+  function sendMobileChat() {
+    const message = mobileChatInput.value.trim();
+    if (!message) return;
+    
+    socket.emit('gameChat', message);
+    mobileChatInput.value = '';
+  }
+  
+  sendMobileChatBtn?.addEventListener('click', sendMobileChat);
+  mobileChatInput?.addEventListener('keypress', (e) => {
+    if (e.key === 'Enter') sendMobileChat();
+  });
+  
+  // Sync mobile chat with main chat
+  window.syncMobileChat = function() {
+    if (!mobileChatMessages || !elements.gameChatMessages) return;
+    mobileChatMessages.innerHTML = elements.gameChatMessages.innerHTML;
+    mobileChatMessages.scrollTop = mobileChatMessages.scrollHeight;
+  };
+  
+  // Show/hide chat toggle button based on screen
+  window.updateChatToggleVisibility = function() {
+    const isGameScreen = screens.gameScreen?.classList.contains('active');
+    chatToggleBtn.style.display = isGameScreen && window.innerWidth <= 768 ? 'flex' : 'none';
+    if (!isGameScreen) {
+      chatOverlay.classList.remove('active');
+    }
+  };
+}
+
+// Setup collapsible score bar for mobile
+function setupScoreToggle() {
+  const toggleBtn = document.getElementById('toggleScoreBtn');
+  const scoreBoard = document.getElementById('scoreBoard');
+  
+  if (!toggleBtn || !scoreBoard) return;
+  
+  toggleBtn.addEventListener('click', () => {
+    scoreBoard.classList.toggle('expanded');
+    toggleBtn.textContent = scoreBoard.classList.contains('expanded') ? '✕' : '📊';
+  });
+  
+  // Close score board when clicking outside
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('.game-title-bar') && scoreBoard.classList.contains('expanded')) {
+      scoreBoard.classList.remove('expanded');
+      toggleBtn.textContent = '📊';
+    }
+  });
+}
+
 function initParticles() {
   const container = document.getElementById('particles');
   for (let i = 0; i < 50; i++) {
@@ -697,15 +774,18 @@ function showScreen(screenName) {
   Object.values(screens).forEach(screen => screen.classList.remove('active'));
   screens[screenName].classList.add('active');
   
-  // Toggle game fullscreen mode
+  // Toggle game mode class (but don't auto-fullscreen - let user control it)
   if (screenName === 'gameScreen') {
     document.body.classList.add('game-fullscreen');
-    // Auto-enter fullscreen on mobile when entering game
-    enterGameFullscreen();
   } else {
     document.body.classList.remove('game-fullscreen');
     // Exit fullscreen when leaving game
     exitGameFullscreen();
+  }
+  
+  // Update mobile chat toggle visibility
+  if (typeof updateChatToggleVisibility === 'function') {
+    updateChatToggleVisibility();
   }
 }
 
@@ -1112,6 +1192,11 @@ function addChatMessage(msg, container = elements.chatMessages) {
   
   container.appendChild(div);
   container.scrollTop = container.scrollHeight;
+  
+  // Sync to mobile chat if this is the game chat
+  if (container === elements.gameChatMessages && typeof syncMobileChat === 'function') {
+    syncMobileChat();
+  }
 }
 
 // ============================================
@@ -1269,15 +1354,33 @@ function initMemoryGame(gameState, players) {
   const difficultyLabel = gameState.difficulty ? gameState.difficulty.charAt(0).toUpperCase() + gameState.difficulty.slice(1) : 'Normal';
   elements.gameTitle.textContent = `🃏 Vecna's Memory Match (${difficultyLabel}) 🃏`;
   
-  // Determine grid columns based on difficulty
-  const gridCols = gameState.gridCols || 4;
+  // Determine grid columns based on difficulty and screen
+  let gridCols = gameState.gridCols || 4;
+  const totalCards = gameState.cards.length;
+  
+  // Smart grid sizing for portrait mode on mobile
+  const isPortrait = window.innerHeight > window.innerWidth;
+  const isMobile = window.innerWidth <= 480;
+  
+  if (isMobile && isPortrait) {
+    // Adjust columns to fit better in portrait
+    if (totalCards <= 16) {
+      gridCols = 4; // 4x4 fits well
+    } else if (totalCards <= 24) {
+      gridCols = 4; // 4x6 fits vertically
+    } else if (totalCards <= 36) {
+      gridCols = 4; // 4x9 scrolls less
+    } else {
+      gridCols = 5; // Larger grids use 5 columns to minimize horizontal space
+    }
+  }
   
   elements.gameContent.innerHTML = `
     <div class="memory-container">
       <div class="memory-status" id="memoryStatus">
         ${gameState.currentPlayer === state.playerId ? "🧠 Your turn to find a match!" : "Watching..."}
       </div>
-      <div class="memory-board" id="memoryBoard" style="grid-template-columns: repeat(${gridCols}, 1fr);">
+      <div class="memory-board" id="memoryBoard" data-cols="${gridCols}" style="grid-template-columns: repeat(${gridCols}, 1fr);">
         ${gameState.cards.map((card, i) => `
           <div class="memory-card" data-index="${i}">
             <div class="card-content">
@@ -2409,11 +2512,31 @@ function renderSudokuBoard(gameState) {
   const currentBoard = gameState.currentBoard || [];
   const playerMoves = gameState.playerMoves || {};
   
+  // Count how many of each number are placed correctly
+  const numberCounts = {};
+  for (let i = 1; i <= 9; i++) numberCounts[i] = 0;
+  currentBoard.forEach((row, rowIdx) => {
+    (row || []).forEach((cell, colIdx) => {
+      if (cell !== 0) {
+        const solutionVal = (solution[rowIdx] || [])[colIdx];
+        if (cell === solutionVal) {
+          numberCounts[cell]++;
+        }
+      }
+    });
+  });
+  
+  // Get selected cell info for highlighting
+  const selectedRow = selectedCell ? selectedCell[0] : -1;
+  const selectedCol = selectedCell ? selectedCell[1] : -1;
+  const selectedBox = selectedCell ? [Math.floor(selectedRow / 3), Math.floor(selectedCol / 3)] : [-1, -1];
+  const selectedValue = selectedCell && currentBoard[selectedRow] ? currentBoard[selectedRow][selectedCol] : 0;
+  
   elements.gameContent.innerHTML = `
     <div class="sudoku-container">
       <div class="sudoku-info">
         <p>🧠 Work together to solve the puzzle!</p>
-        <p>✅ Correct = +5 points | ❌ Wrong = -2 points</p>
+        <p>✅ Correct = +5 pts | ❌ Wrong = -2 pts</p>
       </div>
       <div class="sudoku-board" id="sudokuBoard">
         ${currentBoard.map((row, rowIndex) => 
@@ -2421,19 +2544,24 @@ function renderSudokuBoard(gameState) {
             const puzzleRow = puzzle[rowIndex] || [];
             const solutionRow = solution[rowIndex] || [];
             const isOriginal = puzzleRow[colIndex] !== 0;
-            const isSelected = selectedCell && selectedCell[0] === rowIndex && selectedCell[1] === colIndex;
+            const isSelected = selectedCell && selectedRow === rowIndex && selectedCol === colIndex;
             const isWrong = cell !== 0 && cell !== solutionRow[colIndex];
             const cellKey = `${rowIndex}-${colIndex}`;
             const filledBy = playerMoves[cellKey];
             const playerName = filledBy ? state.players.find(p => p.id === filledBy)?.name : null;
             
             // Highlight same number
-            const selectedRow = selectedCell ? currentBoard[selectedCell[0]] || [] : [];
-            const selectedValue = selectedCell ? selectedRow[selectedCell[1]] : 0;
             const isSameNumber = cell !== 0 && cell === selectedValue;
             
+            // Highlight same row, column, or box
+            const isInSelectedRow = selectedRow === rowIndex;
+            const isInSelectedCol = selectedCol === colIndex;
+            const cellBox = [Math.floor(rowIndex / 3), Math.floor(colIndex / 3)];
+            const isInSelectedBox = selectedBox[0] === cellBox[0] && selectedBox[1] === cellBox[1];
+            const isHighlighted = !isSelected && (isInSelectedRow || isInSelectedCol || isInSelectedBox);
+            
             return `
-              <div class="sudoku-cell ${isOriginal ? 'original' : 'editable'} ${isSelected ? 'selected' : ''} ${isWrong ? 'wrong' : ''} ${isSameNumber ? 'same-number' : ''}"
+              <div class="sudoku-cell ${isOriginal ? 'original' : 'editable'} ${isSelected ? 'selected' : ''} ${isWrong ? 'wrong' : ''} ${isSameNumber ? 'same-number' : ''} ${isHighlighted ? 'highlighted' : ''}"
                    data-row="${rowIndex}" data-col="${colIndex}"
                    ${playerName ? `title="Filled by ${playerName}"` : ''}>
                 ${cell !== 0 ? cell : ''}
@@ -2443,9 +2571,10 @@ function renderSudokuBoard(gameState) {
         ).join('')}
       </div>
       <div class="sudoku-numpad" id="sudokuNumpad">
-        ${[1,2,3,4,5,6,7,8,9].map(num => `
-          <button class="numpad-btn" data-num="${num}">${num}</button>
-        `).join('')}
+        ${[1,2,3,4,5,6,7,8,9].map(num => {
+          const isComplete = numberCounts[num] >= 9; // All 9 instances placed correctly
+          return `<button class="numpad-btn ${isComplete ? 'completed' : ''}" data-num="${num}" ${isComplete ? 'disabled' : ''}>${num}</button>`;
+        }).join('')}
         <button class="numpad-btn erase" data-num="0">✕</button>
       </div>
     </div>
@@ -2461,7 +2590,7 @@ function renderSudokuBoard(gameState) {
   });
   
   // Add numpad handlers
-  document.querySelectorAll('.numpad-btn').forEach(btn => {
+  document.querySelectorAll('.numpad-btn:not(.completed)').forEach(btn => {
     btn.addEventListener('click', () => {
       const num = parseInt(btn.dataset.num);
       if (state.gameState.selectedCell) {
@@ -3049,157 +3178,54 @@ function renderLudoBoard(gameState, players) {
 }
 
 function renderLudoBoardHTML(gameState) {
-  // Improved Ludo board with visual track
+  // Simplified Ludo board - cleaner UI
   if (!gameState.playerOrder || !gameState.tokens) {
     return '<div style="color:red;">Error rendering Ludo board</div>';
   }
   
-  let html = '<div class="ludo-path">';
+  let html = '<div class="ludo-simple-board">';
   
-  // Build a map of position -> tokens for the track
-  const trackPositions = {};
-  gameState.playerOrder.forEach((playerId, playerIdx) => {
-    const colorInfo = LUDO_COLORS[playerIdx] || { color: '#888', emoji: '⚪' };
-    const tokens = gameState.tokens[playerId] || [];
-    tokens.forEach((t, tIdx) => {
-      if (typeof t.position === 'number') {
-        if (!trackPositions[t.position]) trackPositions[t.position] = [];
-        const isMovable = gameState.validMoves && 
-                         gameState.validMoves.some(m => m.tokenIndex === tIdx) &&
-                         playerId === state.playerId;
-        trackPositions[t.position].push({
-          colorInfo,
-          isMovable,
-          tokenIdx: tIdx,
-          playerId,
-          playerIdx
-        });
-      }
-    });
-  });
-  
-  // Render home bases in a 2x2 grid layout
-  html += '<div class="ludo-homes-grid">';
+  // Player sections - each player gets a row
   gameState.playerOrder.forEach((playerId, playerIdx) => {
     const colorInfo = LUDO_COLORS[playerIdx] || { color: '#888', emoji: '⚪', name: 'Player' };
     const tokens = gameState.tokens[playerId] || [];
-    const homeTokens = tokens.filter(t => t.position === 'home');
-    const onBoardCount = tokens.filter(t => typeof t.position === 'number').length;
-    const finishedCount = tokens.filter(t => t.position === 'finished').length;
+    const isCurrentPlayer = playerId === state.playerId;
     
-    html += `
-      <div class="ludo-home-base" style="--player-color: ${colorInfo.color};">
-        <div class="ludo-home-header">
-          <span class="ludo-home-emoji">${colorInfo.emoji}</span>
-          <span class="ludo-home-name">${colorInfo.name}</span>
-        </div>
-        <div class="ludo-home-tokens">
-          ${homeTokens.map((t) => {
-            const tokenIdx = tokens.indexOf(t);
-            const isMovable = gameState.validMoves && 
-                             gameState.validMoves.some(m => m.tokenIndex === tokenIdx) &&
-                             playerId === state.playerId;
-            return `<div class="ludo-token ${isMovable ? 'movable' : ''}" 
-                        data-token-index="${tokenIdx}"
-                        style="--token-color: ${colorInfo.color}">
-                      ${colorInfo.emoji}
-                    </div>`;
-          }).join('')}
-          ${homeTokens.length === 0 ? '<span class="ludo-empty-home">Empty</span>' : ''}
-        </div>
-        <div class="ludo-home-stats">
-          <span title="Home">🏠${homeTokens.length}</span>
-          <span title="On Track">🎯${onBoardCount}</span>
-          <span title="Finished">✅${finishedCount}</span>
-        </div>
-      </div>
-    `;
-  });
-  html += '</div>';
-  
-  // Visual track - circular path representation
-  html += '<div class="ludo-track-visual">';
-  html += '<div class="ludo-track-title">🛤️ The Upside Down Track 🛤️</div>';
-  html += '<div class="ludo-track-board">';
-  
-  // Show track squares with tokens
-  const trackLength = 52;
-  const safeSquares = [0, 8, 13, 21, 26, 34, 39, 47];
-  const startSquares = [0, 13, 26, 39]; // Starting positions for each player
-  
-  // Only show occupied squares and key squares for clarity
-  const importantSquares = [...new Set([
-    ...Object.keys(trackPositions).map(Number),
-    ...safeSquares,
-    ...startSquares
-  ])].sort((a, b) => a - b);
-  
-  if (importantSquares.length === 0 || Object.keys(trackPositions).length === 0) {
-    html += '<div class="ludo-track-empty">No tokens on track yet - roll a 6 to start!</div>';
-  } else {
-    html += '<div class="ludo-track-squares">';
-    for (let pos = 0; pos < trackLength; pos++) {
-      const isSafe = safeSquares.includes(pos);
-      const isStart = startSquares.includes(pos);
-      const tokensHere = trackPositions[pos] || [];
-      const hasTokens = tokensHere.length > 0;
+    html += `<div class="ludo-player-section ${isCurrentPlayer ? 'is-me' : ''}" style="--player-color: ${colorInfo.color};">`;
+    html += `<div class="ludo-player-header">
+               <span class="player-color-dot" style="background: ${colorInfo.color}"></span>
+               <span class="player-name-text">${colorInfo.emoji} ${colorInfo.name}</span>
+             </div>`;
+    
+    html += `<div class="ludo-tokens-row">`;
+    tokens.forEach((token, tokenIdx) => {
+      const isMovable = gameState.validMoves && 
+                       gameState.validMoves.some(m => m.tokenIndex === tokenIdx) &&
+                       playerId === state.playerId;
       
-      // Only render if has tokens or is important
-      if (hasTokens || isSafe || isStart) {
-        let squareColor = 'var(--bg-secondary)';
-        if (isSafe) squareColor = 'rgba(212, 175, 55, 0.3)';
-        if (isStart) {
-          const startIdx = startSquares.indexOf(pos);
-          const startColor = LUDO_COLORS[startIdx]?.color || '#888';
-          squareColor = `${startColor}40`;
-        }
-        
-        html += `<div class="ludo-track-square ${isSafe ? 'safe' : ''} ${isStart ? 'start' : ''} ${hasTokens ? 'occupied' : ''}" 
-                      style="background: ${squareColor};" title="Position ${pos}${isSafe ? ' (Safe)' : ''}${isStart ? ' (Start)' : ''}">
-                  <span class="square-num">${pos}</span>
-                  <div class="square-tokens">
-                    ${tokensHere.map(info => `
-                      <div class="ludo-token mini ${info.isMovable ? 'movable' : ''}" 
-                           data-token-index="${info.tokenIdx}"
-                           data-player-id="${info.playerId}"
-                           style="--token-color: ${info.colorInfo.color}">
-                        ${info.colorInfo.emoji}
-                      </div>
-                    `).join('')}
-                  </div>
-                </div>`;
+      let positionText = '';
+      let positionClass = '';
+      if (token.position === 'home') {
+        positionText = '🏠';
+        positionClass = 'at-home';
+      } else if (token.position === 'finished') {
+        positionText = '🏁';
+        positionClass = 'finished';
+      } else {
+        const dist = token.distanceTraveled || 0;
+        positionText = `${dist}/52`;
+        positionClass = 'on-track';
       }
-    }
-    html += '</div>';
-  }
-  html += '</div></div>';
-  
-  // Finish area - show who has finished tokens
-  const playersWithFinished = gameState.playerOrder.filter((playerId, idx) => {
-    const tokens = gameState.tokens[playerId] || [];
-    return tokens.some(t => t.position === 'finished');
-  });
-  
-  if (playersWithFinished.length > 0) {
-    html += '<div class="ludo-finish-zone">';
-    html += '<div class="ludo-finish-title">🏁 Finish Line 🏁</div>';
-    html += '<div class="ludo-finish-players">';
-    gameState.playerOrder.forEach((playerId, playerIdx) => {
-      const colorInfo = LUDO_COLORS[playerIdx] || { color: '#888', emoji: '⚪' };
-      const tokens = gameState.tokens[playerId] || [];
-      const finishedTokens = tokens.filter(t => t.position === 'finished');
       
-      if (finishedTokens.length > 0) {
-        html += `<div class="ludo-finish-player" style="--player-color: ${colorInfo.color}">
-                  <span class="finish-label">${colorInfo.emoji} ${finishedTokens.length}/4</span>
-                  <div class="finish-tokens">
-                    ${finishedTokens.map(() => `<span class="finish-token" style="background: ${colorInfo.color}">${colorInfo.emoji}</span>`).join('')}
-                  </div>
-                </div>`;
-      }
+      html += `<div class="ludo-token-card ${positionClass} ${isMovable ? 'movable' : ''}" 
+                   data-token-index="${tokenIdx}"
+                   style="background: ${colorInfo.color}20; border-color: ${colorInfo.color};">
+                <span class="token-emoji">${colorInfo.emoji}</span>
+                <span class="token-position">${positionText}</span>
+              </div>`;
     });
-    html += '</div></div>';
-  }
+    html += `</div></div>`;
+  });
   
   html += '</div>';
   return html;

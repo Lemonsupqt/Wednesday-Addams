@@ -199,7 +199,8 @@ html, body {
     inset 0 0 30px rgba(147, 51, 234, 0.05);
 }
 
-input[type="text"] {
+input[type="text"],
+input[type="password"] {
   width: 100%;
   padding: 15px 20px;
   font-family: 'Special Elite', cursive;
@@ -212,13 +213,15 @@ input[type="text"] {
   margin-bottom: 15px;
 }
 
-input[type="text"]:focus {
+input[type="text"]:focus,
+input[type="password"]:focus {
   outline: none;
   border-color: var(--st-red);
   box-shadow: 0 0 15px var(--st-red-glow);
 }
 
-input[type="text"]::placeholder {
+input[type="text"]::placeholder,
+input[type="password"]::placeholder {
   color: var(--text-secondary);
 }
 
@@ -751,6 +754,52 @@ input[type="text"]::placeholder {
   font-size: 1.5rem;
   color: var(--st-red);
   text-shadow: 0 0 10px var(--st-red-glow);
+}
+
+.score-toggle-btn {
+  display: none;
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  color: var(--text-primary);
+  font-size: 1rem;
+  padding: 4px 8px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.score-toggle-btn:hover {
+  background: var(--bg-secondary);
+}
+
+@media (max-width: 768px) {
+  .score-toggle-btn {
+    display: block;
+  }
+  
+  .score-board {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: 0 0 10px 10px;
+    padding: 10px;
+    z-index: 100;
+    display: none !important;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+  }
+  
+  .score-board.expanded {
+    display: flex !important;
+    flex-direction: column;
+    gap: 5px;
+  }
+  
+  .game-title-bar {
+    position: relative;
+  }
 }
 
 .score-board {
@@ -1733,7 +1782,7 @@ input[type="text"]::placeholder {
    FULLSCREEN GAME MODE
    ============================================ */
 
-/* Fullscreen styles */
+/* Game fullscreen mode - properly scrollable */
 .game-fullscreen #gameScreen {
   position: fixed;
   top: 0;
@@ -1742,24 +1791,127 @@ input[type="text"]::placeholder {
   bottom: 0;
   z-index: 9999;
   background: var(--bg-primary);
+  overflow: hidden;
 }
 
 .game-fullscreen .game-container {
   height: 100vh;
-  height: 100dvh; /* Dynamic viewport height for mobile */
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.game-fullscreen .game-header {
+  flex-shrink: 0;
+  padding: 10px 15px;
 }
 
 .game-fullscreen .game-content {
   flex: 1;
   display: flex;
+  flex-direction: column;
   align-items: center;
-  justify-content: center;
+  justify-content: flex-start;
   padding: 10px;
-  overflow: auto;
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
 }
 
-/* Hide chat in fullscreen game mode on mobile for more space */
+/* Collapsible chat for mobile - toggle button */
+.chat-toggle-btn {
+  display: none;
+  position: fixed;
+  bottom: 70px;
+  right: 10px;
+  width: 50px;
+  height: 50px;
+  border-radius: 50%;
+  background: var(--bg-card);
+  border: 2px solid var(--wed-gold);
+  color: var(--wed-gold);
+  font-size: 1.5rem;
+  cursor: pointer;
+  z-index: 10001;
+  box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+  transition: all 0.3s ease;
+}
+
+.chat-toggle-btn:hover {
+  transform: scale(1.1);
+  background: var(--wed-gold);
+  color: var(--bg-primary);
+}
+
+/* Mobile chat overlay */
+.game-chat-overlay {
+  display: none;
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 50vh;
+  background: var(--bg-card);
+  border-top: 2px solid var(--wed-gold);
+  z-index: 10000;
+  flex-direction: column;
+  transform: translateY(100%);
+  transition: transform 0.3s ease;
+}
+
+.game-chat-overlay.active {
+  transform: translateY(0);
+}
+
+.game-chat-overlay .chat-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 15px;
+  border-bottom: 1px solid var(--border-color);
+  flex-shrink: 0;
+}
+
+.game-chat-overlay .chat-close-btn {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 1.5rem;
+  cursor: pointer;
+}
+
+.game-chat-overlay .chat-messages {
+  flex: 1;
+  overflow-y: auto;
+  padding: 10px;
+}
+
+.game-chat-overlay .chat-input-area {
+  display: flex;
+  gap: 8px;
+  padding: 10px;
+  border-top: 1px solid var(--border-color);
+  flex-shrink: 0;
+}
+
+.game-chat-overlay .chat-input-area input {
+  flex: 1;
+  margin-bottom: 0;
+}
+
 @media (max-width: 768px) {
+  .chat-toggle-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  
+  .game-chat-overlay {
+    display: flex;
+  }
+  
+  /* Hide desktop chat sidebar on mobile */
   .game-fullscreen .game-chat {
     display: none;
   }
@@ -1769,13 +1921,14 @@ input[type="text"]::placeholder {
     grid-template-rows: auto 1fr;
   }
   
+  /* Game content should scroll vertically */
   .game-fullscreen .game-content {
-    max-height: calc(100vh - 60px);
-    max-height: calc(100dvh - 60px);
+    max-height: none;
+    padding-bottom: 80px; /* Space for toggle button */
   }
 }
 
-/* Fullscreen toggle when in game */
+/* Fullscreen toggle button */
 .game-fullscreen .fullscreen-toggle {
   bottom: 10px;
   left: 10px;
@@ -1789,24 +1942,17 @@ input[type="text"]::placeholder {
   opacity: 1;
 }
 
-/* Ensure games scale properly in fullscreen */
-.game-fullscreen .chess-board,
-.game-fullscreen .ttt-board,
-.game-fullscreen .connect4-board,
-.game-fullscreen .memory-board,
-.game-fullscreen .ludo-board {
-  max-height: calc(100vh - 150px);
-  max-height: calc(100dvh - 150px);
-}
-
+/* Game containers - allow natural sizing with scroll */
 .game-fullscreen .chess-container,
 .game-fullscreen .ttt-container,
 .game-fullscreen .connect4-container,
 .game-fullscreen .memory-container,
-.game-fullscreen .ludo-container {
-  max-height: calc(100vh - 80px);
-  max-height: calc(100dvh - 80px);
-  overflow-y: auto;
+.game-fullscreen .ludo-container,
+.game-fullscreen .sudoku-container,
+.game-fullscreen .trivia-container {
+  width: 100%;
+  max-width: 100%;
+  overflow: visible;
 }
 
 /* ============================================
@@ -2766,6 +2912,10 @@ input[type="text"]::placeholder {
   background: rgba(5, 217, 232, 0.15);
 }
 
+.sudoku-cell.highlighted {
+  background: rgba(212, 175, 55, 0.1);
+}
+
 .sudoku-numpad {
   display: grid;
   grid-template-columns: repeat(5, 1fr);
@@ -2801,6 +2951,20 @@ input[type="text"]::placeholder {
   background: rgba(239, 68, 68, 0.2);
   border-color: var(--danger);
   color: var(--danger);
+}
+
+.numpad-btn.completed {
+  background: rgba(34, 197, 94, 0.2);
+  border-color: var(--success);
+  color: var(--success);
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: scale(0.9);
+}
+
+.numpad-btn.completed:hover {
+  transform: scale(0.9);
+  border-color: var(--success);
 }
 
 .sudoku-complete {
@@ -2955,6 +3119,35 @@ input[type="text"]::placeholder {
   
   .memory-board[style*="repeat(10"] .memory-card .card-name {
     display: none;
+  }
+}
+
+/* Smart memory grid for mobile portrait - no horizontal scroll */
+@media (max-width: 480px) and (orientation: portrait) {
+  .memory-board {
+    width: calc(100vw - 20px) !important;
+    max-width: calc(100vw - 20px) !important;
+    gap: 6px !important;
+    padding: 0 !important;
+    box-sizing: border-box;
+  }
+  
+  .memory-card {
+    aspect-ratio: 1;
+    min-width: unset !important;
+    max-width: none;
+  }
+  
+  .memory-card .card-name {
+    display: none !important;
+  }
+  
+  .memory-card .card-emoji {
+    font-size: clamp(1rem, 5vw, 1.5rem) !important;
+  }
+  
+  .memory-card::before {
+    font-size: clamp(0.8rem, 4vw, 1.2rem) !important;
   }
 }
 
@@ -4069,341 +4262,120 @@ input[type="text"]::placeholder {
 }
 
 /* ============================================
-   IMPROVED LUDO BOARD STYLES
+   SIMPLIFIED LUDO BOARD STYLES
    ============================================ */
 
-/* Home bases grid layout */
-.ludo-homes-grid {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
+.ludo-simple-board {
+  display: flex;
+  flex-direction: column;
   gap: 12px;
-  margin-bottom: 15px;
-  max-width: 500px;
-  margin-left: auto;
-  margin-right: auto;
+  width: 100%;
+  max-width: 400px;
+  margin: 0 auto;
 }
 
-.ludo-home-base {
-  background: linear-gradient(135deg, rgba(0,0,0,0.4), var(--player-color, #888)20);
+.ludo-player-section {
+  background: rgba(0,0,0,0.3);
   border: 2px solid var(--player-color, #888);
-  border-radius: 15px;
+  border-radius: 12px;
   padding: 12px;
-  text-align: center;
-  transition: all 0.3s ease;
 }
 
-.ludo-home-base:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+.ludo-player-section.is-me {
+  background: rgba(212, 175, 55, 0.1);
+  border-color: var(--wed-gold);
 }
 
-.ludo-home-header {
+.ludo-player-header {
   display: flex;
   align-items: center;
-  justify-content: center;
   gap: 8px;
   margin-bottom: 10px;
 }
 
-.ludo-home-emoji {
-  font-size: 1.4rem;
+.player-color-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
 }
 
-.ludo-home-name {
+.player-name-text {
   font-family: 'Cinzel', serif;
   font-size: 0.9rem;
   color: var(--text-primary);
-  font-weight: 600;
 }
 
-.ludo-home-tokens {
+.ludo-tokens-row {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+}
+
+.ludo-token-card {
   display: flex;
-  gap: 6px;
-  justify-content: center;
-  flex-wrap: wrap;
-  min-height: 36px;
-  align-items: center;
-}
-
-.ludo-empty-home {
-  font-size: 0.75rem;
-  color: var(--text-secondary);
-  font-style: italic;
-}
-
-.ludo-home-stats {
-  display: flex;
-  justify-content: center;
-  gap: 10px;
-  margin-top: 8px;
-  font-size: 0.75rem;
-  color: var(--text-secondary);
-}
-
-.ludo-home-stats span {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-}
-
-/* Improved token styles */
-.ludo-token {
-  width: 32px;
-  height: 32px;
-  border-radius: 50%;
-  display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
-  font-size: 0.9rem;
-  background: var(--token-color, #888);
-  box-shadow: 0 3px 8px rgba(0,0,0,0.4), inset 0 -2px 4px rgba(0,0,0,0.3);
+  padding: 10px 5px;
+  border-radius: 10px;
+  border: 2px solid;
   transition: all 0.2s ease;
   cursor: default;
-  position: relative;
 }
 
-.ludo-token.movable {
+.ludo-token-card.movable {
   cursor: pointer;
   animation: tokenPulse 1s ease infinite;
-  box-shadow: 0 0 15px var(--token-color, gold), 0 3px 8px rgba(0,0,0,0.4);
+  box-shadow: 0 0 15px rgba(212, 175, 55, 0.5);
 }
 
-.ludo-token.movable:hover {
-  transform: scale(1.15);
-  z-index: 10;
-}
-
-.ludo-token.mini {
-  width: 24px;
-  height: 24px;
-  font-size: 0.7rem;
-}
-
-/* Visual track */
-.ludo-track-visual {
-  background: rgba(0,0,0,0.4);
-  border-radius: 15px;
-  padding: 15px;
-  margin-bottom: 15px;
-}
-
-.ludo-track-title {
-  font-family: 'Cinzel', serif;
-  font-size: 1rem;
-  color: var(--wed-gold);
-  text-align: center;
-  margin-bottom: 12px;
-}
-
-.ludo-track-board {
-  min-height: 60px;
-}
-
-.ludo-track-empty {
-  text-align: center;
-  color: var(--text-secondary);
-  font-style: italic;
-  padding: 20px;
-}
-
-.ludo-track-squares {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  justify-content: center;
-  align-items: flex-start;
-}
-
-.ludo-track-square {
-  min-width: 42px;
-  min-height: 42px;
-  padding: 4px;
-  border-radius: 8px;
-  border: 2px solid var(--border-color);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: flex-start;
-  position: relative;
-  transition: all 0.2s ease;
-}
-
-.ludo-track-square.safe {
-  border-color: var(--wed-gold);
-  box-shadow: inset 0 0 10px rgba(212, 175, 55, 0.2);
-}
-
-.ludo-track-square.start {
-  border-width: 2px;
-  border-style: dashed;
-}
-
-.ludo-track-square.occupied {
+.ludo-token-card.movable:hover {
   transform: scale(1.05);
-  z-index: 5;
 }
 
-.ludo-track-square .square-num {
-  font-size: 0.6rem;
-  color: var(--text-secondary);
+.ludo-token-card.at-home {
   opacity: 0.7;
-  position: absolute;
-  top: 2px;
-  right: 4px;
 }
 
-.ludo-track-square .square-tokens {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 2px;
-  justify-content: center;
-  margin-top: 8px;
+.ludo-token-card.finished {
+  background: rgba(0, 255, 0, 0.2) !important;
+  border-color: var(--success) !important;
 }
 
-/* Finish zone */
-.ludo-finish-zone {
-  background: linear-gradient(135deg, rgba(212, 175, 55, 0.1), rgba(212, 175, 55, 0.05));
-  border: 2px solid var(--wed-gold);
-  border-radius: 15px;
-  padding: 15px;
-  text-align: center;
+.ludo-token-card .token-emoji {
+  font-size: 1.5rem;
 }
 
-.ludo-finish-title {
-  font-family: 'Cinzel', serif;
-  font-size: 1rem;
-  color: var(--wed-gold);
-  margin-bottom: 12px;
+.ludo-token-card .token-position {
+  font-size: 0.7rem;
+  color: var(--text-secondary);
+  margin-top: 4px;
 }
 
-.ludo-finish-players {
-  display: flex;
-  justify-content: center;
-  gap: 15px;
-  flex-wrap: wrap;
-}
-
-.ludo-finish-player {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 6px;
-  padding: 10px;
-  background: var(--player-color, #888)20;
-  border: 2px solid var(--player-color, #888);
-  border-radius: 10px;
-  min-width: 70px;
-}
-
-.ludo-finish-player .finish-label {
-  font-size: 0.85rem;
-  color: var(--text-primary);
-}
-
-.ludo-finish-player .finish-tokens {
-  display: flex;
-  gap: 4px;
-}
-
-.ludo-finish-player .finish-token {
-  width: 22px;
-  height: 22px;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 0.65rem;
-}
-
-/* Ludo board improvements for mobile portrait */
-@media (max-width: 480px) and (orientation: portrait) {
-  .ludo-homes-grid {
-    grid-template-columns: repeat(2, 1fr);
+/* Mobile adjustments */
+@media (max-width: 480px) {
+  .ludo-simple-board {
     gap: 8px;
   }
   
-  .ludo-home-base {
+  .ludo-player-section {
     padding: 8px;
   }
   
-  .ludo-home-header {
-    gap: 4px;
-    margin-bottom: 6px;
+  .ludo-tokens-row {
+    gap: 5px;
   }
   
-  .ludo-home-emoji {
-    font-size: 1.1rem;
+  .ludo-token-card {
+    padding: 6px 3px;
   }
   
-  .ludo-home-name {
-    font-size: 0.75rem;
+  .ludo-token-card .token-emoji {
+    font-size: 1.2rem;
   }
   
-  .ludo-token {
-    width: 26px;
-    height: 26px;
-    font-size: 0.75rem;
-  }
-  
-  .ludo-token.mini {
-    width: 20px;
-    height: 20px;
+  .ludo-token-card .token-position {
     font-size: 0.6rem;
-  }
-  
-  .ludo-home-stats {
-    gap: 6px;
-    font-size: 0.65rem;
-  }
-  
-  .ludo-track-visual {
-    padding: 10px;
-  }
-  
-  .ludo-track-title {
-    font-size: 0.85rem;
-    margin-bottom: 8px;
-  }
-  
-  .ludo-track-squares {
-    gap: 4px;
-  }
-  
-  .ludo-track-square {
-    min-width: 36px;
-    min-height: 36px;
-    padding: 3px;
-  }
-  
-  .ludo-track-square .square-num {
-    font-size: 0.5rem;
-  }
-  
-  .ludo-finish-zone {
-    padding: 10px;
-  }
-  
-  .ludo-finish-title {
-    font-size: 0.85rem;
-  }
-  
-  .ludo-finish-players {
-    gap: 8px;
-  }
-  
-  .ludo-finish-player {
-    padding: 6px;
-    min-width: 55px;
-  }
-  
-  .ludo-finish-player .finish-label {
-    font-size: 0.75rem;
-  }
-  
-  .ludo-finish-player .finish-token {
-    width: 18px;
-    height: 18px;
-    font-size: 0.55rem;
   }
 }
 
