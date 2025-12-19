@@ -5,6 +5,7 @@ const { v4: uuidv4 } = require('uuid');
 const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
+const { MongoClient } = require('mongodb');
 
 const app = express();
 
@@ -59,9 +60,10 @@ app.get('/health', (req, res) => {
 // USER ACCOUNTS & LEADERBOARD (The Nevermore Archives)
 // ============================================
 
-// NOTE: For Railway/cloud deployment, file storage is ephemeral.
-// For persistent storage, consider using Railway's PostgreSQL or Redis.
-// For now, we use file storage with environment variable backup.
+// MongoDB connection for persistent storage
+let mongoClient = null;
+let usersCollection = null;
+let useMongoDb = false;
 
 const USERS_FILE = path.join(__dirname, 'nevermore_archives.json');
 
@@ -70,9 +72,55 @@ function hashPassword(password) {
   return crypto.createHash('sha256').update(password + 'upsidedown_salt_2024').digest('hex');
 }
 
-// Load users from file or environment variable
-function loadUsers() {
-  // Try loading from environment variable first (for Railway persistence)
+// Initialize MongoDB connection
+async function initMongoDB() {
+  const mongoUri = process.env.MONGODB_URI;
+  if (!mongoUri) {
+    console.log('📦 No MONGODB_URI found, using local file storage');
+    return false;
+  }
+  
+  try {
+    console.log('🔌 Connecting to MongoDB Atlas...');
+    mongoClient = new MongoClient(mongoUri);
+    await mongoClient.connect();
+    
+    const db = mongoClient.db('nevermore_games');
+    usersCollection = db.collection('users');
+    
+    // Create index on username for faster lookups
+    await usersCollection.createIndex({ username: 1 }, { unique: true });
+    
+    useMongoDb = true;
+    console.log('✅ Connected to MongoDB Atlas successfully!');
+    return true;
+  } catch (err) {
+    console.error('❌ MongoDB connection failed:', err.message);
+    console.log('📦 Falling back to local file storage');
+    return false;
+  }
+}
+
+// Load users from MongoDB or file
+async function loadUsersFromMongo() {
+  if (!useMongoDb || !usersCollection) return {};
+  
+  try {
+    const users = await usersCollection.find({}).toArray();
+    const userMap = {};
+    users.forEach(user => {
+      userMap[user.username] = user;
+    });
+    return userMap;
+  } catch (err) {
+    console.error('Error loading users from MongoDB:', err);
+    return {};
+  }
+}
+
+// Load users from file (fallback)
+function loadUsersFromFile() {
+  // Try loading from environment variable first
   if (process.env.USER_DATA) {
     try {
       console.log('📦 Loading user data from environment variable');
@@ -96,25 +144,75 @@ function loadUsers() {
   return {};
 }
 
-// Save users to file
-function saveUsers(users) {
+// Save user to MongoDB
+async function saveUserToMongo(user) {
+  if (!useMongoDb || !usersCollection) return false;
+  
   try {
-    fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2));
-    
-    // Log base64 encoded data for manual backup (can copy to Railway env var)
-    if (Object.keys(users).length > 0 && Object.keys(users).length <= 5) {
-      const encoded = Buffer.from(JSON.stringify(users)).toString('base64');
-      console.log('💾 User data backup (set as USER_DATA env var for persistence):');
-      console.log(encoded.substring(0, 100) + '...');
-    }
+    await usersCollection.updateOne(
+      { username: user.username },
+      { $set: user },
+      { upsert: true }
+    );
+    return true;
   } catch (err) {
-    console.error('Error saving users:', err);
+    console.error('Error saving user to MongoDB:', err);
+    return false;
   }
 }
 
-// User accounts storage
-let userAccounts = loadUsers();
-console.log(`👥 Loaded ${Object.keys(userAccounts).length} user accounts`);
+// Save users to file (fallback)
+function saveUsersToFile(users) {
+  try {
+    fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2));
+  } catch (err) {
+    console.error('Error saving users to file:', err);
+  }
+}
+
+// Combined save function
+async function saveUsers(users) {
+  if (useMongoDb) {
+    // Save each user to MongoDB
+    for (const username of Object.keys(users)) {
+      await saveUserToMongo(users[username]);
+    }
+  } else {
+    saveUsersToFile(users);
+  }
+}
+
+// Save single user
+async function saveUser(user) {
+  if (useMongoDb) {
+    await saveUserToMongo(user);
+  } else {
+    userAccounts[user.username] = user;
+    saveUsersToFile(userAccounts);
+  }
+}
+
+// User accounts storage (will be populated after MongoDB init)
+let userAccounts = {};
+
+// Initialize storage (called at startup)
+async function initStorage() {
+  const mongoConnected = await initMongoDB();
+  
+  if (mongoConnected) {
+    userAccounts = await loadUsersFromMongo();
+    console.log(`👥 Loaded ${Object.keys(userAccounts).length} user accounts from MongoDB`);
+  } else {
+    userAccounts = loadUsersFromFile();
+    console.log(`👥 Loaded ${Object.keys(userAccounts).length} user accounts from file`);
+  }
+}
+
+// Start storage initialization
+initStorage().catch(err => {
+  console.error('Storage initialization error:', err);
+  userAccounts = loadUsersFromFile();
+});
 
 // Get leaderboard data
 function getLeaderboard() {
@@ -150,7 +248,7 @@ function getUserTitle(trophies) {
 }
 
 // Update user stats after game
-function updateUserStats(username, won, earnedTrophy) {
+async function updateUserStats(username, won, earnedTrophy) {
   if (!userAccounts[username]) return;
   
   userAccounts[username].gamesPlayed = (userAccounts[username].gamesPlayed || 0) + 1;
@@ -162,7 +260,7 @@ function updateUserStats(username, won, earnedTrophy) {
   }
   userAccounts[username].lastPlayed = Date.now();
   
-  saveUsers(userAccounts);
+  await saveUser(userAccounts[username]);
 }
 
 // REST API for leaderboard
@@ -174,6 +272,8 @@ app.get('/api/leaderboard', (req, res) => {
 const rooms = new Map();
 const players = new Map();
 const authenticatedSockets = new Map(); // socket.id -> username
+const usernameToSocket = new Map(); // username -> socket.id (prevent duplicate logins)
+const roomTrophies = new Map(); // roomId -> Map<username, trophyCount> (persistent room trophies)
 
 // Trivia questions - Stranger Things & Wednesday themed
 const triviaQuestions = [
@@ -474,14 +574,14 @@ class GameRoom {
     this.votingActive = false;
   }
 
-  addPlayer(playerId, playerName, username = null) {
+  addPlayer(playerId, playerName, username = null, storedTrophies = 0) {
     const color = PLAYER_COLORS[this.colorIndex % PLAYER_COLORS.length];
     this.colorIndex++;
     this.players.set(playerId, { 
       id: playerId, 
       name: playerName,
       username: username,
-      trophies: 0,
+      trophies: storedTrophies,  // Restore persisted trophies
       sessionWins: 0,
       points: 0,
       ready: false, 
@@ -490,6 +590,17 @@ class GameRoom {
   }
 
   removePlayer(playerId) {
+    const player = this.players.get(playerId);
+    
+    // Persist room trophies before removing the player (save even if 0 to track they were here)
+    if (player && player.username) {
+      if (!roomTrophies.has(this.id)) {
+        roomTrophies.set(this.id, new Map());
+      }
+      roomTrophies.get(this.id).set(player.username, player.trophies || 0);
+      console.log(`💾 Saved ${player.trophies || 0} trophies for @${player.username} in room ${this.id}`);
+    }
+    
     this.players.delete(playerId);
     this.gameVotes.delete(playerId);
   }
@@ -569,6 +680,15 @@ class GameRoom {
       const winner = this.players.get(winners[0].id);
       winner.trophies += 1;
       
+      // Persist room trophies for this user
+      if (winner.username) {
+        if (!roomTrophies.has(this.id)) {
+          roomTrophies.set(this.id, new Map());
+        }
+        roomTrophies.get(this.id).set(winner.username, winner.trophies);
+        console.log(`🏆 Awarded trophy to @${winner.username} in room ${this.id} (total: ${winner.trophies})`);
+      }
+      
       // Update global account stats
       if (winner.username && userAccounts[winner.username]) {
         updateUserStats(winner.username, false, true);
@@ -613,7 +733,7 @@ io.on('connection', (socket) => {
     }
     
     // Create new account
-    userAccounts[cleanUsername] = {
+    const newUser = {
       username: cleanUsername,
       displayName: displayName || username,
       passwordHash: hashPassword(password),
@@ -624,13 +744,21 @@ io.on('connection', (socket) => {
       lastPlayed: null
     };
     
-    saveUsers(userAccounts);
+    userAccounts[cleanUsername] = newUser;
+    
+    // Save to MongoDB or file
+    saveUser(newUser).then(() => {
+      console.log(`💾 User ${cleanUsername} saved to database`);
+    }).catch(err => {
+      console.error('Error saving user:', err);
+    });
     
     authenticatedSockets.set(socket.id, cleanUsername);
+    usernameToSocket.set(cleanUsername, socket.id);
     
     socket.emit('authSuccess', { 
       username: cleanUsername,
-      displayName: userAccounts[cleanUsername].displayName,
+      displayName: newUser.displayName,
       trophies: 0,
       totalWins: 0,
       gamesPlayed: 0,
@@ -659,7 +787,26 @@ io.on('connection', (socket) => {
       return;
     }
     
+    // Kick existing session if logged in elsewhere (but only if socket is still active)
+    const existingSocketId = usernameToSocket.get(cleanUsername);
+    if (existingSocketId && existingSocketId !== socket.id) {
+      const existingSocket = io.sockets.sockets.get(existingSocketId);
+      if (existingSocket && existingSocket.connected) {
+        // Only kick if the existing socket is actually still connected
+        // This prevents issues during page refresh where the old socket might be stale
+        existingSocket.emit('forcedLogout', { 
+          message: 'Your account was logged in from another device' 
+        });
+        authenticatedSockets.delete(existingSocketId);
+        console.log(`⚠️ Kicked existing session for ${cleanUsername}`);
+      } else {
+        // Old socket is gone, just clean up the tracking
+        authenticatedSockets.delete(existingSocketId);
+      }
+    }
+    
     authenticatedSockets.set(socket.id, cleanUsername);
+    usernameToSocket.set(cleanUsername, socket.id);
     
     socket.emit('authSuccess', {
       username: cleanUsername,
@@ -677,6 +824,9 @@ io.on('connection', (socket) => {
     const username = authenticatedSockets.get(socket.id);
     if (username) {
       authenticatedSockets.delete(socket.id);
+      if (usernameToSocket.get(username) === socket.id) {
+        usernameToSocket.delete(username);
+      }
       console.log(`🔒 User logged out: ${username}`);
     }
     socket.emit('loggedOut');
@@ -706,7 +856,8 @@ io.on('connection', (socket) => {
   // Join room
   socket.on('joinRoom', ({ roomId, playerName }) => {
     const username = authenticatedSockets.get(socket.id);
-    const room = rooms.get(roomId.toUpperCase());
+    const normalizedRoomId = roomId.toUpperCase();
+    const room = rooms.get(normalizedRoomId);
     if (!room) {
       socket.emit('error', { message: 'Room not found. Check the code and try again.' });
       return;
@@ -715,18 +866,70 @@ io.on('connection', (socket) => {
       socket.emit('error', { message: 'Room is full (max 8 players)' });
       return;
     }
+    // Only block joining if a FULL room game is in progress (not challenge matches)
     if (room.currentGame) {
-      socket.emit('error', { message: 'Game already in progress' });
+      socket.emit('error', { message: 'A full room game is in progress. Wait for it to end.' });
       return;
     }
-
-    room.addPlayer(socket.id, playerName, username);
-    players.set(socket.id, roomId.toUpperCase());
     
-    socket.join(roomId.toUpperCase());
-    socket.emit('roomJoined', { roomId: roomId.toUpperCase(), players: room.getPlayerList() });
-    socket.to(roomId.toUpperCase()).emit('playerJoined', { players: room.getPlayerList() });
-    console.log(`👤 ${playerName}${username ? ` (@${username})` : ''} joined room ${roomId}`);
+    // Prevent same account from joining the same room twice
+    if (username) {
+      const existingPlayer = Array.from(room.players.values()).find(p => p.username === username);
+      if (existingPlayer) {
+        socket.emit('error', { message: 'This account is already in this room!' });
+        return;
+      }
+    }
+    
+    // Prevent duplicate player names in the same room
+    const existingName = Array.from(room.players.values()).find(
+      p => p.name.toLowerCase() === playerName.toLowerCase()
+    );
+    if (existingName) {
+      socket.emit('error', { message: 'A player with that name is already in this room!' });
+      return;
+    }
+    
+    // Get stored trophies for this user in this room (if any)
+    let storedTrophies = 0;
+    if (username) {
+      const roomTrophyMap = roomTrophies.get(normalizedRoomId);
+      console.log(`🔍 Looking for trophies: room=${normalizedRoomId}, user=${username}, map exists=${!!roomTrophyMap}`);
+      if (roomTrophyMap) {
+        console.log(`🔍 Room trophy map keys:`, Array.from(roomTrophyMap.keys()));
+        if (roomTrophyMap.has(username)) {
+          storedTrophies = roomTrophyMap.get(username);
+          console.log(`✨ Restored ${storedTrophies} trophies for @${username}`);
+        }
+      }
+    }
+
+    room.addPlayer(socket.id, playerName, username, storedTrophies);
+    players.set(socket.id, normalizedRoomId);
+    
+    socket.join(normalizedRoomId);
+    
+    // Build active matches list for the joining player
+    const activeMatches = room.activeMatches ? 
+      Array.from(room.activeMatches.values()).map(m => ({
+        matchId: m.matchId,
+        gameType: m.gameType,
+        players: m.players
+      })) : [];
+    
+    socket.emit('roomJoined', { 
+      roomId: normalizedRoomId, 
+      players: room.getPlayerList(),
+      activeMatches 
+    });
+    
+    // Notify existing players that someone joined (including those in matches)
+    socket.to(normalizedRoomId).emit('playerJoined', { 
+      players: room.getPlayerList(),
+      newPlayer: { name: playerName, id: socket.id }
+    });
+    
+    console.log(`👤 ${playerName}${username ? ` (@${username})` : ''} joined room ${roomId}${storedTrophies > 0 ? ` (restored ${storedTrophies} trophies)` : ''}`);
   });
 
   // Chat message
@@ -746,6 +949,234 @@ io.on('connection', (socket) => {
     };
     room.chat.push(chatMsg);
     io.to(roomId).emit('chatMessage', chatMsg);
+  });
+
+  // ============================================
+  // CHALLENGE SYSTEM (2-Player Games)
+  // ============================================
+  
+  // Challenge another player
+  socket.on('challengePlayer', ({ targetPlayerId, gameType, options }) => {
+    const roomId = players.get(socket.id);
+    const room = rooms.get(roomId);
+    if (!room) return;
+    
+    const challenger = room.players.get(socket.id);
+    const target = room.players.get(targetPlayerId);
+    
+    if (!challenger || !target) {
+      socket.emit('error', { message: 'Player not found' });
+      return;
+    }
+    
+    // Check if either player is already in a match
+    if (challenger.inMatch || target.inMatch) {
+      socket.emit('error', { message: 'One of the players is already in a game' });
+      return;
+    }
+    
+    // Create challenge
+    const challengeId = uuidv4();
+    if (!room.pendingChallenges) room.pendingChallenges = new Map();
+    
+    room.pendingChallenges.set(challengeId, {
+      challengerId: socket.id,
+      challengerName: challenger.name,
+      targetId: targetPlayerId,
+      gameType,
+      options,
+      timestamp: Date.now()
+    });
+    
+    // Send challenge to target
+    io.to(targetPlayerId).emit('challengeReceived', {
+      challengeId,
+      challengerId: socket.id,
+      challengerName: challenger.name,
+      gameType,
+      options
+    });
+    
+    console.log(`⚔️ Challenge: ${challenger.name} -> ${target.name} (${gameType})`);
+  });
+  
+  // Accept a challenge
+  socket.on('acceptChallenge', ({ challengeId }) => {
+    const roomId = players.get(socket.id);
+    const room = rooms.get(roomId);
+    if (!room || !room.pendingChallenges) return;
+    
+    const challenge = room.pendingChallenges.get(challengeId);
+    if (!challenge || challenge.targetId !== socket.id) {
+      socket.emit('error', { message: 'Challenge not found or expired' });
+      return;
+    }
+    
+    // Remove the challenge
+    room.pendingChallenges.delete(challengeId);
+    
+    const challenger = room.players.get(challenge.challengerId);
+    const target = room.players.get(socket.id);
+    
+    if (!challenger || !target) {
+      socket.emit('error', { message: 'Player left the room' });
+      return;
+    }
+    
+    // Create a match
+    const matchId = uuidv4();
+    if (!room.activeMatches) room.activeMatches = new Map();
+    
+    // Mark players as in a match
+    challenger.inMatch = matchId;
+    target.inMatch = matchId;
+    
+    // Initialize match game state
+    const matchPlayers = [
+      { id: challenger.id, name: challenger.name, color: challenger.color },
+      { id: target.id, name: target.name, color: target.color }
+    ];
+    
+    const gameState = initializeMatchGame(challenge.gameType, matchPlayers, challenge.options);
+    
+    const match = {
+      matchId,
+      gameType: challenge.gameType,
+      players: matchPlayers,
+      spectators: [],
+      gameState,
+      options: challenge.options
+    };
+    
+    room.activeMatches.set(matchId, match);
+    
+    // Notify the two players
+    io.to(challenger.id).emit('matchStarted', {
+      matchId,
+      gameType: challenge.gameType,
+      players: matchPlayers,
+      gameState
+    });
+    io.to(target.id).emit('matchStarted', {
+      matchId,
+      gameType: challenge.gameType,
+      players: matchPlayers,
+      gameState
+    });
+    
+    // Broadcast updated player list (shows who's in games)
+    io.to(roomId).emit('playerJoined', { players: room.getPlayerList() });
+    
+    // Update lobby players about active matches
+    broadcastActiveMatches(room, roomId);
+    
+    console.log(`🎮 Match started: ${challenger.name} vs ${target.name} (${challenge.gameType})`);
+  });
+  
+  // Decline a challenge
+  socket.on('declineChallenge', ({ challengeId }) => {
+    const roomId = players.get(socket.id);
+    const room = rooms.get(roomId);
+    if (!room || !room.pendingChallenges) return;
+    
+    const challenge = room.pendingChallenges.get(challengeId);
+    if (!challenge) return;
+    
+    room.pendingChallenges.delete(challengeId);
+    
+    const decliner = room.players.get(socket.id);
+    io.to(challenge.challengerId).emit('challengeDeclined', {
+      playerName: decliner?.name || 'Player'
+    });
+  });
+  
+  // Spectate a match
+  socket.on('spectateMatch', ({ matchId }) => {
+    const roomId = players.get(socket.id);
+    const room = rooms.get(roomId);
+    if (!room || !room.activeMatches) return;
+    
+    const match = room.activeMatches.get(matchId);
+    if (!match) {
+      socket.emit('error', { message: 'Match not found' });
+      return;
+    }
+    
+    // Add to spectators
+    if (!match.spectators.includes(socket.id)) {
+      match.spectators.push(socket.id);
+    }
+    
+    const player = room.players.get(socket.id);
+    player.spectating = matchId;
+    
+    // Send current game state to spectator
+    socket.emit('matchStarted', {
+      matchId,
+      gameType: match.gameType,
+      players: match.players,
+      gameState: match.gameState,
+      isSpectator: true
+    });
+    
+    // Notify players that someone is watching
+    match.players.forEach(p => {
+      io.to(p.id).emit('spectatorJoined', { playerName: player?.name || 'Someone' });
+    });
+    
+    console.log(`👁️ ${player?.name} is spectating match ${matchId}`);
+  });
+  
+  // Leave spectating
+  socket.on('leaveSpectate', ({ matchId }) => {
+    const roomId = players.get(socket.id);
+    const room = rooms.get(roomId);
+    if (!room || !room.activeMatches) return;
+    
+    const match = room.activeMatches.get(matchId);
+    if (match) {
+      // Remove from spectators list
+      match.spectators = match.spectators.filter(id => id !== socket.id);
+    }
+    
+    const player = room.players.get(socket.id);
+    if (player) {
+      player.spectating = null;
+    }
+    
+    console.log(`👋 ${player?.name} stopped spectating`);
+  });
+  
+  // Match moves (2-player games)
+  socket.on('matchMove', ({ matchId, moveData }) => {
+    const roomId = players.get(socket.id);
+    const room = rooms.get(roomId);
+    if (!room || !room.activeMatches) return;
+    
+    const match = room.activeMatches.get(matchId);
+    if (!match) return;
+    
+    // Process move based on game type
+    const result = processMatchMove(match, socket.id, moveData);
+    
+    if (result) {
+      // Send update to players and spectators with full player info
+      const allRecipients = [...match.players.map(p => p.id), ...match.spectators];
+      allRecipients.forEach(id => {
+        io.to(id).emit('matchUpdate', {
+          matchId,
+          gameType: match.gameType,
+          gameState: match.gameState,
+          players: match.players,
+          currentPlayer: match.gameState.currentPlayer
+        });
+      });
+      
+      // Check for game end
+      if (result.winner || result.draw) {
+        endMatch(room, roomId, match, result);
+      }
+    }
   });
 
   // ============================================
@@ -1622,6 +2053,7 @@ io.on('connection', (socket) => {
     const trophyWinner = room.awardTrophy();
     
     // Update all players' global stats (games played, wins)
+    const playersToUpdate = [];
     room.getPlayerList().forEach(player => {
       if (player.username && userAccounts[player.username]) {
         const won = player.sessionWins > 0;
@@ -1631,9 +2063,13 @@ io.on('connection', (socket) => {
           userAccounts[player.username].totalWins = (userAccounts[player.username].totalWins || 0) + player.sessionWins;
         }
         userAccounts[player.username].lastPlayed = Date.now();
+        playersToUpdate.push(userAccounts[player.username]);
       }
     });
-    saveUsers(userAccounts);
+    // Save all updated players
+    playersToUpdate.forEach(user => {
+      saveUser(user).catch(err => console.error('Error saving user stats:', err));
+    });
     
     // Reset session wins for next game
     room.resetSessionWins();
@@ -1659,6 +2095,13 @@ io.on('connection', (socket) => {
   });
 
   function handleDisconnect(socket) {
+    // Clean up username tracking
+    const username = authenticatedSockets.get(socket.id);
+    if (username && usernameToSocket.get(username) === socket.id) {
+      usernameToSocket.delete(username);
+    }
+    authenticatedSockets.delete(socket.id);
+    
     const roomId = players.get(socket.id);
     if (!roomId) return;
 
@@ -2617,6 +3060,412 @@ setInterval(() => {
 function resetPuck(state, direction) {
   state.puckPosition = { x: 400, y: 300 };
   state.puckVelocity = { x: direction === 1 ? 5 : -5, y: (Math.random() - 0.5) * 4 };
+}
+
+// ============================================
+// CHALLENGE SYSTEM HELPER FUNCTIONS
+// ============================================
+
+// Initialize a match game (2-player games)
+function initializeMatchGame(gameType, matchPlayers, options = {}) {
+  const [player1, player2] = matchPlayers;
+  
+  // Helper for random starting player
+  const randomStart = () => matchPlayers[Math.floor(Math.random() * 2)];
+  
+  switch (gameType) {
+    case 'tictactoe':
+      const symbols = ['🔴', '💀'];
+      const shuffled = [...matchPlayers].sort(() => Math.random() - 0.5);
+      const symbolMap = {};
+      shuffled.forEach((p, i) => symbolMap[p.id] = symbols[i]);
+      return {
+        board: Array(9).fill(null),
+        currentPlayer: shuffled[0].id,
+        playerSymbols: symbolMap,
+        winner: null,
+        players: matchPlayers
+      };
+      
+    case 'chess':
+      const shuffledChess = [...matchPlayers].sort(() => Math.random() - 0.5);
+      return {
+        board: getInitialChessBoard(),
+        currentPlayer: shuffledChess[0].id,
+        whitePlayer: shuffledChess[0].id,
+        blackPlayer: shuffledChess[1].id,
+        isWhiteTurn: true,
+        selectedPiece: null,
+        gameOver: false,
+        winner: null,
+        castlingRights: {
+          whiteKingSide: true,
+          whiteQueenSide: true,
+          blackKingSide: true,
+          blackQueenSide: true
+        },
+        players: matchPlayers
+      };
+      
+    case 'connect4':
+      const winCondition = options.winCondition || 4;
+      const shuffledC4 = [...matchPlayers].sort(() => Math.random() - 0.5);
+      return {
+        board: Array(6).fill(null).map(() => Array(7).fill(null)),
+        currentPlayer: shuffledC4[0].id,
+        redPlayer: shuffledC4[0].id,
+        yellowPlayer: shuffledC4[1].id,
+        isRedTurn: true,
+        winner: null,
+        winCondition,
+        players: matchPlayers
+      };
+      
+    default:
+      return { players: matchPlayers };
+  }
+}
+
+// Process a match move
+function processMatchMove(match, playerId, moveData) {
+  const state = match.gameState;
+  
+  switch (match.gameType) {
+    case 'tictactoe':
+      return processTTTMatchMove(state, playerId, moveData);
+    case 'chess':
+      return processChessMatchMove(state, playerId, moveData);
+    case 'connect4':
+      return processConnect4MatchMove(state, playerId, moveData);
+    default:
+      return null;
+  }
+}
+
+// Process Tic-Tac-Toe move
+function processTTTMatchMove(state, playerId, moveData) {
+  const { cellIndex } = moveData;
+  
+  if (state.currentPlayer !== playerId) return null;
+  if (state.board[cellIndex] !== null) return null;
+  if (state.winner) return null;
+  
+  const symbol = state.playerSymbols[playerId];
+  state.board[cellIndex] = symbol;
+  
+  // Check for winner
+  const winPatterns = [
+    [0, 1, 2], [3, 4, 5], [6, 7, 8], // Rows
+    [0, 3, 6], [1, 4, 7], [2, 5, 8], // Columns
+    [0, 4, 8], [2, 4, 6] // Diagonals
+  ];
+  
+  for (const pattern of winPatterns) {
+    const [a, b, c] = pattern;
+    if (state.board[a] && state.board[a] === state.board[b] && state.board[a] === state.board[c]) {
+      state.winner = playerId;
+      const winner = state.players.find(p => p.id === playerId);
+      return { winner };
+    }
+  }
+  
+  // Check for draw
+  if (!state.board.includes(null)) {
+    return { draw: true };
+  }
+  
+  // Switch turns
+  const otherPlayer = state.players.find(p => p.id !== playerId);
+  state.currentPlayer = otherPlayer.id;
+  
+  return { moved: true };
+}
+
+// Process Chess move
+function processChessMatchMove(state, playerId, moveData) {
+  const { from, to } = moveData;
+  
+  if (state.currentPlayer !== playerId) return null;
+  if (state.gameOver) return null;
+  
+  const isWhiteTurn = state.isWhiteTurn;
+  
+  // Use existing chess validation
+  if (!isValidChessMove(state.board, from, to, isWhiteTurn, state.castlingRights)) {
+    return null;
+  }
+  
+  // Make the move
+  const piece = state.board[from[0]][from[1]];
+  
+  // Handle castling
+  if (piece && piece.type === 'king' && Math.abs(to[1] - from[1]) === 2) {
+    const isKingSide = to[1] > from[1];
+    const rookFromCol = isKingSide ? 7 : 0;
+    const rookToCol = isKingSide ? to[1] - 1 : to[1] + 1;
+    state.board[from[0]][rookToCol] = state.board[from[0]][rookFromCol];
+    state.board[from[0]][rookFromCol] = null;
+  }
+  
+  // Update castling rights
+  if (piece) {
+    if (piece.type === 'king') {
+      if (piece.color === 'white') {
+        state.castlingRights.whiteKingSide = false;
+        state.castlingRights.whiteQueenSide = false;
+      } else {
+        state.castlingRights.blackKingSide = false;
+        state.castlingRights.blackQueenSide = false;
+      }
+    }
+    if (piece.type === 'rook') {
+      if (from[0] === 7 && from[1] === 0) state.castlingRights.whiteQueenSide = false;
+      if (from[0] === 7 && from[1] === 7) state.castlingRights.whiteKingSide = false;
+      if (from[0] === 0 && from[1] === 0) state.castlingRights.blackQueenSide = false;
+      if (from[0] === 0 && from[1] === 7) state.castlingRights.blackKingSide = false;
+    }
+  }
+  
+  // Handle pawn promotion
+  if (piece && piece.type === 'pawn' && (to[0] === 0 || to[0] === 7)) {
+    state.board[to[0]][to[1]] = { type: 'queen', color: piece.color };
+  } else {
+    state.board[to[0]][to[1]] = piece;
+  }
+  state.board[from[0]][from[1]] = null;
+  
+  // Check for checkmate/stalemate
+  const opponentColor = isWhiteTurn ? 'black' : 'white';
+  const opponentInCheck = isInCheck(state.board, opponentColor);
+  const opponentHasMoves = hasLegalMoves(state.board, opponentColor, state.castlingRights);
+  
+  if (!opponentHasMoves) {
+    state.gameOver = true;
+    if (opponentInCheck) {
+      state.winner = playerId;
+      const winner = state.players.find(p => p.id === playerId);
+      return { winner, checkmate: true };
+    } else {
+      return { draw: true, stalemate: true };
+    }
+  }
+  
+  // Switch turns
+  state.isWhiteTurn = !state.isWhiteTurn;
+  state.currentPlayer = state.isWhiteTurn ? state.whitePlayer : state.blackPlayer;
+  
+  return { moved: true, inCheck: opponentInCheck };
+}
+
+// Process Connect4 move
+function processConnect4MatchMove(state, playerId, moveData) {
+  const { column } = moveData;
+  
+  if (state.currentPlayer !== playerId) return null;
+  if (state.winner) return null;
+  
+  // Find lowest empty row in column
+  let row = -1;
+  for (let r = 5; r >= 0; r--) {
+    if (state.board[r][column] === null) {
+      row = r;
+      break;
+    }
+  }
+  
+  if (row === -1) return null; // Column full
+  
+  const color = playerId === state.redPlayer ? 'red' : 'yellow';
+  state.board[row][column] = color;
+  
+  // Check for winner
+  const winCondition = state.winCondition || 4;
+  if (checkConnect4Win(state.board, row, column, color, winCondition)) {
+    state.winner = playerId;
+    const winner = state.players.find(p => p.id === playerId);
+    return { winner };
+  }
+  
+  // Check for draw
+  const isDraw = state.board[0].every(cell => cell !== null);
+  if (isDraw) {
+    return { draw: true };
+  }
+  
+  // Switch turns
+  state.isRedTurn = !state.isRedTurn;
+  state.currentPlayer = state.isRedTurn ? state.redPlayer : state.yellowPlayer;
+  
+  return { moved: true };
+}
+
+// Check Connect4 win condition
+function checkConnect4Win(board, row, col, color, winCondition) {
+  const directions = [
+    [0, 1],  // Horizontal
+    [1, 0],  // Vertical
+    [1, 1],  // Diagonal down-right
+    [1, -1]  // Diagonal down-left
+  ];
+  
+  for (const [dr, dc] of directions) {
+    let count = 1;
+    
+    // Count in positive direction
+    for (let i = 1; i < winCondition; i++) {
+      const r = row + dr * i;
+      const c = col + dc * i;
+      if (r < 0 || r >= 6 || c < 0 || c >= 7) break;
+      if (board[r][c] !== color) break;
+      count++;
+    }
+    
+    // Count in negative direction
+    for (let i = 1; i < winCondition; i++) {
+      const r = row - dr * i;
+      const c = col - dc * i;
+      if (r < 0 || r >= 6 || c < 0 || c >= 7) break;
+      if (board[r][c] !== color) break;
+      count++;
+    }
+    
+    if (count >= winCondition) return true;
+  }
+  
+  return false;
+}
+
+// End a match and handle spectator rotation
+function endMatch(room, roomId, match, result) {
+  const { winner, draw } = result;
+  
+  // Get all match participants
+  const allRecipients = [...match.players.map(p => p.id), ...match.spectators];
+  
+  // Send match ended event
+  allRecipients.forEach(id => {
+    io.to(id).emit('matchEnded', {
+      matchId: match.matchId,
+      winner: winner ? match.players.find(p => p.id === winner.id || p.id === winner) : null,
+      draw
+    });
+  });
+  
+  // Mark players as no longer in match
+  match.players.forEach(p => {
+    const player = room.players.get(p.id);
+    if (player) {
+      player.inMatch = null;
+    }
+  });
+  
+  // Clear spectator status
+  match.spectators.forEach(specId => {
+    const spec = room.players.get(specId);
+    if (spec) spec.spectating = null;
+  });
+  
+  // Spectator rotation: if there are spectators, loser swaps with first spectator
+  if (winner && match.spectators.length > 0) {
+    const loserId = match.players.find(p => p.id !== winner.id && p.id !== winner)?.id;
+    const firstSpectator = match.spectators[0];
+    
+    if (loserId && firstSpectator) {
+      // Create rematch with winner and first spectator
+      setTimeout(() => {
+        const winnerPlayer = room.players.get(winner.id || winner);
+        const newChallenger = room.players.get(firstSpectator);
+        
+        if (winnerPlayer && newChallenger && !winnerPlayer.inMatch && !newChallenger.inMatch) {
+          // Auto-start new match
+          const newMatchId = uuidv4();
+          
+          winnerPlayer.inMatch = newMatchId;
+          newChallenger.inMatch = newMatchId;
+          
+          const newMatchPlayers = [
+            { id: winnerPlayer.id, name: winnerPlayer.name, color: winnerPlayer.color },
+            { id: newChallenger.id, name: newChallenger.name, color: newChallenger.color }
+          ];
+          
+          const newGameState = initializeMatchGame(match.gameType, newMatchPlayers, match.options);
+          
+          const newMatch = {
+            matchId: newMatchId,
+            gameType: match.gameType,
+            players: newMatchPlayers,
+            spectators: match.spectators.filter(s => s !== firstSpectator),
+            gameState: newGameState,
+            options: match.options
+          };
+          
+          // Add loser to spectators if still in room
+          if (room.players.has(loserId)) {
+            newMatch.spectators.push(loserId);
+          }
+          
+          room.activeMatches.set(newMatchId, newMatch);
+          
+          // Notify players
+          io.to(winnerPlayer.id).emit('matchStarted', {
+            matchId: newMatchId,
+            gameType: match.gameType,
+            players: newMatchPlayers,
+            gameState: newGameState,
+            autoRotation: true
+          });
+          io.to(newChallenger.id).emit('matchStarted', {
+            matchId: newMatchId,
+            gameType: match.gameType,
+            players: newMatchPlayers,
+            gameState: newGameState,
+            autoRotation: true
+          });
+          
+          // Notify spectators (including the loser)
+          newMatch.spectators.forEach(specId => {
+            io.to(specId).emit('matchStarted', {
+              matchId: newMatchId,
+              gameType: match.gameType,
+              players: newMatchPlayers,
+              gameState: newGameState,
+              isSpectator: true,
+              autoRotation: true
+            });
+          });
+          
+          console.log(`🔄 Auto-rotation: ${winnerPlayer.name} vs ${newChallenger.name}`);
+        }
+      }, 2000); // 2 second delay before next match
+    }
+  }
+  
+  // Remove old match
+  room.activeMatches.delete(match.matchId);
+  
+  // Broadcast updated player list (shows who's no longer in games)
+  io.to(roomId).emit('playerJoined', { players: room.getPlayerList() });
+  
+  // Broadcast updated active matches
+  broadcastActiveMatches(room, roomId);
+}
+
+// Broadcast active matches to lobby players
+function broadcastActiveMatches(room, roomId) {
+  if (!room.activeMatches) return;
+  
+  const matches = Array.from(room.activeMatches.values()).map(m => ({
+    matchId: m.matchId,
+    gameType: m.gameType,
+    players: m.players
+  }));
+  
+  // Send to all players not in a match
+  room.players.forEach((player, playerId) => {
+    if (!player.inMatch && !player.spectating) {
+      io.to(playerId).emit('activeMatchesUpdate', { matches });
+    }
+  });
 }
 
 const PORT = process.env.PORT || 3000;
