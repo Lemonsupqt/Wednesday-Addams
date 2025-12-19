@@ -4328,7 +4328,68 @@ input[type="password"]::placeholder {
   flex-direction: column;
   align-items: center;
   gap: 15px;
-  margin-bottom: 25px;
+  margin-bottom: 15px;
+}
+
+/* Turn Order Display */
+.ludo-turn-order {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 20px;
+  padding: 10px;
+  background: rgba(0, 0, 0, 0.3);
+  border-radius: 10px;
+}
+
+.turn-order-player {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 10px;
+  background: rgba(0, 0, 0, 0.4);
+  border: 2px solid var(--player-color);
+  border-radius: 8px;
+  font-size: 0.75rem;
+  transition: all 0.3s ease;
+}
+
+.turn-order-player.current {
+  background: rgba(212, 175, 55, 0.2);
+  border-color: var(--wed-gold);
+  box-shadow: 0 0 10px var(--player-color);
+  transform: scale(1.1);
+}
+
+.turn-emoji {
+  font-size: 1rem;
+}
+
+.turn-name {
+  color: var(--text-primary);
+  font-weight: bold;
+}
+
+.turn-score {
+  color: var(--text-secondary);
+  font-size: 0.65rem;
+}
+
+.turn-arrow {
+  color: var(--wed-gold);
+  animation: arrowPulse 0.5s ease infinite alternate;
+}
+
+@keyframes arrowPulse {
+  from { opacity: 0.5; }
+  to { opacity: 1; }
+}
+
+.finished-count {
+  font-size: 0.7rem;
+  color: var(--success);
+  margin-left: auto;
 }
 
 .ludo-dice {

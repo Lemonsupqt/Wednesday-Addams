@@ -1497,44 +1497,63 @@ io.on('connection', (socket) => {
     const playerTokens = state.tokens[socket.id];
     const token = playerTokens[tokenIndex];
     const playerIndex = state.playerOrder.indexOf(socket.id);
+    const startPos = getLudoStartPosition(playerIndex);
+    const safeSquares = getLudoSafeSquares();
+    const TRACK_LENGTH = 52;
     
     // Execute the move
     let captured = false;
     let finished = false;
-    const previousPosition = token.position;
     
     if (validMove.newPosition === 'finished') {
       token.position = 'finished';
-      token.steps = 57; // Max steps to finish
+      token.steps = 56;
       finished = true;
-    } else if (validMove.entering) {
-      // Token entering home stretch
-      token.position = 'homeStretch';
-      token.homeStretchPos = validMove.homeStretchPos;
-      token.steps = (token.steps || 0) + state.lastDice;
+    } else if (validMove.releasing) {
+      // Token being released from home - goes to start position (step 0)
+      token.position = 'start';
+      token.steps = 0;
     } else {
-      // Normal move on main track
-      const safeSquares = getLudoSafeSquares();
-      const newPos = validMove.newPosition;
+      // Normal move
+      const newSteps = validMove.newSteps;
+      token.steps = newSteps;
       
-      // Check for capture (only if not on safe square)
-      if (!safeSquares.includes(newPos)) {
-        state.playerOrder.forEach(otherId => {
-          if (otherId !== socket.id) {
-            state.tokens[otherId].forEach(otherToken => {
-              if (typeof otherToken.position === 'number' && otherToken.position === newPos) {
-                // Send opponent's token home
-                otherToken.position = 'home';
-                otherToken.steps = 0;
-                captured = true;
-              }
-            });
-          }
-        });
+      if (newSteps >= TRACK_LENGTH) {
+        // In home stretch
+        token.position = 'homeStretch_' + (newSteps - TRACK_LENGTH);
+      } else {
+        // On main track
+        const boardPos = (startPos + newSteps) % TRACK_LENGTH;
+        token.position = boardPos;
+        
+        // Check for capture (only if not on safe square)
+        if (!safeSquares.includes(boardPos)) {
+          state.playerOrder.forEach(otherId => {
+            if (otherId !== socket.id) {
+              const otherPlayerIndex = state.playerOrder.indexOf(otherId);
+              const otherStartPos = getLudoStartPosition(otherPlayerIndex);
+              
+              state.tokens[otherId].forEach(otherToken => {
+                if (otherToken.position === 'home' || otherToken.position === 'finished') return;
+                if (typeof otherToken.position === 'string' && otherToken.position.startsWith('homeStretch')) return;
+                
+                // Calculate opponent's board position
+                const otherSteps = otherToken.steps || 0;
+                if (otherSteps >= TRACK_LENGTH) return; // in their home stretch
+                
+                const otherBoardPos = (otherStartPos + otherSteps) % TRACK_LENGTH;
+                
+                if (otherBoardPos === boardPos) {
+                  // Send opponent's token home
+                  otherToken.position = 'home';
+                  otherToken.steps = 0;
+                  captured = true;
+                }
+              });
+            }
+          });
+        }
       }
-      
-      token.position = newPos;
-      token.steps = (token.steps || 0) + state.lastDice;
     }
     
     io.to(roomId).emit('ludoTokenMoved', {
@@ -1542,9 +1561,11 @@ io.on('connection', (socket) => {
       playerName: room.players.get(socket.id).name,
       tokenIndex,
       newPosition: validMove.newPosition,
+      newSteps: token.steps,
       tokens: state.tokens,
       captured,
       finished,
+      diceValue: state.lastDice,
       gameState: state
     });
     
@@ -2258,90 +2279,83 @@ function calculateLudoValidMoves(state, playerId, diceValue) {
   const playerTokens = state.tokens[playerId];
   const playerIndex = state.playerOrder.indexOf(playerId);
   const startPos = getLudoStartPosition(playerIndex);
-  const safeSquares = getLudoSafeSquares();
   
-  // Track length is 52, then 6 home stretch squares to finish (total 57 steps)
+  // Track is 52 squares (0-51), home stretch is 4 squares (steps 52-55), finish at step 56
   const TRACK_LENGTH = 52;
-  const HOME_STRETCH_LENGTH = 6;
-  const FINISH_STEPS = TRACK_LENGTH + HOME_STRETCH_LENGTH; // 58 steps total
+  const FINISH_STEP = 56;
   
   playerTokens.forEach((token, idx) => {
     if (token.position === 'home') {
       // Can only leave home with a 6
       if (diceValue === 6) {
-        // Check if start position is blocked by own token
+        // Check if start position is blocked by own token at step 0
         const startBlocked = playerTokens.some((t, i) => 
-          i !== idx && typeof t.position === 'number' && t.position === startPos
+          i !== idx && t.position !== 'home' && t.position !== 'finished' && (t.steps || 0) === 0
         );
         if (!startBlocked) {
           validMoves.push({ 
             tokenIndex: idx, 
-            newPosition: startPos,
-            releasing: true 
+            newPosition: 'start',
+            releasing: true,
+            newSteps: 0
           });
         }
       }
     } else if (token.position === 'finished') {
       // Already finished, can't move
-    } else if (token.position === 'homeStretch') {
-      // In home stretch - need to move within it or finish
-      const currentHomePos = token.homeStretchPos || 0;
-      const newHomePos = currentHomePos + diceValue;
+    } else {
+      // Token is on track
+      const currentSteps = token.steps || 0;
+      const newSteps = currentSteps + diceValue;
       
-      if (newHomePos === HOME_STRETCH_LENGTH) {
+      // Check if this move would finish the token
+      if (newSteps === FINISH_STEP) {
         // Exact roll to finish!
-        validMoves.push({ tokenIndex: idx, newPosition: 'finished' });
-      } else if (newHomePos < HOME_STRETCH_LENGTH) {
-        // Move within home stretch
         validMoves.push({ 
           tokenIndex: idx, 
-          newPosition: 'homeStretch',
-          homeStretchPos: newHomePos,
-          entering: true
+          newPosition: 'finished',
+          newSteps: FINISH_STEP
         });
-      }
-      // If newHomePos > HOME_STRETCH_LENGTH, can't move (need exact roll)
-    } else {
-      // On main track
-      const currentPos = token.position;
-      const steps = token.steps || 0;
-      const newSteps = steps + diceValue;
-      
-      // Calculate if entering home stretch
-      // Player enters home stretch after completing almost full lap
-      // Entry point is just before their start position
-      const entrySteps = TRACK_LENGTH; // After 52 steps, enter home stretch
-      
-      if (newSteps >= entrySteps) {
-        // Entering or in home stretch
-        const homeStretchPos = newSteps - entrySteps;
+      } else if (newSteps < FINISH_STEP) {
+        // Valid move - calculate board position
+        let newBoardPos;
         
-        if (homeStretchPos === HOME_STRETCH_LENGTH) {
-          // Exact roll to finish!
-          validMoves.push({ tokenIndex: idx, newPosition: 'finished' });
-        } else if (homeStretchPos < HOME_STRETCH_LENGTH) {
-          // Enter home stretch
+        if (newSteps < TRACK_LENGTH) {
+          // Still on main track
+          newBoardPos = (startPos + newSteps) % TRACK_LENGTH;
+        } else {
+          // In home stretch (steps 52-55)
+          newBoardPos = 'homeStretch_' + (newSteps - TRACK_LENGTH);
+        }
+        
+        // Check if destination is blocked by own token (only for main track)
+        if (typeof newBoardPos === 'number') {
+          const blocked = playerTokens.some((t, i) => {
+            if (i === idx) return false;
+            if (t.position === 'home' || t.position === 'finished') return false;
+            const tSteps = t.steps || 0;
+            if (tSteps >= TRACK_LENGTH) return false; // in home stretch
+            const tBoardPos = (startPos + tSteps) % TRACK_LENGTH;
+            return tBoardPos === newBoardPos;
+          });
+          
+          if (!blocked) {
+            validMoves.push({ 
+              tokenIndex: idx, 
+              newPosition: newBoardPos,
+              newSteps: newSteps
+            });
+          }
+        } else {
+          // Home stretch - can't be blocked by others
           validMoves.push({ 
             tokenIndex: idx, 
-            newPosition: 'homeStretch',
-            homeStretchPos: homeStretchPos,
-            entering: true
+            newPosition: newBoardPos,
+            newSteps: newSteps
           });
         }
-        // If homeStretchPos > HOME_STRETCH_LENGTH, can't move
-      } else {
-        // Normal move on track
-        const newPos = (currentPos + diceValue) % TRACK_LENGTH;
-        
-        // Check if destination is blocked by own token
-        const blocked = playerTokens.some((t, i) => 
-          i !== idx && typeof t.position === 'number' && t.position === newPos
-        );
-        
-        if (!blocked) {
-          validMoves.push({ tokenIndex: idx, newPosition: newPos });
-        }
       }
+      // If newSteps > FINISH_STEP, can't move (need exact roll)
     }
   });
   

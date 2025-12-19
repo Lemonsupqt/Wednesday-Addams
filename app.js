@@ -3249,7 +3249,14 @@ function renderLudoBoard(gameState, players) {
   const currentPlayerName = players.find(p => p.id === gameState.currentPlayer)?.name || 'Unknown';
   const isMyTurn = gameState.currentPlayer === state.playerId;
   const myPlayerIndex = gameState.playerOrder.indexOf(state.playerId);
-  const myColor = myPlayerIndex >= 0 ? LUDO_COLORS[myPlayerIndex] : null;
+  const FINISH_STEP = 56;
+  
+  // Calculate each player's total progress (sum of all token steps)
+  const playerProgress = {};
+  gameState.playerOrder.forEach(pid => {
+    const tokens = gameState.tokens[pid] || [];
+    playerProgress[pid] = tokens.reduce((sum, t) => sum + (t.steps || 0), 0);
+  });
   
   let statusText = '';
   let statusClass = '';
@@ -3259,17 +3266,17 @@ function renderLudoBoard(gameState, players) {
     statusClass = 'winner';
   } else if (isMyTurn) {
     if (!gameState.diceRolled) {
-      statusText = '🎲 Roll to escape!';
+      statusText = '🎲 Your turn! Roll the dice!';
       statusClass = 'roll';
     } else if (gameState.validMoves && gameState.validMoves.length > 0) {
       statusText = '👆 Choose a piece to move';
       statusClass = 'move';
     } else {
-      statusText = '😱 No escape routes! Turn passing...';
+      statusText = '😱 No valid moves! Turn passing...';
       statusClass = 'no-moves';
     }
   } else {
-    statusText = `⏳ ${escapeHtml(currentPlayerName)} is trying to escape...`;
+    statusText = `⏳ ${escapeHtml(currentPlayerName)}'s turn...`;
     statusClass = 'waiting';
   }
   
@@ -3290,6 +3297,27 @@ function renderLudoBoard(gameState, players) {
         ${gameState.lastDice === 6 ? '<div class="bonus-indicator">⭐ Bonus Turn!</div>' : ''}
       </div>
       
+      <!-- Turn Order Display -->
+      <div class="ludo-turn-order">
+        ${gameState.playerOrder.map((playerId, idx) => {
+          const player = players.find(p => p.id === playerId);
+          const colorInfo = LUDO_COLORS[idx];
+          const isCurrentPlayer = gameState.currentPlayer === playerId;
+          const progress = playerProgress[playerId] || 0;
+          const maxProgress = FINISH_STEP * 4; // 4 tokens * 56 steps
+          
+          return `
+            <div class="turn-order-player ${isCurrentPlayer ? 'current' : ''}" 
+                 style="--player-color: ${colorInfo.color}">
+              <span class="turn-emoji">${colorInfo.emoji}</span>
+              <span class="turn-name">${escapeHtml(player?.name || colorInfo.name).substring(0, 8)}</span>
+              <span class="turn-score">${progress}/${maxProgress}</span>
+              ${isCurrentPlayer ? '<span class="turn-arrow">◄</span>' : ''}
+            </div>
+          `;
+        }).join('')}
+      </div>
+      
       <!-- Player Areas with Tokens -->
       <div class="ludo-player-areas">
         ${gameState.playerOrder.map((playerId, idx) => {
@@ -3298,6 +3326,7 @@ function renderLudoBoard(gameState, players) {
           const tokens = gameState.tokens[playerId] || [];
           const isCurrentPlayer = gameState.currentPlayer === playerId;
           const isMe = playerId === state.playerId;
+          const finishedCount = tokens.filter(t => t.position === 'finished').length;
           
           return `
             <div class="ludo-player-area ${isCurrentPlayer ? 'active' : ''} ${isMe ? 'is-me' : ''}" 
@@ -3305,6 +3334,7 @@ function renderLudoBoard(gameState, players) {
               <div class="player-area-header">
                 <span class="player-emoji">${colorInfo.emoji}</span>
                 <span class="player-name">${escapeHtml(player?.name || colorInfo.name)}</span>
+                <span class="finished-count">${finishedCount}/4 🏁</span>
                 ${isCurrentPlayer ? '<span class="turn-indicator">🎯</span>' : ''}
               </div>
               
@@ -3316,18 +3346,20 @@ function renderLudoBoard(gameState, players) {
                   
                   let tokenStatus = '';
                   let tokenProgress = 0;
+                  const steps = token.steps || 0;
                   
                   if (token.position === 'home') {
                     tokenStatus = 'home';
+                    tokenProgress = 0;
                   } else if (token.position === 'finished') {
                     tokenStatus = 'finished';
                     tokenProgress = 100;
-                  } else if (token.position === 'homeStretch') {
+                  } else if (typeof token.position === 'string' && token.position.startsWith('homeStretch')) {
                     tokenStatus = 'homeStretch';
-                    tokenProgress = Math.round(((token.steps || 0) / 58) * 100);
+                    tokenProgress = Math.round((steps / FINISH_STEP) * 100);
                   } else {
                     tokenStatus = 'onTrack';
-                    tokenProgress = Math.round(((token.steps || 0) / 58) * 100);
+                    tokenProgress = Math.round((steps / FINISH_STEP) * 100);
                   }
                   
                   return `
@@ -3342,8 +3374,7 @@ function renderLudoBoard(gameState, players) {
                       <div class="token-status-text">
                         ${tokenStatus === 'home' ? '🏠' : 
                           tokenStatus === 'finished' ? '🏁' : 
-                          tokenStatus === 'homeStretch' ? '🏃' :
-                          `${token.steps || 0}/58`}
+                          `${steps}/${FINISH_STEP}`}
                       </div>
                     </div>
                   `;
@@ -3357,8 +3388,8 @@ function renderLudoBoard(gameState, players) {
       <!-- Game Rules Info -->
       <div class="ludo-rules-hint">
         <span>🎯 Roll 6 to release</span>
-        <span>⭐ Safe: ${LUDO_SAFE_SQUARES.join(', ')}</span>
-        <span>💥 Capture = Bonus turn</span>
+        <span>🛡️ Safe spots protect</span>
+        <span>💥 Capture = Bonus</span>
       </div>
     </div>
   `;
@@ -3439,10 +3470,18 @@ function handleLudoTokenMoved(data) {
   }
   state.gameState.tokens = data.tokens;
   
-  addChatMessage({
-    system: true,
-    message: `${data.playerName} moved a token!`
-  }, elements.gameChatMessages);
+  // Show move info
+  if (data.newPosition === 'start') {
+    addChatMessage({
+      system: true,
+      message: `🎯 ${data.playerName} released a token!`
+    }, elements.gameChatMessages);
+  } else {
+    addChatMessage({
+      system: true,
+      message: `🎲 ${data.playerName} moved ${data.diceValue || ''} steps`
+    }, elements.gameChatMessages);
+  }
   
   if (data.captured) {
     addChatMessage({
@@ -3459,6 +3498,7 @@ function handleLudoTokenMoved(data) {
   }
   
   renderLudoBoard(state.gameState, state.players);
+  updateScoreBoard(state.players, state.gameState.currentPlayer);
 }
 
 function handleLudoTurnChange(data) {
