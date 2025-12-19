@@ -1401,7 +1401,7 @@ io.on('connection', (socket) => {
     players.set(socket.id, roomId);
     
     socket.join(roomId);
-    socket.emit('roomCreated', { roomId, players: room.getPlayerList() });
+    socket.emit('roomCreated', { roomId, players: room.getPlayerList(), chatHistory: [] });
     console.log(`🏠 Room created: ${roomId} by ${playerName}${username ? ` (@${username})` : ''}`);
   });
 
@@ -1472,7 +1472,8 @@ io.on('connection', (socket) => {
     socket.emit('roomJoined', { 
       roomId: normalizedRoomId, 
       players: room.getPlayerList(),
-      activeMatches 
+      activeMatches,
+      chatHistory: [] // New joiners start fresh, no old messages
     });
     
     // Notify existing players that someone joined (including those in matches)
@@ -1484,24 +1485,133 @@ io.on('connection', (socket) => {
     console.log(`👤 ${playerName}${username ? ` (@${username})` : ''} joined room ${roomId}${storedTrophies > 0 ? ` (restored ${storedTrophies} trophies)` : ''}`);
   });
 
-  // Chat message
-  socket.on('chatMessage', (message) => {
+  // Chat message with reply support and @Wednesday AI
+  socket.on('chatMessage', (data) => {
     const roomId = players.get(socket.id);
     const room = rooms.get(roomId);
     if (!room) return;
 
     const player = room.players.get(socket.id);
+    if (!player) return;
+    
+    // Support both string (legacy) and object format
+    const message = typeof data === 'string' ? data : data.message;
+    const replyTo = typeof data === 'object' ? data.replyTo : null;
+    
     const chatMsg = {
       id: uuidv4(),
       playerId: socket.id,
       playerName: player.name,
-      playerColor: player.color,  // Include player color
+      playerColor: player.color,
       message: message,
-      timestamp: Date.now()
+      timestamp: Date.now(),
+      replyTo: replyTo // { id, playerName, text } or null
     };
     room.chat.push(chatMsg);
+    
+    // Limit chat history to 100 messages per room
+    if (room.chat.length > 100) {
+      room.chat = room.chat.slice(-100);
+    }
+    
     io.to(roomId).emit('chatMessage', chatMsg);
+    
+    // Check for @Wednesday mention and respond
+    if (message.toLowerCase().includes('@wednesday')) {
+      setTimeout(() => {
+        const aiResponse = getWednesdayResponse(message);
+        const aiMsg = {
+          id: uuidv4(),
+          playerId: 'WEDNESDAY_AI',
+          playerName: '🖤 Wednesday',
+          playerColor: '#9333ea',
+          message: aiResponse,
+          timestamp: Date.now(),
+          isAI: true
+        };
+        room.chat.push(aiMsg);
+        io.to(roomId).emit('chatMessage', aiMsg);
+      }, 1000 + Math.random() * 1500); // 1-2.5 second delay for natural feel
+    }
   });
+  
+  // Wednesday AI chat responses
+  function getWednesdayResponse(userMessage) {
+    const msg = userMessage.toLowerCase();
+    
+    // Context-aware responses based on message content
+    const responses = {
+      greetings: [
+        "I don't do enthusiasm. What do you want?",
+        "Oh, you again. How delightfully monotonous.",
+        "Greetings are for people who care about social conventions.",
+        "*adjusts black collar* Speak."
+      ],
+      howAreYou: [
+        "I'm plotting. Always plotting.",
+        "Existing, which is more than I can say for my optimism.",
+        "Perfectly miserable, thank you for asking.",
+        "The darkness within me is stable, if that's what you're asking."
+      ],
+      games: [
+        "Games are merely structured chaos. I approve.",
+        "Competition brings out humanity's true nature. Usually disappointing.",
+        "I prefer games where I can psychologically manipulate my opponent.",
+        "Winning isn't everything. It's the only thing. Along with revenge."
+      ],
+      compliment: [
+        "Flattery is wasted on me. But continue anyway.",
+        "I'm aware of my excellence. But do go on.",
+        "*almost smiles* ...Don't tell anyone I reacted.",
+        "Your attempt at kindness is noted. And mildly suspicious."
+      ],
+      help: [
+        "I don't help. I observe and occasionally intervene when amused.",
+        "Fine. What trivial matter requires my attention?",
+        "Helping others is exhausting. But I'll make an exception.",
+        "State your problem. I'll decide if it's worthy of my time."
+      ],
+      bye: [
+        "Leaving already? The darkness will miss you. I won't.",
+        "Until we meet again in the shadows.",
+        "Farewell. Try not to be too cheerful out there.",
+        "*waves dismissively* Yes, yes. Go."
+      ],
+      default: [
+        "How utterly fascinating. And by fascinating, I mean mundane.",
+        "I heard you. I simply chose not to care deeply.",
+        "Your words have been processed. My enthusiasm remains at zero.",
+        "Interesting perspective. Wrong, but interesting.",
+        "The universe is vast and uncaring. As am I.",
+        "*stares blankly* Continue. Or don't. I'm indifferent.",
+        "That's certainly... a thing you said.",
+        "I've seen more interesting things in a morgue.",
+        "My response? *exhales* Fine."
+      ]
+    };
+    
+    // Detect message type
+    if (/^(hi|hello|hey|greetings|sup|yo)\b/i.test(msg.replace('@wednesday', '').trim())) {
+      return responses.greetings[Math.floor(Math.random() * responses.greetings.length)];
+    }
+    if (/how are you|how's it going|what's up|you doing/i.test(msg)) {
+      return responses.howAreYou[Math.floor(Math.random() * responses.howAreYou.length)];
+    }
+    if (/game|play|chess|trivia|connect|memory|tic|psychic/i.test(msg)) {
+      return responses.games[Math.floor(Math.random() * responses.games.length)];
+    }
+    if (/nice|great|good|awesome|cool|amazing|love|like you|smart|clever/i.test(msg)) {
+      return responses.compliment[Math.floor(Math.random() * responses.compliment.length)];
+    }
+    if (/help|how do|what is|explain|tell me|can you/i.test(msg)) {
+      return responses.help[Math.floor(Math.random() * responses.help.length)];
+    }
+    if (/bye|goodbye|see you|later|leaving|gotta go|gtg/i.test(msg)) {
+      return responses.bye[Math.floor(Math.random() * responses.bye.length)];
+    }
+    
+    return responses.default[Math.floor(Math.random() * responses.default.length)];
+  }
 
   // Typing indicator
   socket.on('typing', ({ isTyping }) => {

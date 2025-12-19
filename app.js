@@ -516,18 +516,29 @@ function setupMobileChatOverlay() {
     chatOverlay.classList.remove('active');
   });
   
-  // Send message from mobile chat
-  function sendMobileChat() {
-    const message = mobileChatInput.value.trim();
-    if (!message) return;
-    
-    socket.emit('chatMessage', message);
-    mobileChatInput.value = '';
-  }
-  
-  sendMobileChatBtn?.addEventListener('click', sendMobileChat);
+  // Send message from mobile chat - use global sendMobileChat function
+  sendMobileChatBtn?.addEventListener('click', () => {
+    if (typeof window.sendMobileChat === 'function') {
+      window.sendMobileChat();
+    } else {
+      // Fallback
+      const message = mobileChatInput.value.trim();
+      if (!message) return;
+      socket.emit('chatMessage', { message });
+      mobileChatInput.value = '';
+    }
+  });
   mobileChatInput?.addEventListener('keypress', (e) => {
-    if (e.key === 'Enter') sendMobileChat();
+    if (e.key === 'Enter') {
+      if (typeof window.sendMobileChat === 'function') {
+        window.sendMobileChat();
+      } else {
+        const message = mobileChatInput.value.trim();
+        if (!message) return;
+        socket.emit('chatMessage', { message });
+        mobileChatInput.value = '';
+      }
+    }
   });
   
   // Sync mobile chat with main chat
@@ -1699,16 +1710,54 @@ function showSudokuDifficultyModal() {
 function sendChat() {
   const message = elements.chatInput.value.trim();
   if (!message) return;
-  socket.emit('chatMessage', message);
+  
+  const chatData = { message };
+  if (replyState.lobby.replyTo) {
+    chatData.replyTo = replyState.lobby.replyTo;
+    cancelReply('lobby');
+  }
+  
+  socket.emit('chatMessage', chatData);
   elements.chatInput.value = '';
 }
 
 function sendGameChat() {
   const message = elements.gameChatInput.value.trim();
   if (!message) return;
-  socket.emit('chatMessage', message);
+  
+  const chatData = { message };
+  if (replyState.game.replyTo) {
+    chatData.replyTo = replyState.game.replyTo;
+    cancelReply('game');
+  }
+  
+  socket.emit('chatMessage', chatData);
   elements.gameChatInput.value = '';
 }
+
+function sendMobileChat() {
+  const input = document.getElementById('mobileChatInput');
+  const message = input ? input.value.trim() : '';
+  if (!message) return;
+  
+  const chatData = { message };
+  if (replyState.mobile.replyTo) {
+    chatData.replyTo = replyState.mobile.replyTo;
+    cancelReply('mobile');
+  }
+  
+  socket.emit('chatMessage', chatData);
+  if (input) input.value = '';
+}
+// Make available globally for mobile chat overlay
+window.sendMobileChat = sendMobileChat;
+
+// Reply state
+const replyState = {
+  lobby: { replyTo: null },
+  game: { replyTo: null },
+  mobile: { replyTo: null }
+};
 
 function addChatMessage(msg, container = elements.chatMessages) {
   const div = document.createElement('div');
@@ -1726,7 +1775,14 @@ function addChatMessage(msg, container = elements.chatMessages) {
   
   div.className = className;
   
-  const timestamp = getTimeString();
+  // Store message ID for reply functionality
+  if (msg.id) {
+    div.dataset.msgId = msg.id;
+    div.dataset.msgPlayerName = msg.playerName || '';
+    div.dataset.msgText = msg.message || '';
+  }
+  
+  const timestamp = msg.timestamp ? formatMessageTime(msg.timestamp) : getTimeString();
   
   if (msg.system) {
     div.innerHTML = `
@@ -1735,8 +1791,16 @@ function addChatMessage(msg, container = elements.chatMessages) {
     `;
   } else {
     // Use player color if available, fallback to default
-    const senderColor = msg.color || msg.playerColor || (msg.isAI ? '#a855f7' : '#ff2a6d');
-    const aiIcon = msg.isAI ? '🤖 ' : '';
+    const senderColor = msg.color || msg.playerColor || (msg.isAI ? '#9333ea' : '#ff2a6d');
+    const aiIcon = msg.isAI ? '' : '';
+    const wednesdayIcon = msg.playerName === '🖤 Wednesday' ? '' : '';
+    
+    // Build reply context if this is a reply
+    let replyHtml = '';
+    if (msg.replyTo && msg.replyTo.playerName) {
+      const replyText = (msg.replyTo.text || '').substring(0, 50) + (msg.replyTo.text && msg.replyTo.text.length > 50 ? '...' : '');
+      replyHtml = `<div class="reply-context">↩ ${escapeHtml(msg.replyTo.playerName)}: ${escapeHtml(replyText)}</div>`;
+    }
     
     // Format message with simple markdown support
     let formattedMessage = escapeHtml(msg.message);
@@ -1744,12 +1808,24 @@ function addChatMessage(msg, container = elements.chatMessages) {
     formattedMessage = formattedMessage.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
     // Italic: *text* -> <em>text</em>
     formattedMessage = formattedMessage.replace(/\*(.+?)\*/g, '<em>$1</em>');
+    // Highlight @Wednesday mentions
+    formattedMessage = formattedMessage.replace(/@wednesday/gi, '<span class="wednesday-mention">@Wednesday</span>');
     
     div.innerHTML = `
-      <span class="sender" style="color: ${senderColor}">${aiIcon}${escapeHtml(msg.playerName)}:</span>
+      ${replyHtml}
+      <span class="sender" style="color: ${senderColor}">${aiIcon}${wednesdayIcon}${escapeHtml(msg.playerName)}:</span>
       <span class="message">${formattedMessage}</span>
       <span class="timestamp">${timestamp}</span>
     `;
+  }
+  
+  // Add click handler for reply (only for non-system messages)
+  if (!msg.system && msg.id) {
+    div.addEventListener('click', () => {
+      setReplyTo(container, msg.id, msg.playerName, msg.message);
+    });
+    div.style.cursor = 'pointer';
+    div.title = 'Click to reply';
   }
   
   container.appendChild(div);
@@ -1759,8 +1835,8 @@ function addChatMessage(msg, container = elements.chatMessages) {
   if (isNearBottom) {
     container.scrollTop = container.scrollHeight;
   } else {
-    // Show scroll indicator if not auto-scrolling
-    updateUnreadBadge(container);
+    // Show scroll button if not at bottom
+    showScrollToBottomButton(container);
   }
   
   // Play notification sound if enabled and not own message
@@ -1772,6 +1848,105 @@ function addChatMessage(msg, container = elements.chatMessages) {
   if (container === elements.gameChatMessages && typeof syncMobileChat === 'function') {
     syncMobileChat();
   }
+}
+
+// Format message timestamp
+function formatMessageTime(timestamp) {
+  const date = new Date(timestamp);
+  return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+
+// Clear chat containers
+function clearChat() {
+  if (elements.chatMessages) elements.chatMessages.innerHTML = '';
+  if (elements.gameChatMessages) elements.gameChatMessages.innerHTML = '';
+  const mobileChat = document.getElementById('mobileChatMessages');
+  if (mobileChat) mobileChat.innerHTML = '';
+}
+
+// Load chat history
+function loadChatHistory(history) {
+  history.forEach(msg => {
+    addChatMessage(msg, elements.chatMessages);
+  });
+}
+
+// Set reply to a message
+function setReplyTo(container, msgId, playerName, text) {
+  let stateKey = 'lobby';
+  let previewId = 'replyPreview';
+  let nameId = 'replyToName';
+  let textId = 'replyToText';
+  let inputId = 'chatInput';
+  
+  if (container === elements.gameChatMessages) {
+    stateKey = 'game';
+    previewId = 'gameReplyPreview';
+    nameId = 'gameReplyToName';
+    textId = 'gameReplyToText';
+    inputId = 'gameChatInput';
+  } else if (container.id === 'mobileChatMessages') {
+    stateKey = 'mobile';
+    previewId = 'mobileReplyPreview';
+    nameId = 'mobileReplyToName';
+    textId = 'mobileReplyToText';
+    inputId = 'mobileChatInput';
+  }
+  
+  replyState[stateKey].replyTo = { id: msgId, playerName, text };
+  
+  const preview = document.getElementById(previewId);
+  const nameEl = document.getElementById(nameId);
+  const textEl = document.getElementById(textId);
+  const input = document.getElementById(inputId);
+  
+  if (preview && nameEl && textEl) {
+    nameEl.textContent = playerName;
+    textEl.textContent = text.substring(0, 50) + (text.length > 50 ? '...' : '');
+    preview.style.display = 'flex';
+  }
+  
+  if (input) input.focus();
+}
+
+// Cancel reply
+function cancelReply(stateKey) {
+  replyState[stateKey].replyTo = null;
+  
+  const previewIds = {
+    lobby: 'replyPreview',
+    game: 'gameReplyPreview',
+    mobile: 'mobileReplyPreview'
+  };
+  
+  const preview = document.getElementById(previewIds[stateKey]);
+  if (preview) preview.style.display = 'none';
+}
+
+// Show scroll to bottom button
+function showScrollToBottomButton(container) {
+  let btnId = 'scrollToBottomBtn';
+  if (container === elements.gameChatMessages) btnId = 'gameScrollToBottomBtn';
+  else if (container.id === 'mobileChatMessages') btnId = 'mobileScrollToBottomBtn';
+  
+  const btn = document.getElementById(btnId);
+  if (btn) btn.style.display = 'flex';
+}
+
+// Hide scroll to bottom button
+function hideScrollToBottomButton(container) {
+  let btnId = 'scrollToBottomBtn';
+  if (container === elements.gameChatMessages) btnId = 'gameScrollToBottomBtn';
+  else if (container.id === 'mobileChatMessages') btnId = 'mobileScrollToBottomBtn';
+  
+  const btn = document.getElementById(btnId);
+  if (btn) btn.style.display = 'none';
+}
+
+// Scroll to bottom of chat
+function scrollChatToBottom(container) {
+  container.scrollTop = container.scrollHeight;
+  hideScrollToBottomButton(container);
 }
 
 // ============================================
@@ -1787,62 +1962,6 @@ const chatSettings = {
 
 // Initialize advanced chat features
 function initAdvancedChat() {
-  // Quick phrases
-  document.querySelectorAll('.quick-phrase').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const phrase = btn.dataset.phrase;
-      socket.emit('chatMessage', phrase);
-    });
-  });
-  
-  // Emoji picker - lobby
-  const emojiBtn = document.getElementById('emojiPickerBtn');
-  const emojiPicker = document.getElementById('emojiPicker');
-  if (emojiBtn && emojiPicker) {
-    emojiBtn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      emojiPicker.style.display = emojiPicker.style.display === 'none' ? 'block' : 'none';
-    });
-  }
-  
-  // Emoji picker - game
-  const gameEmojiBtn = document.getElementById('gameEmojiBtn');
-  const gameEmojiPicker = document.getElementById('gameEmojiPicker');
-  if (gameEmojiBtn && gameEmojiPicker) {
-    gameEmojiBtn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      gameEmojiPicker.style.display = gameEmojiPicker.style.display === 'none' ? 'block' : 'none';
-    });
-  }
-  
-  // Emoji selection
-  document.querySelectorAll('.emoji-item').forEach(emoji => {
-    emoji.addEventListener('click', () => {
-      const emojiChar = emoji.textContent;
-      // Find the active input
-      const lobbyInput = document.getElementById('chatInput');
-      const gameInput = document.getElementById('gameChatInput');
-      const activeInput = document.activeElement === gameInput ? gameInput : lobbyInput;
-      
-      if (activeInput) {
-        activeInput.value += emojiChar;
-        activeInput.focus();
-      }
-      
-      // Close pickers
-      if (emojiPicker) emojiPicker.style.display = 'none';
-      if (gameEmojiPicker) gameEmojiPicker.style.display = 'none';
-    });
-  });
-  
-  // Close emoji picker when clicking outside
-  document.addEventListener('click', (e) => {
-    if (!e.target.closest('.emoji-picker') && !e.target.closest('.emoji-picker-btn')) {
-      if (emojiPicker) emojiPicker.style.display = 'none';
-      if (gameEmojiPicker) gameEmojiPicker.style.display = 'none';
-    }
-  });
-  
   // Sound toggle
   const soundToggle = document.getElementById('chatSoundToggle');
   if (soundToggle) {
@@ -1866,8 +1985,9 @@ function initAdvancedChat() {
   // Typing indicator - send typing status
   const chatInput = document.getElementById('chatInput');
   const gameChatInput = document.getElementById('gameChatInput');
+  const mobileChatInput = document.getElementById('mobileChatInput');
   
-  [chatInput, gameChatInput].forEach(input => {
+  [chatInput, gameChatInput, mobileChatInput].forEach(input => {
     if (input) {
       input.addEventListener('input', () => {
         const now = Date.now();
@@ -1899,24 +2019,64 @@ function initAdvancedChat() {
     }
   });
   
-  // Scroll to bottom when clicking unread badge
-  const unreadBadge = document.getElementById('unreadBadge');
-  if (unreadBadge) {
-    unreadBadge.addEventListener('click', () => {
-      elements.chatMessages.scrollTop = elements.chatMessages.scrollHeight;
-      unreadBadge.style.display = 'none';
+  // Scroll to bottom buttons
+  const scrollToBottomBtn = document.getElementById('scrollToBottomBtn');
+  const gameScrollToBottomBtn = document.getElementById('gameScrollToBottomBtn');
+  const mobileScrollToBottomBtn = document.getElementById('mobileScrollToBottomBtn');
+  
+  if (scrollToBottomBtn) {
+    scrollToBottomBtn.addEventListener('click', () => {
+      scrollChatToBottom(elements.chatMessages);
+    });
+  }
+  if (gameScrollToBottomBtn) {
+    gameScrollToBottomBtn.addEventListener('click', () => {
+      scrollChatToBottom(elements.gameChatMessages);
+    });
+  }
+  if (mobileScrollToBottomBtn) {
+    mobileScrollToBottomBtn.addEventListener('click', () => {
+      const mobileChat = document.getElementById('mobileChatMessages');
+      if (mobileChat) scrollChatToBottom(mobileChat);
     });
   }
   
-  // Reset unread when scrolling to bottom
-  if (elements.chatMessages) {
-    elements.chatMessages.addEventListener('scroll', () => {
-      const isAtBottom = elements.chatMessages.scrollHeight - elements.chatMessages.scrollTop - elements.chatMessages.clientHeight < 50;
-      if (isAtBottom && unreadBadge) {
-        unreadBadge.style.display = 'none';
-        unreadBadge.textContent = '0';
+  // Hide scroll button when at bottom
+  [elements.chatMessages, elements.gameChatMessages].forEach(container => {
+    if (container) {
+      container.addEventListener('scroll', () => {
+        const isAtBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 50;
+        if (isAtBottom) {
+          hideScrollToBottomButton(container);
+        }
+      });
+    }
+  });
+  
+  // Mobile chat scroll
+  const mobileChat = document.getElementById('mobileChatMessages');
+  if (mobileChat) {
+    mobileChat.addEventListener('scroll', () => {
+      const isAtBottom = mobileChat.scrollHeight - mobileChat.scrollTop - mobileChat.clientHeight < 50;
+      if (isAtBottom) {
+        hideScrollToBottomButton(mobileChat);
       }
     });
+  }
+  
+  // Cancel reply buttons
+  const cancelReplyBtn = document.getElementById('cancelReplyBtn');
+  const gameCancelReplyBtn = document.getElementById('gameCancelReplyBtn');
+  const mobileCancelReplyBtn = document.getElementById('mobileCancelReplyBtn');
+  
+  if (cancelReplyBtn) {
+    cancelReplyBtn.addEventListener('click', () => cancelReply('lobby'));
+  }
+  if (gameCancelReplyBtn) {
+    gameCancelReplyBtn.addEventListener('click', () => cancelReply('game'));
+  }
+  if (mobileCancelReplyBtn) {
+    mobileCancelReplyBtn.addEventListener('click', () => cancelReply('mobile'));
   }
 }
 
@@ -3240,6 +3400,13 @@ socket.on('roomCreated', (data) => {
   state.players = data.players;
   elements.displayRoomCode.textContent = data.roomId;
   updatePlayersList(data.players);
+  
+  // Clear and load chat history
+  clearChat();
+  if (data.chatHistory && data.chatHistory.length > 0) {
+    loadChatHistory(data.chatHistory);
+  }
+  
   showScreen('lobby');
 });
 
@@ -3250,6 +3417,12 @@ socket.on('roomJoined', (data) => {
   state.activeMatches = data.activeMatches || [];
   elements.displayRoomCode.textContent = data.roomId;
   updatePlayersList(data.players);
+  
+  // Clear and load chat history (new joiners get empty history)
+  clearChat();
+  if (data.chatHistory && data.chatHistory.length > 0) {
+    loadChatHistory(data.chatHistory);
+  }
   
   // Display active matches if any
   if (data.activeMatches && data.activeMatches.length > 0) {
