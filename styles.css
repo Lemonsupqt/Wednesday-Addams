@@ -5732,3 +5732,228 @@ input[type="password"]::placeholder {
     max-width: 250px;
   }
 }
+
+/* ============================================
+   🤖 AI MODE STYLES
+   ============================================ */
+
+/* AI Button */
+.btn-ai {
+  background: linear-gradient(135deg, #9333ea 0%, #6b21a8 100%);
+  border: 2px solid #a855f7;
+  color: #fff;
+  position: relative;
+  overflow: hidden;
+}
+
+.btn-ai::before {
+  content: '';
+  position: absolute;
+  top: -50%;
+  left: -50%;
+  width: 200%;
+  height: 200%;
+  background: linear-gradient(
+    45deg,
+    transparent,
+    rgba(255, 255, 255, 0.1),
+    transparent
+  );
+  transform: rotate(45deg);
+  animation: ai-shimmer 3s infinite;
+}
+
+@keyframes ai-shimmer {
+  0% { transform: translateX(-100%) rotate(45deg); }
+  100% { transform: translateX(100%) rotate(45deg); }
+}
+
+.btn-ai:hover {
+  background: linear-gradient(135deg, #a855f7 0%, #7c3aed 100%);
+  border-color: #c084fc;
+  box-shadow: 0 0 30px rgba(147, 51, 234, 0.5);
+  transform: translateY(-2px);
+}
+
+/* AI Game Selection Modal */
+.ai-selection-modal {
+  max-width: 500px;
+}
+
+.ai-games-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 12px;
+  margin: 20px 0;
+}
+
+.ai-game-card {
+  background: var(--bg-card);
+  border: 2px solid var(--accent-secondary);
+  border-radius: 12px;
+  padding: 15px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.ai-game-card:hover {
+  background: var(--bg-card-hover);
+  border-color: #a855f7;
+  transform: translateY(-3px);
+  box-shadow: 0 5px 20px rgba(147, 51, 234, 0.3);
+}
+
+.ai-game-card .game-icon {
+  font-size: 2rem;
+}
+
+.ai-game-card .game-name {
+  font-size: 0.9rem;
+  text-align: center;
+  color: var(--text-primary);
+}
+
+/* AI Difficulty Modal */
+.ai-difficulty-modal {
+  max-width: 450px;
+}
+
+.ai-difficulty-options {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.ai-diff-btn {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+  padding: 15px 20px;
+  background: var(--bg-card);
+  border: 2px solid var(--border-color);
+  border-radius: 10px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.ai-diff-btn:hover {
+  background: var(--bg-card-hover);
+  border-color: var(--accent-secondary);
+  transform: translateX(5px);
+}
+
+.ai-diff-btn.impossible {
+  border-color: #ef4444;
+}
+
+.ai-diff-btn.impossible:hover {
+  border-color: #f87171;
+  box-shadow: 0 0 20px rgba(239, 68, 68, 0.3);
+}
+
+.ai-diff-btn .diff-icon {
+  font-size: 2rem;
+}
+
+.ai-diff-btn .diff-name {
+  font-family: 'Cinzel', serif;
+  font-size: 1.1rem;
+  font-weight: bold;
+  color: var(--text-primary);
+}
+
+.ai-diff-btn .diff-desc {
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  display: block;
+}
+
+/* AI Indicator in Game Title */
+.ai-indicator {
+  background: linear-gradient(135deg, #9333ea, #6b21a8);
+  padding: 3px 10px;
+  border-radius: 20px;
+  font-size: 0.8rem;
+  margin-left: 10px;
+  font-family: 'Special Elite', cursive;
+  animation: ai-pulse 2s infinite;
+}
+
+@keyframes ai-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
+
+/* AI Chat Messages */
+.chat-message.ai-message {
+  background: linear-gradient(135deg, rgba(147, 51, 234, 0.2), rgba(107, 33, 168, 0.2));
+  border-left: 3px solid #9333ea;
+}
+
+.chat-message.ai-message .player-name {
+  color: #a855f7 !important;
+}
+
+/* AI End Game Options */
+.ai-end-options {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 20px;
+}
+
+.ai-end-options .btn {
+  width: 100%;
+}
+
+/* AI Turn Indicator */
+.ai-thinking {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 10px;
+  background: rgba(147, 51, 234, 0.1);
+  border-radius: 8px;
+  color: #a855f7;
+}
+
+.ai-thinking::after {
+  content: '';
+  width: 20px;
+  height: 20px;
+  border: 2px solid #a855f7;
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Mobile AI adjustments */
+@media (max-width: 768px) {
+  .ai-games-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  
+  .ai-game-card .game-icon {
+    font-size: 1.5rem;
+  }
+  
+  .ai-game-card .game-name {
+    font-size: 0.8rem;
+  }
+  
+  .ai-indicator {
+    display: block;
+    margin-left: 0;
+    margin-top: 5px;
+    font-size: 0.7rem;
+  }
+}
