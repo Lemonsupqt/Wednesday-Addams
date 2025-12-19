@@ -494,12 +494,13 @@ class GameRoom {
   removePlayer(playerId) {
     const player = this.players.get(playerId);
     
-    // Persist room trophies before removing the player
-    if (player && player.username && player.trophies > 0) {
+    // Persist room trophies before removing the player (save even if 0 to track they were here)
+    if (player && player.username) {
       if (!roomTrophies.has(this.id)) {
         roomTrophies.set(this.id, new Map());
       }
-      roomTrophies.get(this.id).set(player.username, player.trophies);
+      roomTrophies.get(this.id).set(player.username, player.trophies || 0);
+      console.log(`💾 Saved ${player.trophies || 0} trophies for @${player.username} in room ${this.id}`);
     }
     
     this.players.delete(playerId);
@@ -587,6 +588,7 @@ class GameRoom {
           roomTrophies.set(this.id, new Map());
         }
         roomTrophies.get(this.id).set(winner.username, winner.trophies);
+        console.log(`🏆 Awarded trophy to @${winner.username} in room ${this.id} (total: ${winner.trophies})`);
       }
       
       // Update global account stats
@@ -781,18 +783,23 @@ io.on('connection', (socket) => {
     let storedTrophies = 0;
     if (username) {
       const roomTrophyMap = roomTrophies.get(normalizedRoomId);
-      if (roomTrophyMap && roomTrophyMap.has(username)) {
-        storedTrophies = roomTrophyMap.get(username);
+      console.log(`🔍 Looking for trophies: room=${normalizedRoomId}, user=${username}, map exists=${!!roomTrophyMap}`);
+      if (roomTrophyMap) {
+        console.log(`🔍 Room trophy map keys:`, Array.from(roomTrophyMap.keys()));
+        if (roomTrophyMap.has(username)) {
+          storedTrophies = roomTrophyMap.get(username);
+          console.log(`✨ Restored ${storedTrophies} trophies for @${username}`);
+        }
       }
     }
 
     room.addPlayer(socket.id, playerName, username, storedTrophies);
     players.set(socket.id, normalizedRoomId);
     
-    socket.join(roomId.toUpperCase());
-    socket.emit('roomJoined', { roomId: roomId.toUpperCase(), players: room.getPlayerList() });
-    socket.to(roomId.toUpperCase()).emit('playerJoined', { players: room.getPlayerList() });
-    console.log(`👤 ${playerName}${username ? ` (@${username})` : ''} joined room ${roomId}`);
+    socket.join(normalizedRoomId);
+    socket.emit('roomJoined', { roomId: normalizedRoomId, players: room.getPlayerList() });
+    socket.to(normalizedRoomId).emit('playerJoined', { players: room.getPlayerList() });
+    console.log(`👤 ${playerName}${username ? ` (@${username})` : ''} joined room ${roomId}${storedTrophies > 0 ? ` (restored ${storedTrophies} trophies)` : ''}`);
   });
 
   // Chat message
