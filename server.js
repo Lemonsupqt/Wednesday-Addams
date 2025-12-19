@@ -9,8 +9,21 @@ const crypto = require('crypto');
 const app = express();
 
 // CORS for GitHub Pages frontend
+const ALLOWED_ORIGINS = [
+  'https://lemonsupqt.github.io',
+  'http://localhost:3000',
+  'http://127.0.0.1:3000',
+  'http://localhost:5500',
+  'http://127.0.0.1:5500'
+];
+
 app.use((req, res, next) => {
-  res.header('Access-Control-Allow-Origin', 'https://lemonsupqt.github.io');
+  const origin = req.headers.origin;
+  if (ALLOWED_ORIGINS.includes(origin) || !origin) {
+    res.header('Access-Control-Allow-Origin', origin || '*');
+  } else {
+    res.header('Access-Control-Allow-Origin', 'https://lemonsupqt.github.io');
+  }
   res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.header('Access-Control-Allow-Headers', 'Content-Type');
   res.header('Access-Control-Allow-Credentials', 'true');
@@ -25,18 +38,29 @@ app.use(express.json());
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
-    origin: ["https://lemonsupqt.github.io", "http://localhost:3000", "http://127.0.0.1:3000"],
+    origin: ALLOWED_ORIGINS,
     methods: ["GET", "POST"],
     credentials: true
   },
-  transports: ['websocket', 'polling']
+  transports: ['websocket', 'polling'],
+  pingTimeout: 60000,
+  pingInterval: 25000
 });
 
 app.use(express.static(path.join(__dirname)));
 
+// Health check endpoint for Railway
+app.get('/health', (req, res) => {
+  res.status(200).json({ status: 'ok', timestamp: Date.now() });
+});
+
 // ============================================
 // USER ACCOUNTS & LEADERBOARD (The Nevermore Archives)
 // ============================================
+
+// NOTE: For Railway/cloud deployment, file storage is ephemeral.
+// For persistent storage, consider using Railway's PostgreSQL or Redis.
+// For now, we use file storage with environment variable backup.
 
 const USERS_FILE = path.join(__dirname, 'nevermore_archives.json');
 
@@ -45,15 +69,29 @@ function hashPassword(password) {
   return crypto.createHash('sha256').update(password + 'upsidedown_salt_2024').digest('hex');
 }
 
-// Load users from file
+// Load users from file or environment variable
 function loadUsers() {
+  // Try loading from environment variable first (for Railway persistence)
+  if (process.env.USER_DATA) {
+    try {
+      console.log('📦 Loading user data from environment variable');
+      return JSON.parse(Buffer.from(process.env.USER_DATA, 'base64').toString('utf8'));
+    } catch (err) {
+      console.error('Error loading from env:', err);
+    }
+  }
+  
+  // Try loading from file
   try {
     if (fs.existsSync(USERS_FILE)) {
+      console.log('📦 Loading user data from file');
       return JSON.parse(fs.readFileSync(USERS_FILE, 'utf8'));
     }
   } catch (err) {
-    console.error('Error loading users:', err);
+    console.error('Error loading users from file:', err);
   }
+  
+  console.log('📦 Starting with empty user database');
   return {};
 }
 
@@ -61,6 +99,13 @@ function loadUsers() {
 function saveUsers(users) {
   try {
     fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2));
+    
+    // Log base64 encoded data for manual backup (can copy to Railway env var)
+    if (Object.keys(users).length > 0 && Object.keys(users).length <= 5) {
+      const encoded = Buffer.from(JSON.stringify(users)).toString('base64');
+      console.log('💾 User data backup (set as USER_DATA env var for persistence):');
+      console.log(encoded.substring(0, 100) + '...');
+    }
   } catch (err) {
     console.error('Error saving users:', err);
   }
@@ -68,6 +113,7 @@ function saveUsers(users) {
 
 // User accounts storage
 let userAccounts = loadUsers();
+console.log(`👥 Loaded ${Object.keys(userAccounts).length} user accounts`);
 
 // Get leaderboard data
 function getLeaderboard() {

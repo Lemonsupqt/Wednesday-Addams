@@ -4,14 +4,18 @@
 // ============================================
 
 // ============================================
-// 🔧 BACKEND SERVER URL - UPDATE THIS! 🔧
+// 🔧 BACKEND SERVER URL 🔧
 // ============================================
-// After deploying to Render, replace the URL below with your Render URL
-// Example: 'https://upside-down-nevermore-games.onrender.com'
+// Railway backend - Update this URL after deploying to Railway!
+// Find your Railway URL in: Railway Dashboard > Your Project > Settings > Domains
 // ============================================
+const RAILWAY_URL = 'https://upside-down-nevermore-games-production.up.railway.app';
+
 const BACKEND_URL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
   ? window.location.origin  // Local development
-  : 'https://upside-down-nevermore-games.onrender.com'; // ← UPDATE THIS after Render deploy!
+  : RAILWAY_URL;
+
+console.log('🔌 Connecting to backend:', BACKEND_URL);
 
 const socket = io(BACKEND_URL, {
   transports: ['websocket', 'polling']
