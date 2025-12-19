@@ -286,10 +286,23 @@ function updateUserInfoDisplay() {
         <div class="user-stats">
           <span>Stats won't be saved</span>
         </div>
+        <button id="exitGuestBtn" class="btn btn-small btn-secondary" style="margin-top: 10px;">
+          🚪 Exit Guest Mode
+        </button>
       </div>
     `;
     container.style.display = 'block';
     document.getElementById('logoutBtn').style.display = 'none';
+    
+    // Add exit guest mode handler
+    document.getElementById('exitGuestBtn')?.addEventListener('click', () => {
+      localStorage.removeItem('guestSession');
+      localStorage.removeItem('playerName');
+      state.isAuthenticated = false;
+      state.username = null;
+      state.userStats = null;
+      showScreen('authScreen');
+    });
   }
 }
 
@@ -466,7 +479,7 @@ function setupMobileChatOverlay() {
     const message = mobileChatInput.value.trim();
     if (!message) return;
     
-    socket.emit('gameChat', message);
+    socket.emit('chatMessage', message);
     mobileChatInput.value = '';
   }
   
@@ -1019,9 +1032,56 @@ function handleGameSelection(gameType) {
     showMemoryDifficultyModal();
   } else if (gameType === 'sudoku') {
     showSudokuDifficultyModal();
+  } else if (gameType === 'connect4') {
+    showConnect4DifficultyModal();
   } else {
     startGame(gameType);
   }
+}
+
+// Show Connect 4/5 selection modal (non-voting mode)
+function showConnect4DifficultyModal() {
+  const modal = document.getElementById('votingModal');
+  if (!modal) {
+    startGame('connect4');
+    return;
+  }
+  
+  modal.innerHTML = `
+    <div class="voting-modal-content">
+      <h3>🔴🟡 Choose Your Battle</h3>
+      <div class="difficulty-options">
+        <button class="difficulty-btn" data-win="4">
+          <span class="diff-icon">4️⃣</span>
+          <div>
+            <span class="diff-name">4 in a Row</span>
+            <span class="diff-desc">Classic Connect 4</span>
+          </div>
+        </button>
+        <button class="difficulty-btn" data-win="5">
+          <span class="diff-icon">5️⃣</span>
+          <div>
+            <span class="diff-name">5 in a Row</span>
+            <span class="diff-desc">Extended Challenge</span>
+          </div>
+        </button>
+      </div>
+      <button class="btn btn-secondary" style="margin-top: 15px;" id="cancelConnect4Modal">Cancel</button>
+    </div>
+  `;
+  modal.classList.add('active');
+  
+  modal.querySelectorAll('.difficulty-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const winCondition = parseInt(btn.dataset.win);
+      modal.classList.remove('active');
+      socket.emit('startGame', { gameType: 'connect4', options: { winCondition } });
+    });
+  });
+  
+  document.getElementById('cancelConnect4Modal')?.addEventListener('click', () => {
+    modal.classList.remove('active');
+  });
 }
 
 // Player colors
@@ -3178,55 +3238,198 @@ function renderLudoBoard(gameState, players) {
 }
 
 function renderLudoBoardHTML(gameState) {
-  // Simplified Ludo board - cleaner UI
+  // Classic Ludo board with Wednesday/Stranger Things vibe
   if (!gameState.playerOrder || !gameState.tokens) {
     return '<div style="color:red;">Error rendering Ludo board</div>';
   }
   
-  let html = '<div class="ludo-simple-board">';
+  // Build position map for all tokens
+  const tokenMap = {}; // position -> [{playerId, playerIdx, tokenIdx, colorInfo}]
+  const homeTokens = {}; // playerIdx -> tokens at home
+  const finishedTokens = {}; // playerIdx -> tokens finished
   
-  // Player sections - each player gets a row
   gameState.playerOrder.forEach((playerId, playerIdx) => {
     const colorInfo = LUDO_COLORS[playerIdx] || { color: '#888', emoji: '⚪', name: 'Player' };
     const tokens = gameState.tokens[playerId] || [];
-    const isCurrentPlayer = playerId === state.playerId;
+    homeTokens[playerIdx] = [];
+    finishedTokens[playerIdx] = [];
     
-    html += `<div class="ludo-player-section ${isCurrentPlayer ? 'is-me' : ''}" style="--player-color: ${colorInfo.color};">`;
-    html += `<div class="ludo-player-header">
-               <span class="player-color-dot" style="background: ${colorInfo.color}"></span>
-               <span class="player-name-text">${colorInfo.emoji} ${colorInfo.name}</span>
-             </div>`;
-    
-    html += `<div class="ludo-tokens-row">`;
     tokens.forEach((token, tokenIdx) => {
-      const isMovable = gameState.validMoves && 
-                       gameState.validMoves.some(m => m.tokenIndex === tokenIdx) &&
-                       playerId === state.playerId;
+      const tokenData = { playerId, playerIdx, tokenIdx, colorInfo, token };
       
-      let positionText = '';
-      let positionClass = '';
       if (token.position === 'home') {
-        positionText = '🏠';
-        positionClass = 'at-home';
+        homeTokens[playerIdx].push(tokenData);
       } else if (token.position === 'finished') {
-        positionText = '🏁';
-        positionClass = 'finished';
+        finishedTokens[playerIdx].push(tokenData);
       } else {
-        const dist = token.distanceTraveled || 0;
-        positionText = `${dist}/52`;
-        positionClass = 'on-track';
+        const pos = token.position;
+        if (!tokenMap[pos]) tokenMap[pos] = [];
+        tokenMap[pos].push(tokenData);
       }
-      
-      html += `<div class="ludo-token-card ${positionClass} ${isMovable ? 'movable' : ''}" 
-                   data-token-index="${tokenIdx}"
-                   style="background: ${colorInfo.color}20; border-color: ${colorInfo.color};">
-                <span class="token-emoji">${colorInfo.emoji}</span>
-                <span class="token-position">${positionText}</span>
-              </div>`;
     });
-    html += `</div></div>`;
   });
   
+  // Classic Ludo board is 15x15 grid
+  // Create the board layout
+  let html = '<div class="ludo-classic-board">';
+  
+  // The board has 4 colored home bases in corners and a cross-shaped track
+  // Simplified: show home bases, track visualization, and center
+  
+  // Top row: Home bases for players 0 and 1
+  html += '<div class="ludo-board-row">';
+  
+  // Player 0 Home (Red - top-left)
+  html += renderLudoHomeBase(0, gameState, homeTokens[0] || []);
+  
+  // Top center (part of track)
+  html += '<div class="ludo-center-track top">';
+  html += renderTrackColumn([1,2,3,4,5,6], tokenMap, gameState, 'vertical');
+  html += '</div>';
+  
+  // Player 1 Home (Blue - top-right)  
+  html += renderLudoHomeBase(1, gameState, homeTokens[1] || []);
+  
+  html += '</div>';
+  
+  // Middle row: Track and center
+  html += '<div class="ludo-board-row middle">';
+  
+  // Left track
+  html += '<div class="ludo-side-track left">';
+  html += renderTrackRow([51,50,49,48,47,46], tokenMap, gameState);
+  html += '</div>';
+  
+  // Center area (finish zone)
+  html += '<div class="ludo-center-zone">';
+  html += '<div class="ludo-center-finish">🏁</div>';
+  html += '<div class="ludo-finish-counts">';
+  gameState.playerOrder.forEach((pid, idx) => {
+    const colorInfo = LUDO_COLORS[idx];
+    const count = (finishedTokens[idx] || []).length;
+    if (count > 0) {
+      html += `<span style="color: ${colorInfo.color}">${colorInfo.emoji}${count}</span>`;
+    }
+  });
+  html += '</div></div>';
+  
+  // Right track
+  html += '<div class="ludo-side-track right">';
+  html += renderTrackRow([20,21,22,23,24,25], tokenMap, gameState);
+  html += '</div>';
+  
+  html += '</div>';
+  
+  // Bottom row: Home bases for players 2 and 3
+  html += '<div class="ludo-board-row">';
+  
+  // Player 3 Home (Yellow - bottom-left)
+  html += renderLudoHomeBase(3, gameState, homeTokens[3] || []);
+  
+  // Bottom center (part of track)
+  html += '<div class="ludo-center-track bottom">';
+  html += renderTrackColumn([33,32,31,30,29,28], tokenMap, gameState, 'vertical');
+  html += '</div>';
+  
+  // Player 2 Home (Green - bottom-right)
+  html += renderLudoHomeBase(2, gameState, homeTokens[2] || []);
+  
+  html += '</div>';
+  
+  // Track summary - show all tokens on track with positions
+  const tokensOnTrack = Object.entries(tokenMap).sort((a,b) => parseInt(a[0]) - parseInt(b[0]));
+  if (tokensOnTrack.length > 0) {
+    html += '<div class="ludo-track-summary">';
+    html += '<div class="track-summary-title">🛤️ On The Upside Down Track</div>';
+    html += '<div class="track-summary-tokens">';
+    tokensOnTrack.forEach(([pos, tokens]) => {
+      tokens.forEach(t => {
+        const isMovable = gameState.validMoves && 
+                         gameState.validMoves.some(m => m.tokenIndex === t.tokenIdx) &&
+                         t.playerId === state.playerId;
+        const dist = t.token.distanceTraveled || 0;
+        html += `<div class="track-token ${isMovable ? 'movable' : ''}" 
+                     data-token-index="${t.tokenIdx}"
+                     style="--token-color: ${t.colorInfo.color}">
+                  <span class="track-token-emoji">${t.colorInfo.emoji}</span>
+                  <span class="track-token-pos">${dist}/52</span>
+                </div>`;
+      });
+    });
+    html += '</div></div>';
+  }
+  
+  html += '</div>';
+  return html;
+}
+
+function renderLudoHomeBase(playerIdx, gameState, homeTokens) {
+  const colorInfo = LUDO_COLORS[playerIdx] || { color: '#888', emoji: '⚪', name: 'Player' };
+  const playerId = gameState.playerOrder[playerIdx];
+  const isCurrentTurn = gameState.currentPlayer === playerId;
+  const isMe = playerId === state.playerId;
+  
+  if (!playerId) {
+    return '<div class="ludo-home-base empty"></div>';
+  }
+  
+  let html = `<div class="ludo-home-base ${isCurrentTurn ? 'active' : ''} ${isMe ? 'is-me' : ''}" style="--home-color: ${colorInfo.color}">`;
+  html += `<div class="home-base-header">${colorInfo.emoji} ${colorInfo.name}</div>`;
+  html += '<div class="home-base-tokens">';
+  
+  // Show 4 token slots
+  for (let i = 0; i < 4; i++) {
+    const tokenData = homeTokens[i];
+    if (tokenData) {
+      const isMovable = gameState.validMoves && 
+                       gameState.validMoves.some(m => m.tokenIndex === tokenData.tokenIdx) &&
+                       tokenData.playerId === state.playerId;
+      html += `<div class="home-token ${isMovable ? 'movable' : ''}" 
+                   data-token-index="${tokenData.tokenIdx}"
+                   style="background: ${colorInfo.color}">${colorInfo.emoji}</div>`;
+    } else {
+      html += `<div class="home-token-slot"></div>`;
+    }
+  }
+  
+  html += '</div></div>';
+  return html;
+}
+
+function renderTrackRow(positions, tokenMap, gameState) {
+  let html = '<div class="track-cells-row">';
+  positions.forEach(pos => {
+    const tokensHere = tokenMap[pos] || [];
+    const isSafe = [0, 8, 13, 21, 26, 34, 39, 47].includes(pos);
+    const isStart = [0, 13, 26, 39].includes(pos);
+    
+    html += `<div class="track-cell ${isSafe ? 'safe' : ''} ${isStart ? 'start' : ''} ${tokensHere.length > 0 ? 'occupied' : ''}">`;
+    if (tokensHere.length > 0) {
+      tokensHere.forEach(t => {
+        html += `<span class="cell-token" style="background: ${t.colorInfo.color}">${t.colorInfo.emoji}</span>`;
+      });
+    }
+    html += '</div>';
+  });
+  html += '</div>';
+  return html;
+}
+
+function renderTrackColumn(positions, tokenMap, gameState) {
+  let html = '<div class="track-cells-col">';
+  positions.forEach(pos => {
+    const tokensHere = tokenMap[pos] || [];
+    const isSafe = [0, 8, 13, 21, 26, 34, 39, 47].includes(pos);
+    const isStart = [0, 13, 26, 39].includes(pos);
+    
+    html += `<div class="track-cell ${isSafe ? 'safe' : ''} ${isStart ? 'start' : ''} ${tokensHere.length > 0 ? 'occupied' : ''}">`;
+    if (tokensHere.length > 0) {
+      tokensHere.forEach(t => {
+        html += `<span class="cell-token" style="background: ${t.colorInfo.color}">${t.colorInfo.emoji}</span>`;
+      });
+    }
+    html += '</div>';
+  });
   html += '</div>';
   return html;
 }

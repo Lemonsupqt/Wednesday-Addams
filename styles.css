@@ -2909,11 +2909,12 @@ input[type="password"]::placeholder {
 }
 
 .sudoku-cell.same-number {
-  background: rgba(5, 217, 232, 0.15);
+  background: rgba(147, 51, 234, 0.2);
+  color: var(--accent-secondary);
 }
 
 .sudoku-cell.highlighted {
-  background: rgba(212, 175, 55, 0.1);
+  background: rgba(100, 100, 150, 0.08);
 }
 
 .sudoku-numpad {
@@ -4262,120 +4263,310 @@ input[type="password"]::placeholder {
 }
 
 /* ============================================
-   SIMPLIFIED LUDO BOARD STYLES
+   CLASSIC LUDO BOARD - Wednesday/Stranger Things Vibe
    ============================================ */
 
-.ludo-simple-board {
+.ludo-classic-board {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 5px;
   width: 100%;
-  max-width: 400px;
+  max-width: 380px;
   margin: 0 auto;
+  padding: 10px;
+  background: linear-gradient(135deg, rgba(15, 15, 35, 0.9), rgba(30, 20, 50, 0.9));
+  border: 3px solid var(--wed-gold);
+  border-radius: 15px;
+  box-shadow: 0 0 30px rgba(212, 175, 55, 0.2), inset 0 0 50px rgba(0,0,0,0.5);
 }
 
-.ludo-player-section {
-  background: rgba(0,0,0,0.3);
-  border: 2px solid var(--player-color, #888);
+.ludo-board-row {
+  display: grid;
+  grid-template-columns: 1fr 80px 1fr;
+  gap: 5px;
+}
+
+.ludo-board-row.middle {
+  min-height: 80px;
+}
+
+/* Home bases - the colored corner squares */
+.ludo-home-base {
+  background: linear-gradient(135deg, rgba(0,0,0,0.6), var(--home-color, #888)30);
+  border: 2px solid var(--home-color, #888);
   border-radius: 12px;
-  padding: 12px;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-height: 100px;
 }
 
-.ludo-player-section.is-me {
-  background: rgba(212, 175, 55, 0.1);
+.ludo-home-base.empty {
+  opacity: 0.3;
+  border-style: dashed;
+}
+
+.ludo-home-base.active {
+  box-shadow: 0 0 20px var(--home-color, #888), inset 0 0 20px rgba(255,255,255,0.1);
+  animation: homeGlow 1.5s ease infinite;
+}
+
+.ludo-home-base.is-me {
+  border-width: 3px;
+}
+
+@keyframes homeGlow {
+  0%, 100% { box-shadow: 0 0 15px var(--home-color, #888); }
+  50% { box-shadow: 0 0 25px var(--home-color, #888); }
+}
+
+.home-base-header {
+  font-family: 'Cinzel', serif;
+  font-size: 0.75rem;
+  color: var(--text-primary);
+  margin-bottom: 8px;
+  text-shadow: 0 0 10px var(--home-color, #888);
+}
+
+.home-base-tokens {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 5px;
+}
+
+.home-token {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.9rem;
+  box-shadow: 0 3px 8px rgba(0,0,0,0.5), inset 0 -2px 4px rgba(0,0,0,0.3);
+  cursor: default;
+  transition: all 0.2s ease;
+}
+
+.home-token.movable {
+  cursor: pointer;
+  animation: tokenPulse 1s ease infinite;
+  box-shadow: 0 0 15px gold, 0 3px 8px rgba(0,0,0,0.5);
+}
+
+.home-token.movable:hover {
+  transform: scale(1.15);
+}
+
+.home-token-slot {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  border: 2px dashed rgba(255,255,255,0.2);
+  opacity: 0.3;
+}
+
+/* Center track sections */
+.ludo-center-track {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+}
+
+.ludo-side-track {
+  display: flex;
+  align-items: center;
+}
+
+.track-cells-row {
+  display: flex;
+  gap: 2px;
+}
+
+.track-cells-col {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.track-cell {
+  width: 22px;
+  height: 22px;
+  background: rgba(50, 50, 80, 0.8);
+  border: 1px solid var(--border-color);
+  border-radius: 3px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.6rem;
+}
+
+.track-cell.safe {
+  background: rgba(212, 175, 55, 0.3);
   border-color: var(--wed-gold);
 }
 
-.ludo-player-header {
+.track-cell.start {
+  border-width: 2px;
+  border-style: dashed;
+}
+
+.track-cell.occupied {
+  background: rgba(255,255,255,0.1);
+}
+
+.cell-token {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin-bottom: 10px;
+  justify-content: center;
+  font-size: 0.55rem;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.5);
 }
 
-.player-color-dot {
-  width: 12px;
-  height: 12px;
-  border-radius: 50%;
-}
-
-.player-name-text {
-  font-family: 'Cinzel', serif;
-  font-size: 0.9rem;
-  color: var(--text-primary);
-}
-
-.ludo-tokens-row {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 8px;
-}
-
-.ludo-token-card {
+/* Center finish zone */
+.ludo-center-zone {
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: 10px 5px;
+  background: linear-gradient(135deg, rgba(212, 175, 55, 0.2), rgba(147, 51, 234, 0.2));
+  border: 2px solid var(--wed-gold);
   border-radius: 10px;
-  border: 2px solid;
-  transition: all 0.2s ease;
-  cursor: default;
+  padding: 10px;
 }
 
-.ludo-token-card.movable {
+.ludo-center-finish {
+  font-size: 2rem;
+  animation: finishPulse 2s ease infinite;
+}
+
+@keyframes finishPulse {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.1); opacity: 0.8; }
+}
+
+.ludo-finish-counts {
+  display: flex;
+  gap: 8px;
+  font-size: 0.8rem;
+  margin-top: 5px;
+}
+
+/* Track summary */
+.ludo-track-summary {
+  margin-top: 10px;
+  padding: 10px;
+  background: rgba(0,0,0,0.4);
+  border-radius: 10px;
+}
+
+.track-summary-title {
+  font-family: 'Cinzel', serif;
+  font-size: 0.8rem;
+  color: var(--wed-gold);
+  text-align: center;
+  margin-bottom: 8px;
+}
+
+.track-summary-tokens {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: center;
+}
+
+.track-token {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 8px;
+  background: var(--token-color, #888)20;
+  border: 2px solid var(--token-color, #888);
+  border-radius: 10px;
+  min-width: 50px;
+}
+
+.track-token.movable {
   cursor: pointer;
   animation: tokenPulse 1s ease infinite;
-  box-shadow: 0 0 15px rgba(212, 175, 55, 0.5);
+  box-shadow: 0 0 15px gold;
 }
 
-.ludo-token-card.movable:hover {
-  transform: scale(1.05);
+.track-token.movable:hover {
+  transform: scale(1.1);
 }
 
-.ludo-token-card.at-home {
-  opacity: 0.7;
+.track-token-emoji {
+  font-size: 1.2rem;
 }
 
-.ludo-token-card.finished {
-  background: rgba(0, 255, 0, 0.2) !important;
-  border-color: var(--success) !important;
-}
-
-.ludo-token-card .token-emoji {
-  font-size: 1.5rem;
-}
-
-.ludo-token-card .token-position {
-  font-size: 0.7rem;
+.track-token-pos {
+  font-size: 0.65rem;
   color: var(--text-secondary);
-  margin-top: 4px;
 }
 
-/* Mobile adjustments */
+/* Mobile Ludo adjustments */
 @media (max-width: 480px) {
-  .ludo-simple-board {
-    gap: 8px;
-  }
-  
-  .ludo-player-section {
+  .ludo-classic-board {
+    max-width: 100%;
     padding: 8px;
   }
   
-  .ludo-tokens-row {
-    gap: 5px;
+  .ludo-board-row {
+    grid-template-columns: 1fr 60px 1fr;
   }
   
-  .ludo-token-card {
-    padding: 6px 3px;
+  .ludo-home-base {
+    padding: 6px;
+    min-height: 80px;
   }
   
-  .ludo-token-card .token-emoji {
-    font-size: 1.2rem;
+  .home-base-header {
+    font-size: 0.65rem;
+    margin-bottom: 5px;
   }
   
-  .ludo-token-card .token-position {
-    font-size: 0.6rem;
+  .home-token {
+    width: 24px;
+    height: 24px;
+    font-size: 0.7rem;
+  }
+  
+  .home-token-slot {
+    width: 24px;
+    height: 24px;
+  }
+  
+  .track-cell {
+    width: 18px;
+    height: 18px;
+  }
+  
+  .cell-token {
+    width: 14px;
+    height: 14px;
+    font-size: 0.45rem;
+  }
+  
+  .ludo-center-zone {
+    padding: 5px;
+  }
+  
+  .ludo-center-finish {
+    font-size: 1.5rem;
+  }
+  
+  .track-token {
+    padding: 5px;
+    min-width: 40px;
+  }
+  
+  .track-token-emoji {
+    font-size: 1rem;
   }
 }
 
