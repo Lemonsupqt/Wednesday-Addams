@@ -20,8 +20,58 @@
 <body>
   <div class="particles" id="particles"></div>
   
+  <!-- Auth Screen (The Nevermore Archives) -->
+  <div id="authScreen" class="screen active">
+    <div class="container">
+      <div class="logo-container">
+        <h1 class="main-title">
+          <span class="upside-down">UPSIDE DOWN</span>
+          <span class="nevermore">NEVERMORE</span>
+          <span class="games-text">GAMES</span>
+        </h1>
+        <p class="tagline">📜 The Nevermore Archives 📜</p>
+      </div>
+      
+      <div class="auth-card">
+        <div class="auth-tabs">
+          <button class="auth-tab active" data-tab="login">🔓 Login</button>
+          <button class="auth-tab" data-tab="register">📝 Register</button>
+        </div>
+        
+        <div id="loginForm" class="auth-form">
+          <input type="text" id="loginUsername" placeholder="Username" maxlength="20" autocomplete="username">
+          <input type="password" id="loginPassword" placeholder="Password" maxlength="50" autocomplete="current-password">
+          <button id="loginBtn" class="btn btn-primary">
+            <span class="btn-icon">⚡</span> Enter the Archives
+          </button>
+        </div>
+        
+        <div id="registerForm" class="auth-form" style="display: none;">
+          <input type="text" id="registerUsername" placeholder="Username (3-20 chars)" maxlength="20" autocomplete="username">
+          <input type="password" id="registerPassword" placeholder="Password (4+ chars)" maxlength="50" autocomplete="new-password">
+          <input type="text" id="registerDisplayName" placeholder="Display Name (optional)" maxlength="20">
+          <button id="registerBtn" class="btn btn-primary">
+            <span class="btn-icon">🦇</span> Join Nevermore
+          </button>
+        </div>
+        
+        <div class="divider">
+          <span>or</span>
+        </div>
+        
+        <button id="guestBtn" class="btn btn-secondary">
+          <span class="btn-icon">👻</span> Play as Guest
+        </button>
+        
+        <p class="auth-hint">
+          💡 Create an account to save your trophies and appear on the leaderboard!
+        </p>
+      </div>
+    </div>
+  </div>
+  
   <!-- Main Menu -->
-  <div id="mainMenu" class="screen active">
+  <div id="mainMenu" class="screen">
     <div class="container">
       <div class="logo-container">
         <h1 class="main-title">
@@ -31,6 +81,9 @@
         </h1>
         <p class="tagline">👻 For Long-Distance BFFs 👻</p>
       </div>
+      
+      <!-- User Info Display -->
+      <div id="userInfoDisplay" class="user-info-display"></div>
       
       <div class="menu-card">
         <div id="connectionStatus" class="connection-status connecting">
@@ -48,11 +101,42 @@
         <button id="joinRoomBtn" class="btn btn-secondary">
           <span class="btn-icon">🔮</span> Join Room
         </button>
+        
+        <div class="menu-extras">
+          <button id="leaderboardBtn" class="btn btn-ghost">
+            <span class="btn-icon">🏆</span> Leaderboard
+          </button>
+          <button id="logoutBtn" class="btn btn-ghost" style="display: none;">
+            <span class="btn-icon">🚪</span> Logout
+          </button>
+        </div>
       </div>
       
       <div class="credits">
         <p>🎬 A tribute to Stranger Things & Wednesday 🦇</p>
       </div>
+    </div>
+  </div>
+  
+  <!-- Leaderboard Screen -->
+  <div id="leaderboardScreen" class="screen">
+    <div class="container">
+      <div class="leaderboard-header">
+        <h2>🏆 Nevermore Rankings 🏆</h2>
+        <p class="leaderboard-subtitle">The greatest outcasts of all time</p>
+      </div>
+      
+      <div id="leaderboardList" class="leaderboard-list"></div>
+      
+      <div class="leaderboard-legend">
+        <div class="legend-item"><span>🏆</span> Trophies (earned by winning sessions)</div>
+        <div class="legend-item"><span>⭐</span> Total Round Wins</div>
+        <div class="legend-item"><span>🎮</span> Games Played</div>
+      </div>
+      
+      <button id="backFromLeaderboardBtn" class="btn btn-secondary">
+        <span class="btn-icon">⬅️</span> Back to Menu
+      </button>
     </div>
   </div>
 
@@ -81,6 +165,17 @@
             <input type="text" id="chatInput" placeholder="Whisper into the void..." maxlength="200">
             <button id="sendChatBtn" class="btn-small">📨</button>
           </div>
+        </div>
+      </div>
+
+      <div class="voting-section">
+        <div class="voting-header">
+          <h3>🎮 Choose Your Game</h3>
+          <p class="voting-instructions">Everyone votes - most popular game wins!</p>
+          <button id="startVotingBtn" class="btn btn-primary">
+            <span class="btn-icon">🗳️</span> Start Voting
+          </button>
+          <span id="voteProgress" class="vote-progress"></span>
         </div>
       </div>
 
@@ -129,6 +224,9 @@
       <button id="closeResultsBtn" class="btn btn-primary">Return to Lobby</button>
     </div>
   </div>
+
+  <!-- Voting Modal (for difficulty selection) -->
+  <div id="votingModal" class="modal voting-modal"></div>
 
   <!-- Error Toast -->
   <div id="errorToast" class="toast error"></div>

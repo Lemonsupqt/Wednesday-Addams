@@ -3,12 +3,28 @@ const http = require('http');
 const { Server } = require('socket.io');
 const { v4: uuidv4 } = require('uuid');
 const path = require('path');
+const fs = require('fs');
+const crypto = require('crypto');
 
 const app = express();
 
 // CORS for GitHub Pages frontend
+const ALLOWED_ORIGINS = [
+  'https://lemonsupqt.github.io',
+  'https://wednesday-addams-production.up.railway.app',
+  'http://localhost:3000',
+  'http://127.0.0.1:3000',
+  'http://localhost:5500',
+  'http://127.0.0.1:5500'
+];
+
 app.use((req, res, next) => {
-  res.header('Access-Control-Allow-Origin', 'https://lemonsupqt.github.io');
+  const origin = req.headers.origin;
+  if (ALLOWED_ORIGINS.includes(origin) || !origin) {
+    res.header('Access-Control-Allow-Origin', origin || '*');
+  } else {
+    res.header('Access-Control-Allow-Origin', 'https://lemonsupqt.github.io');
+  }
   res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.header('Access-Control-Allow-Headers', 'Content-Type');
   res.header('Access-Control-Allow-Credentials', 'true');
@@ -18,21 +34,146 @@ app.use((req, res, next) => {
   next();
 });
 
+app.use(express.json());
+
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
-    origin: ["https://lemonsupqt.github.io", "http://localhost:3000", "http://127.0.0.1:3000"],
+    origin: ALLOWED_ORIGINS,
     methods: ["GET", "POST"],
     credentials: true
   },
-  transports: ['websocket', 'polling']
+  transports: ['websocket', 'polling'],
+  pingTimeout: 60000,
+  pingInterval: 25000
 });
 
 app.use(express.static(path.join(__dirname)));
 
+// Health check endpoint for Railway
+app.get('/health', (req, res) => {
+  res.status(200).json({ status: 'ok', timestamp: Date.now() });
+});
+
+// ============================================
+// USER ACCOUNTS & LEADERBOARD (The Nevermore Archives)
+// ============================================
+
+// NOTE: For Railway/cloud deployment, file storage is ephemeral.
+// For persistent storage, consider using Railway's PostgreSQL or Redis.
+// For now, we use file storage with environment variable backup.
+
+const USERS_FILE = path.join(__dirname, 'nevermore_archives.json');
+
+// Hash password using crypto (no external dependency)
+function hashPassword(password) {
+  return crypto.createHash('sha256').update(password + 'upsidedown_salt_2024').digest('hex');
+}
+
+// Load users from file or environment variable
+function loadUsers() {
+  // Try loading from environment variable first (for Railway persistence)
+  if (process.env.USER_DATA) {
+    try {
+      console.log('📦 Loading user data from environment variable');
+      return JSON.parse(Buffer.from(process.env.USER_DATA, 'base64').toString('utf8'));
+    } catch (err) {
+      console.error('Error loading from env:', err);
+    }
+  }
+  
+  // Try loading from file
+  try {
+    if (fs.existsSync(USERS_FILE)) {
+      console.log('📦 Loading user data from file');
+      return JSON.parse(fs.readFileSync(USERS_FILE, 'utf8'));
+    }
+  } catch (err) {
+    console.error('Error loading users from file:', err);
+  }
+  
+  console.log('📦 Starting with empty user database');
+  return {};
+}
+
+// Save users to file
+function saveUsers(users) {
+  try {
+    fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2));
+    
+    // Log base64 encoded data for manual backup (can copy to Railway env var)
+    if (Object.keys(users).length > 0 && Object.keys(users).length <= 5) {
+      const encoded = Buffer.from(JSON.stringify(users)).toString('base64');
+      console.log('💾 User data backup (set as USER_DATA env var for persistence):');
+      console.log(encoded.substring(0, 100) + '...');
+    }
+  } catch (err) {
+    console.error('Error saving users:', err);
+  }
+}
+
+// User accounts storage
+let userAccounts = loadUsers();
+console.log(`👥 Loaded ${Object.keys(userAccounts).length} user accounts`);
+
+// Get leaderboard data
+function getLeaderboard() {
+  const users = Object.values(userAccounts);
+  return users
+    .map(u => ({
+      username: u.username,
+      displayName: u.displayName,
+      trophies: u.trophies || 0,
+      totalWins: u.totalWins || 0,
+      gamesPlayed: u.gamesPlayed || 0,
+      title: getUserTitle(u.trophies || 0)
+    }))
+    .sort((a, b) => {
+      if (b.trophies !== a.trophies) return b.trophies - a.trophies;
+      return b.totalWins - a.totalWins;
+    })
+    .slice(0, 50); // Top 50
+}
+
+// Get themed title based on trophies
+function getUserTitle(trophies) {
+  if (trophies >= 100) return '🖤 Supreme Overlord';
+  if (trophies >= 75) return '⚡ Vecna\'s Nemesis';
+  if (trophies >= 50) return '🦇 Nevermore Legend';
+  if (trophies >= 35) return '🕷️ Shadow Walker';
+  if (trophies >= 25) return '🌙 Nightshade Elite';
+  if (trophies >= 15) return '☠️ Upside Down Survivor';
+  if (trophies >= 10) return '🔮 Psychic Adept';
+  if (trophies >= 5) return '🎭 Outcast Initiate';
+  if (trophies >= 1) return '🕯️ Fresh Arrival';
+  return '👻 Unknown Entity';
+}
+
+// Update user stats after game
+function updateUserStats(username, won, earnedTrophy) {
+  if (!userAccounts[username]) return;
+  
+  userAccounts[username].gamesPlayed = (userAccounts[username].gamesPlayed || 0) + 1;
+  if (won) {
+    userAccounts[username].totalWins = (userAccounts[username].totalWins || 0) + 1;
+  }
+  if (earnedTrophy) {
+    userAccounts[username].trophies = (userAccounts[username].trophies || 0) + 1;
+  }
+  userAccounts[username].lastPlayed = Date.now();
+  
+  saveUsers(userAccounts);
+}
+
+// REST API for leaderboard
+app.get('/api/leaderboard', (req, res) => {
+  res.json(getLeaderboard());
+});
+
 // Game state storage
 const rooms = new Map();
 const players = new Map();
+const authenticatedSockets = new Map(); // socket.id -> username
 
 // Trivia questions - Stranger Things & Wednesday themed
 const triviaQuestions = [
@@ -309,33 +450,134 @@ const PLAYER_COLORS = [
 
 // Room class to manage game state
 class GameRoom {
-  constructor(id, hostId, hostName) {
+  constructor(id, creatorId, creatorName, creatorUsername = null) {
     this.id = id;
-    this.hostId = hostId;
+    this.creatorId = creatorId; // Original creator (for reference)
     this.players = new Map();
-    this.players.set(hostId, { id: hostId, name: hostName, score: 0, ready: false, color: PLAYER_COLORS[0] });
+    this.players.set(creatorId, { 
+      id: creatorId, 
+      name: creatorName,
+      username: creatorUsername,  // Linked account username
+      trophies: 0,        // Trophies earned in this room session
+      sessionWins: 0,     // Wins in current game session  
+      points: 0,          // In-game points (resets each round)
+      ready: false, 
+      color: PLAYER_COLORS[0] 
+    });
     this.currentGame = null;
     this.gameState = {};
     this.chat = [];
     this.colorIndex = 1;
+    
+    // Game voting system
+    this.gameVotes = new Map(); // playerId -> gameType
+    this.votingActive = false;
   }
 
-  addPlayer(playerId, playerName) {
+  addPlayer(playerId, playerName, username = null) {
     const color = PLAYER_COLORS[this.colorIndex % PLAYER_COLORS.length];
     this.colorIndex++;
-    this.players.set(playerId, { id: playerId, name: playerName, score: 0, ready: false, color });
+    this.players.set(playerId, { 
+      id: playerId, 
+      name: playerName,
+      username: username,
+      trophies: 0,
+      sessionWins: 0,
+      points: 0,
+      ready: false, 
+      color 
+    });
   }
 
   removePlayer(playerId) {
     this.players.delete(playerId);
+    this.gameVotes.delete(playerId);
   }
 
   getPlayerList() {
     return Array.from(this.players.values());
   }
 
-  resetScores() {
-    this.players.forEach(player => player.score = 0);
+  resetPoints() {
+    this.players.forEach(player => player.points = 0);
+  }
+
+  resetSessionWins() {
+    this.players.forEach(player => player.sessionWins = 0);
+  }
+
+  // Start voting for game selection
+  startVoting() {
+    this.gameVotes.clear();
+    this.votingActive = true;
+  }
+
+  // Cast a vote
+  castVote(playerId, gameType) {
+    if (!this.votingActive) return false;
+    this.gameVotes.set(playerId, gameType);
+    return true;
+  }
+
+  // Get vote counts
+  getVoteCounts() {
+    const counts = {};
+    this.gameVotes.forEach(game => {
+      counts[game] = (counts[game] || 0) + 1;
+    });
+    return counts;
+  }
+
+  // Check if all players voted
+  allVoted() {
+    return this.gameVotes.size >= this.players.size;
+  }
+
+  // Get winning game (most votes, random on tie)
+  getWinningGame() {
+    const counts = this.getVoteCounts();
+    if (Object.keys(counts).length === 0) return null;
+    
+    const maxVotes = Math.max(...Object.values(counts));
+    const winners = Object.keys(counts).filter(g => counts[g] === maxVotes);
+    
+    // Random selection on tie
+    return winners[Math.floor(Math.random() * winners.length)];
+  }
+
+  // End voting
+  endVoting() {
+    this.votingActive = false;
+    const winner = this.getWinningGame();
+    this.gameVotes.clear();
+    return winner;
+  }
+
+  // Award trophy to the player with most session wins
+  awardTrophy() {
+    const playerList = this.getPlayerList();
+    if (playerList.length < 2) return null;
+    
+    // Find player(s) with most session wins
+    const maxWins = Math.max(...playerList.map(p => p.sessionWins));
+    if (maxWins === 0) return null; // No wins at all
+    
+    const winners = playerList.filter(p => p.sessionWins === maxWins);
+    
+    // Only award if there's a single winner (not a tie)
+    if (winners.length === 1) {
+      const winner = this.players.get(winners[0].id);
+      winner.trophies += 1;
+      
+      // Update global account stats
+      if (winner.username && userAccounts[winner.username]) {
+        updateUserStats(winner.username, false, true);
+      }
+      
+      return winners[0];
+    }
+    
+    return null; // Tie - no trophy awarded
   }
 }
 
@@ -343,20 +585,127 @@ class GameRoom {
 io.on('connection', (socket) => {
   console.log(`🎮 Player connected: ${socket.id}`);
 
+  // ============================================
+  // AUTHENTICATION (The Nevermore Archives)
+  // ============================================
+  
+  socket.on('register', ({ username, password, displayName }) => {
+    if (!username || !password) {
+      socket.emit('authError', { message: 'Username and password required' });
+      return;
+    }
+    
+    if (username.length < 3 || username.length > 20) {
+      socket.emit('authError', { message: 'Username must be 3-20 characters' });
+      return;
+    }
+    
+    if (password.length < 4) {
+      socket.emit('authError', { message: 'Password must be at least 4 characters' });
+      return;
+    }
+    
+    const cleanUsername = username.toLowerCase().trim();
+    
+    if (userAccounts[cleanUsername]) {
+      socket.emit('authError', { message: 'Username already taken. Try another.' });
+      return;
+    }
+    
+    // Create new account
+    userAccounts[cleanUsername] = {
+      username: cleanUsername,
+      displayName: displayName || username,
+      passwordHash: hashPassword(password),
+      trophies: 0,
+      totalWins: 0,
+      gamesPlayed: 0,
+      createdAt: Date.now(),
+      lastPlayed: null
+    };
+    
+    saveUsers(userAccounts);
+    
+    authenticatedSockets.set(socket.id, cleanUsername);
+    
+    socket.emit('authSuccess', { 
+      username: cleanUsername,
+      displayName: userAccounts[cleanUsername].displayName,
+      trophies: 0,
+      totalWins: 0,
+      gamesPlayed: 0,
+      title: getUserTitle(0)
+    });
+    
+    console.log(`📝 New account registered: ${cleanUsername}`);
+  });
+  
+  socket.on('login', ({ username, password }) => {
+    if (!username || !password) {
+      socket.emit('authError', { message: 'Username and password required' });
+      return;
+    }
+    
+    const cleanUsername = username.toLowerCase().trim();
+    const user = userAccounts[cleanUsername];
+    
+    if (!user) {
+      socket.emit('authError', { message: 'Account not found. Register first!' });
+      return;
+    }
+    
+    if (user.passwordHash !== hashPassword(password)) {
+      socket.emit('authError', { message: 'Incorrect password' });
+      return;
+    }
+    
+    authenticatedSockets.set(socket.id, cleanUsername);
+    
+    socket.emit('authSuccess', {
+      username: cleanUsername,
+      displayName: user.displayName,
+      trophies: user.trophies || 0,
+      totalWins: user.totalWins || 0,
+      gamesPlayed: user.gamesPlayed || 0,
+      title: getUserTitle(user.trophies || 0)
+    });
+    
+    console.log(`🔓 User logged in: ${cleanUsername}`);
+  });
+  
+  socket.on('logout', () => {
+    const username = authenticatedSockets.get(socket.id);
+    if (username) {
+      authenticatedSockets.delete(socket.id);
+      console.log(`🔒 User logged out: ${username}`);
+    }
+    socket.emit('loggedOut');
+  });
+  
+  socket.on('getLeaderboard', () => {
+    socket.emit('leaderboardData', getLeaderboard());
+  });
+
+  // ============================================
+  // ROOM MANAGEMENT
+  // ============================================
+
   // Create room
   socket.on('createRoom', (playerName) => {
+    const username = authenticatedSockets.get(socket.id);
     const roomId = uuidv4().substring(0, 6).toUpperCase();
-    const room = new GameRoom(roomId, socket.id, playerName);
+    const room = new GameRoom(roomId, socket.id, playerName, username);
     rooms.set(roomId, room);
     players.set(socket.id, roomId);
     
     socket.join(roomId);
     socket.emit('roomCreated', { roomId, players: room.getPlayerList() });
-    console.log(`🏠 Room created: ${roomId} by ${playerName}`);
+    console.log(`🏠 Room created: ${roomId} by ${playerName}${username ? ` (@${username})` : ''}`);
   });
 
   // Join room
   socket.on('joinRoom', ({ roomId, playerName }) => {
+    const username = authenticatedSockets.get(socket.id);
     const room = rooms.get(roomId.toUpperCase());
     if (!room) {
       socket.emit('error', { message: 'Room not found. Check the code and try again.' });
@@ -371,13 +720,13 @@ io.on('connection', (socket) => {
       return;
     }
 
-    room.addPlayer(socket.id, playerName);
+    room.addPlayer(socket.id, playerName, username);
     players.set(socket.id, roomId.toUpperCase());
     
     socket.join(roomId.toUpperCase());
     socket.emit('roomJoined', { roomId: roomId.toUpperCase(), players: room.getPlayerList() });
     socket.to(roomId.toUpperCase()).emit('playerJoined', { players: room.getPlayerList() });
-    console.log(`👤 ${playerName} joined room ${roomId}`);
+    console.log(`👤 ${playerName}${username ? ` (@${username})` : ''} joined room ${roomId}`);
   });
 
   // Chat message
@@ -391,6 +740,7 @@ io.on('connection', (socket) => {
       id: uuidv4(),
       playerId: socket.id,
       playerName: player.name,
+      playerColor: player.color,  // Include player color
       message: message,
       timestamp: Date.now()
     };
@@ -398,11 +748,125 @@ io.on('connection', (socket) => {
     io.to(roomId).emit('chatMessage', chatMsg);
   });
 
-  // Start game
+  // ============================================
+  // GAME VOTING SYSTEM (The Séance Circle)
+  // ============================================
+  
+  // Start voting phase
+  socket.on('startVoting', () => {
+    const roomId = players.get(socket.id);
+    const room = rooms.get(roomId);
+    if (!room || room.players.size < 2) {
+      socket.emit('error', { message: 'Need at least 2 players to start!' });
+      return;
+    }
+    
+    room.startVoting();
+    io.to(roomId).emit('votingStarted', { 
+      players: room.getPlayerList(),
+      voteCounts: room.getVoteCounts()
+    });
+    console.log(`🗳️ Voting started in room ${roomId}`);
+  });
+  
+  // Cast vote for a game
+  socket.on('voteGame', ({ gameType, options }) => {
+    const roomId = players.get(socket.id);
+    const room = rooms.get(roomId);
+    if (!room) return;
+    
+    room.castVote(socket.id, gameType);
+    room.lastVoteOptions = room.lastVoteOptions || {};
+    room.lastVoteOptions[gameType] = options || {};
+    
+    const voteCounts = room.getVoteCounts();
+    const voterCount = room.gameVotes.size;
+    const totalPlayers = room.players.size;
+    
+    io.to(roomId).emit('voteUpdate', { 
+      voteCounts,
+      voterCount,
+      totalPlayers,
+      voters: Array.from(room.gameVotes.keys())
+    });
+    
+    // Auto-start when all voted
+    if (room.allVoted()) {
+      const winningGame = room.endVoting();
+      const options = room.lastVoteOptions[winningGame] || {};
+      
+      // Reset session wins when starting a new game
+      room.resetSessionWins();
+      room.resetPoints();
+      
+      room.currentGame = winningGame;
+      room.gameState = initializeGame(winningGame, room, options);
+      
+      // Save difficulty for future restarts
+      if (winningGame === 'memory' && options.difficulty) {
+        room.lastMemoryDifficulty = options.difficulty;
+      }
+      if (winningGame === 'sudoku' && options.difficulty) {
+        room.lastSudokuDifficulty = options.difficulty;
+      }
+      
+      io.to(roomId).emit('gameStarted', { 
+        gameType: winningGame, 
+        gameState: room.gameState,
+        players: room.getPlayerList(),
+        voteCounts
+      });
+      console.log(`🎮 Game started via vote: ${winningGame} in room ${roomId}`);
+      
+      if (winningGame === 'molewhack') {
+        startMoleWhackRound(room, roomId);
+      }
+    }
+  });
+
+  // Force start (if waiting too long) - any player can trigger after 10 seconds
+  socket.on('forceStartGame', () => {
+    const roomId = players.get(socket.id);
+    const room = rooms.get(roomId);
+    if (!room || !room.votingActive) return;
+    if (room.gameVotes.size === 0) {
+      socket.emit('error', { message: 'At least one vote needed to start!' });
+      return;
+    }
+    
+    const winningGame = room.endVoting();
+    const options = room.lastVoteOptions?.[winningGame] || {};
+    
+    room.resetSessionWins();
+    room.resetPoints();
+    
+    room.currentGame = winningGame;
+    room.gameState = initializeGame(winningGame, room, options);
+    
+    if (winningGame === 'memory' && options.difficulty) {
+      room.lastMemoryDifficulty = options.difficulty;
+    }
+    if (winningGame === 'sudoku' && options.difficulty) {
+      room.lastSudokuDifficulty = options.difficulty;
+    }
+    
+    io.to(roomId).emit('gameStarted', { 
+      gameType: winningGame, 
+      gameState: room.gameState,
+      players: room.getPlayerList()
+    });
+    console.log(`🎮 Game force-started: ${winningGame} in room ${roomId}`);
+    
+    if (winningGame === 'molewhack') {
+      startMoleWhackRound(room, roomId);
+    }
+  });
+
+  // Legacy startGame handler (for backward compatibility)
   socket.on('startGame', (gameData) => {
     const roomId = players.get(socket.id);
     const room = rooms.get(roomId);
-    if (!room || room.hostId !== socket.id) return;
+    if (!room) return;
     if (room.players.size < 2) {
       socket.emit('error', { message: 'Need at least 2 players to start!' });
       return;
@@ -412,6 +876,10 @@ io.on('connection', (socket) => {
     const gameType = typeof gameData === 'string' ? gameData : gameData.type;
     const options = typeof gameData === 'object' ? gameData.options || {} : {};
 
+    // Reset session wins when starting a new game from lobby
+    room.resetSessionWins();
+    room.resetPoints();
+    
     room.currentGame = gameType;
     room.gameState = initializeGame(gameType, room, options);
     
@@ -514,7 +982,7 @@ io.on('connection', (socket) => {
       state.gameOver = true;
       state.isCheckmate = true;
       state.winner = socket.id;
-      room.players.get(socket.id).score += 10;
+      room.players.get(socket.id).sessionWins += 1;  // Track session win
     } else if (gameEndState === 'stalemate') {
       state.gameOver = true;
       state.isStalemate = true;
@@ -554,14 +1022,19 @@ io.on('connection', (socket) => {
     const isCorrect = answerIndex === currentQ.correct;
 
     if (isCorrect) {
-      const player = room.players.get(socket.id);
+      // Track correct answers per player
+      if (!state.correctAnswers) state.correctAnswers = {};
+      state.correctAnswers[socket.id] = (state.correctAnswers[socket.id] || 0) + 1;
+      
+      // Award in-game points with time bonus
       const timeBonus = Math.max(0, Math.floor((state.timeLeft / 15) * 5));
-      player.score += 10 + timeBonus;
+      room.players.get(socket.id).points += 10 + timeBonus;
     }
 
     io.to(roomId).emit('playerAnswered', {
       playerId: socket.id,
       isCorrect,
+      correctAnswers: state.correctAnswers || {},
       players: room.getPlayerList(),
       answeredCount: state.answered.length,
       totalPlayers: room.players.size
@@ -620,16 +1093,33 @@ io.on('connection', (socket) => {
       setTimeout(() => {
         if (match) {
           state.matched.push(first, second);
-          room.players.get(socket.id).score += 10;
+          // Track matches per player for this round
+          if (!state.matchesPerPlayer) state.matchesPerPlayer = {};
+          state.matchesPerPlayer[socket.id] = (state.matchesPerPlayer[socket.id] || 0) + 1;
+          
+          // Award in-game points (10 per match)
+          room.players.get(socket.id).points += 10;
           
           io.to(roomId).emit('memoryMatch', {
             cards: [first, second],
             matched: state.matched,
+            matcherId: socket.id,
+            matcherName: room.players.get(socket.id).name,
+            matchesPerPlayer: state.matchesPerPlayer,
             players: room.getPlayerList()
           });
 
-          // Check win
+          // Check win - award session win to player with most matches
           if (state.matched.length === state.cards.length) {
+            const maxMatches = Math.max(...Object.values(state.matchesPerPlayer));
+            const winners = Object.entries(state.matchesPerPlayer)
+              .filter(([id, matches]) => matches === maxMatches);
+            
+            if (winners.length === 1) {
+              room.players.get(winners[0][0]).sessionWins += 1;
+            }
+            // If tie, no session win awarded
+            
             endGame(room, roomId);
           }
         } else {
@@ -665,7 +1155,7 @@ io.on('connection', (socket) => {
     const winner = checkTTTWinner(state.board);
     if (winner) {
       state.winner = socket.id;
-      room.players.get(socket.id).score += 10;
+      room.players.get(socket.id).sessionWins += 1;  // Track session win
       io.to(roomId).emit('tttUpdate', {
         board: state.board,
         winner: socket.id,
@@ -696,11 +1186,11 @@ io.on('connection', (socket) => {
     handleDisconnect(socket);
   });
 
-  // Restart game (play again)
+  // Restart game (play again) - any player can trigger
   socket.on('restartGame', (gameData) => {
     const roomId = players.get(socket.id);
     const room = rooms.get(roomId);
-    if (!room || room.hostId !== socket.id) return;
+    if (!room) return;
     
     // Support both old format (string) and new format (object with options)
     const gameType = typeof gameData === 'string' ? gameData : gameData.type;
@@ -714,6 +1204,9 @@ io.on('connection', (socket) => {
     if (gameType === 'sudoku' && !options.difficulty && room.lastSudokuDifficulty) {
       options.difficulty = room.lastSudokuDifficulty;
     }
+    
+    // Reset points but keep session wins (accumulating for trophy)
+    room.resetPoints();
     
     // Re-initialize the game
     room.currentGame = gameType;
@@ -768,16 +1261,6 @@ io.on('connection', (socket) => {
     // Check if correct
     const isCorrect = value === 0 || value === state.solution[row][col];
     
-    // Award/deduct points
-    const player = room.players.get(socket.id);
-    if (value !== 0) {
-      if (isCorrect) {
-        player.score += 5;
-      } else {
-        player.score = Math.max(0, player.score - 2);
-      }
-    }
-    
     // Check if puzzle is complete
     let isComplete = true;
     for (let i = 0; i < 9 && isComplete; i++) {
@@ -792,9 +1275,7 @@ io.on('connection', (socket) => {
       state.completed = true;
       const completionTime = Math.floor((Date.now() - state.startTime) / 1000);
       
-      // Bonus points for completion
-      room.players.forEach(p => p.score += 20);
-      
+      // Sudoku is collaborative - no individual winner
       io.to(roomId).emit('sudokuComplete', {
         completionTime,
         players: room.getPlayerList()
@@ -843,7 +1324,7 @@ io.on('connection', (socket) => {
     if (winner) {
       state.winner = socket.id;
       state.winningCells = winner;
-      room.players.get(socket.id).score += 10;
+      room.players.get(socket.id).sessionWins += 1;  // Track session win
     }
     
     // Check for draw
@@ -874,17 +1355,38 @@ io.on('connection', (socket) => {
     const state = room.gameState;
     if (!state.roundActive) return;
     
-    const moleIdx = state.molePositions.indexOf(moleIndex);
-    if (moleIdx !== -1) {
+    // Find the mole at this position
+    const moleData = state.molePositions.find(m => m.position === moleIndex);
+    if (moleData) {
+      // Remove mole from active positions
+      const moleIdx = state.molePositions.indexOf(moleData);
       state.molePositions.splice(moleIdx, 1);
+      
       if (!state.scores[socket.id]) state.scores[socket.id] = 0;
-      state.scores[socket.id] += 10;
-      room.players.get(socket.id).score += 10;
+      
+      // Check if player hit their own mole or someone else's
+      const isOwnMole = moleData.playerId === socket.id;
+      let pointsChange = 0;
+      
+      if (isOwnMole) {
+        // Hit own mole: +10 points
+        pointsChange = 10;
+        state.scores[socket.id] = (state.scores[socket.id] || 0) + 10;
+      } else {
+        // Hit someone else's mole: -5 points
+        pointsChange = -5;
+        state.scores[socket.id] = Math.max(0, (state.scores[socket.id] || 0) - 5);
+      }
       
       io.to(roomId).emit('moleWhacked', {
         moleIndex,
-        playerId: socket.id,
-        playerName: room.players.get(socket.id).name,
+        moleOwnerId: moleData.playerId,
+        moleOwnerName: moleData.playerName,
+        moleColor: moleData.color,
+        whackerId: socket.id,
+        whackerName: room.players.get(socket.id).name,
+        isOwnMole,
+        pointsChange,
         scores: state.scores,
         players: room.getPlayerList()
       });
@@ -905,14 +1407,19 @@ io.on('connection', (socket) => {
     const isCorrect = answerIndex === currentQ.correct;
 
     if (isCorrect) {
-      const player = room.players.get(socket.id);
+      // Track correct answers per player
+      if (!state.correctAnswers) state.correctAnswers = {};
+      state.correctAnswers[socket.id] = (state.correctAnswers[socket.id] || 0) + 1;
+      
+      // Award in-game points with time bonus
       const timeBonus = Math.max(0, Math.floor((state.timeLeft / 15) * 5));
-      player.score += 10 + timeBonus;
+      room.players.get(socket.id).points += 10 + timeBonus;
     }
 
     io.to(roomId).emit('mathPlayerAnswered', {
       playerId: socket.id,
       isCorrect,
+      correctAnswers: state.correctAnswers || {},
       players: room.getPlayerList(),
       answeredCount: state.answered.length,
       totalPlayers: room.players.size
@@ -1006,7 +1513,6 @@ io.on('connection', (socket) => {
     let captured = false;
     if (validMove.newPosition === 'finished') {
       token.position = 'finished';
-      room.players.get(socket.id).score += 25;
     } else {
       // Check for capture
       const safeSquares = [0, 8, 13, 21, 26, 34, 39, 47];
@@ -1018,7 +1524,6 @@ io.on('connection', (socket) => {
                 otherToken.position = 'home';
                 otherToken.distanceTraveled = 0;
                 captured = true;
-                room.players.get(socket.id).score += 10;
               }
             });
           }
@@ -1042,7 +1547,7 @@ io.on('connection', (socket) => {
     const allFinished = playerTokens.every(t => t.position === 'finished');
     if (allFinished) {
       state.winner = socket.id;
-      room.players.get(socket.id).score += 50;
+      room.players.get(socket.id).sessionWins += 1;  // Track session win
       
       io.to(roomId).emit('ludoUpdate', {
         winner: socket.id,
@@ -1086,9 +1591,38 @@ io.on('connection', (socket) => {
     const room = rooms.get(roomId);
     if (!room) return;
 
+    // Award trophy to session winner before returning to lobby
+    const trophyWinner = room.awardTrophy();
+    
+    // Update all players' global stats (games played, wins)
+    room.getPlayerList().forEach(player => {
+      if (player.username && userAccounts[player.username]) {
+        const won = player.sessionWins > 0;
+        // Update games played (trophy already handled in awardTrophy)
+        userAccounts[player.username].gamesPlayed = (userAccounts[player.username].gamesPlayed || 0) + 1;
+        if (won) {
+          userAccounts[player.username].totalWins = (userAccounts[player.username].totalWins || 0) + player.sessionWins;
+        }
+        userAccounts[player.username].lastPlayed = Date.now();
+      }
+    });
+    saveUsers(userAccounts);
+    
+    // Reset session wins for next game
+    room.resetSessionWins();
+    room.resetPoints();
+    
     room.currentGame = null;
     room.gameState = {};
-    io.to(roomId).emit('returnToLobby', { players: room.getPlayerList() });
+    
+    io.to(roomId).emit('returnToLobby', { 
+      players: room.getPlayerList(),
+      trophyWinner: trophyWinner ? { 
+        id: trophyWinner.id, 
+        name: trophyWinner.name,
+        totalTrophies: trophyWinner.username ? (userAccounts[trophyWinner.username]?.trophies || 0) : trophyWinner.trophies
+      } : null
+    });
   });
 
   // Disconnect
@@ -1154,10 +1688,9 @@ function initializeGame(gameType, room, options = {}) {
       };
 
     case 'memory':
-      // Difficulty levels: easy (6 pairs), hard (8 pairs), insane (12 pairs), impossible (25 pairs = 50 cards)
+      // Difficulty levels: easy (6 pairs), hard (8 pairs), insane (12 pairs)
       const difficulty = options.difficulty || 'easy';
       const memoryItemsAll = [
-        // Original items
         { id: 'demogorgon', emoji: '👹', name: 'Demogorgon' },
         { id: 'eleven', emoji: '🔴', name: 'Eleven' },
         { id: 'wednesday', emoji: '🖤', name: 'Wednesday' },
@@ -1169,42 +1702,7 @@ function initializeGame(gameType, room, options = {}) {
         { id: 'vecna', emoji: '👁️', name: 'Vecna' },
         { id: 'mindflayer', emoji: '🌑', name: 'Mind Flayer' },
         { id: 'hopper', emoji: '🚔', name: 'Hopper' },
-        { id: 'enid', emoji: '🐺', name: 'Enid' },
-        { id: 'upside', emoji: '🙃', name: 'Upside Down' },
-        { id: 'raven', emoji: '🐦‍⬛', name: 'Raven' },
-        { id: 'gate', emoji: '🚪', name: 'Gate' },
-        { id: 'lab', emoji: '🔬', name: 'Hawkins Lab' },
-        // Additional items for impossible mode
-        { id: 'dustin', emoji: '🧢', name: 'Dustin' },
-        { id: 'mike', emoji: '🚲', name: 'Mike' },
-        { id: 'lucas', emoji: '🏹', name: 'Lucas' },
-        { id: 'will', emoji: '🎨', name: 'Will' },
-        { id: 'max', emoji: '🛹', name: 'Max' },
-        { id: 'steve', emoji: '🦇', name: 'Steve' },
-        { id: 'nancy', emoji: '📰', name: 'Nancy' },
-        { id: 'jonathan', emoji: '📷', name: 'Jonathan' },
-        { id: 'joyce', emoji: '🎄', name: 'Joyce' },
-        { id: 'murray', emoji: '📡', name: 'Murray' },
-        { id: 'robin', emoji: '🎬', name: 'Robin' },
-        { id: 'eddie', emoji: '🎸', name: 'Eddie' },
-        { id: 'morticia', emoji: '🥀', name: 'Morticia' },
-        { id: 'gomez', emoji: '⚔️', name: 'Gomez' },
-        { id: 'pugsley', emoji: '💣', name: 'Pugsley' },
-        { id: 'lurch', emoji: '🚪', name: 'Lurch' },
-        { id: 'fester', emoji: '💡', name: 'Fester' },
-        { id: 'bianca', emoji: '🧜‍♀️', name: 'Bianca' },
-        { id: 'xavier', emoji: '🎨', name: 'Xavier' },
-        { id: 'tyler', emoji: '☕', name: 'Tyler' },
-        { id: 'weems', emoji: '👩‍💼', name: 'Weems' },
-        { id: 'demodogs', emoji: '🐕', name: 'Demodogs' },
-        { id: 'demobats', emoji: '🦇', name: 'Demobats' },
-        { id: 'clock', emoji: '🕰️', name: 'Vecna Clock' },
-        { id: 'walkie', emoji: '📻', name: 'Walkie' },
-        { id: 'christmas', emoji: '🎅', name: 'Christmas' },
-        { id: 'arcade', emoji: '🕹️', name: 'Arcade' },
-        { id: 'pool', emoji: '🏊', name: 'Pool' },
-        { id: 'mall', emoji: '🛒', name: 'Starcourt' },
-        { id: 'russia', emoji: '🇷🇺', name: 'Russia' }
+        { id: 'enid', emoji: '🐺', name: 'Enid' }
       ];
       
       let pairCount;
@@ -1221,10 +1719,6 @@ function initializeGame(gameType, room, options = {}) {
         case 'insane':
           pairCount = 12;
           gridCols = 6; // 6x4 grid
-          break;
-        case 'impossible':
-          pairCount = 25;
-          gridCols = 10; // 10x5 grid = 50 cards
           break;
         default:
           pairCount = 6;
@@ -1316,13 +1810,22 @@ function initializeGame(gameType, room, options = {}) {
       };
 
     case 'molewhack':
+      // Create player list with colors for mole assignment
+      const molePlayerList = playerIds.map((id, idx) => ({
+        id,
+        color: room.players.get(id).color || PLAYER_COLORS[idx % PLAYER_COLORS.length],
+        name: room.players.get(id).name
+      }));
       return {
         round: 1,
-        maxRounds: 10,
-        molePositions: [],
+        maxRounds: 5,
+        molePositions: [],  // Now stores { position, playerId, color, playerName }
         scores: {},
         roundActive: false,
-        roundStartTime: null
+        roundStartTime: null,
+        playerList: molePlayerList,  // List of players with colors
+        spawnInterval: 1000,  // Starting spawn interval (ms) - gets faster each round
+        moleLifetime: 2000   // How long mole stays up (ms) - gets shorter each round
       };
 
     case 'mathquiz':
@@ -1364,7 +1867,7 @@ function initializeGame(gameType, room, options = {}) {
 // Generate math questions
 function generateMathQuestions(count) {
   const questions = [];
-  const operations = ['+', '-', '×', '÷'];
+  const operations = ['+', '-', '×'];  // Removed division to simplify
   
   for (let i = 0; i < count; i++) {
     const op = operations[Math.floor(Math.random() * operations.length)];
@@ -1372,34 +1875,37 @@ function generateMathQuestions(count) {
     
     switch (op) {
       case '+':
-        a = Math.floor(Math.random() * 50) + 1;
-        b = Math.floor(Math.random() * 50) + 1;
+        a = Math.floor(Math.random() * 50) + 10;
+        b = Math.floor(Math.random() * 50) + 10;
         answer = a + b;
         break;
       case '-':
-        a = Math.floor(Math.random() * 50) + 20;
-        b = Math.floor(Math.random() * 20) + 1;
+        a = Math.floor(Math.random() * 50) + 30;
+        b = Math.floor(Math.random() * 25) + 5;
         answer = a - b;
         break;
       case '×':
-        a = Math.floor(Math.random() * 12) + 1;
-        b = Math.floor(Math.random() * 12) + 1;
+        a = Math.floor(Math.random() * 10) + 2;
+        b = Math.floor(Math.random() * 10) + 2;
         answer = a * b;
-        break;
-      case '÷':
-        b = Math.floor(Math.random() * 10) + 1;
-        answer = Math.floor(Math.random() * 10) + 1;
-        a = b * answer;
         break;
     }
     
-    // Generate wrong options
+    // Generate wrong options - ensure we always get 3 unique wrongs
     const options = [answer];
-    while (options.length < 4) {
-      const wrong = answer + (Math.floor(Math.random() * 20) - 10);
+    const wrongOffsets = [-15, -10, -5, -3, -2, -1, 1, 2, 3, 5, 10, 15];
+    let attempts = 0;
+    while (options.length < 4 && attempts < 50) {
+      attempts++;
+      const offset = wrongOffsets[Math.floor(Math.random() * wrongOffsets.length)];
+      const wrong = answer + offset;
       if (wrong !== answer && wrong > 0 && !options.includes(wrong)) {
         options.push(wrong);
       }
+    }
+    // Fallback if we couldn't generate enough options
+    while (options.length < 4) {
+      options.push(answer + options.length * 7);
     }
     options.sort(() => Math.random() - 0.5);
     
@@ -1419,14 +1925,13 @@ function generateSudoku(difficulty) {
   const solution = generateCompleteSudoku();
   const puzzle = solution.map(row => [...row]);
   
-  // Remove numbers based on difficulty
+  // Remove numbers based on difficulty (simplified)
   let cellsToRemove;
   switch (difficulty) {
-    case 'easy': cellsToRemove = 35; break;
-    case 'medium': cellsToRemove = 45; break;
-    case 'hard': cellsToRemove = 55; break;
-    case 'evil': cellsToRemove = 60; break;
-    default: cellsToRemove = 45;
+    case 'easy': cellsToRemove = 30; break;
+    case 'medium': cellsToRemove = 40; break;
+    case 'hard': cellsToRemove = 50; break;
+    default: cellsToRemove = 35;
   }
   
   const positions = [];
@@ -1544,6 +2049,7 @@ function revealMathAnswer(room, roomId) {
 
   io.to(roomId).emit('mathReveal', {
     correctAnswer: currentQ.correct,
+    correctAnswers: state.correctAnswers || {},
     players: room.getPlayerList()
   });
 
@@ -1552,6 +2058,17 @@ function revealMathAnswer(room, roomId) {
     state.answered = [];
 
     if (state.currentQuestion >= state.questions.length) {
+      // Award session win to player with most correct answers
+      const correctAnswers = state.correctAnswers || {};
+      if (Object.keys(correctAnswers).length > 0) {
+        const maxCorrect = Math.max(...Object.values(correctAnswers));
+        const winners = Object.entries(correctAnswers)
+          .filter(([id, count]) => count === maxCorrect);
+        
+        if (winners.length === 1) {
+          room.players.get(winners[0][0]).sessionWins += 1;
+        }
+      }
       endGame(room, roomId);
     } else {
       state.timeLeft = 15;
@@ -1589,6 +2106,7 @@ function revealTriviaAnswer(room, roomId) {
 
   io.to(roomId).emit('triviaReveal', {
     correctAnswer: currentQ.correct,
+    correctAnswers: state.correctAnswers || {},
     players: room.getPlayerList()
   });
 
@@ -1597,6 +2115,17 @@ function revealTriviaAnswer(room, roomId) {
     state.answered = [];
 
     if (state.currentQuestion >= state.questions.length) {
+      // Award session win to player with most correct answers
+      const correctAnswers = state.correctAnswers || {};
+      if (Object.keys(correctAnswers).length > 0) {
+        const maxCorrect = Math.max(...Object.values(correctAnswers));
+        const winners = Object.entries(correctAnswers)
+          .filter(([id, count]) => count === maxCorrect);
+        
+        if (winners.length === 1) {
+          room.players.get(winners[0][0]).sessionWins += 1;
+        }
+      }
       endGame(room, roomId);
     } else {
       state.timeLeft = 15;
@@ -1633,14 +2162,21 @@ function resolvePsychicRound(room, roomId) {
       
       if (c1 === c2) continue;
       
+      // Track total wins across all rounds
+      if (!state.totalWins) state.totalWins = {};
+      
       if (beats[c1] === c2) {
-        room.players.get(p1).score += 5;
+        state.totalWins[p1] = (state.totalWins[p1] || 0) + 1;
         roundResults[p1].wins++;
         roundResults[p2].losses++;
+        // Award in-game points
+        room.players.get(p1).points += 5;
       } else {
-        room.players.get(p2).score += 5;
+        state.totalWins[p2] = (state.totalWins[p2] || 0) + 1;
         roundResults[p2].wins++;
         roundResults[p1].losses++;
+        // Award in-game points
+        room.players.get(p2).points += 5;
       }
     }
   }
@@ -1649,7 +2185,8 @@ function resolvePsychicRound(room, roomId) {
     choices: Object.fromEntries(state.choices),
     players: room.getPlayerList(),
     round: state.round,
-    roundResults
+    roundResults,
+    totalWins: state.totalWins || {}
   });
 
   // Increased delay to 5 seconds so players can see results properly
@@ -1658,6 +2195,17 @@ function resolvePsychicRound(room, roomId) {
     state.choices.clear();
 
     if (state.round > state.maxRounds) {
+      // Award session win to player with most total wins
+      const totalWins = state.totalWins || {};
+      if (Object.keys(totalWins).length > 0) {
+        const maxWins = Math.max(...Object.values(totalWins));
+        const winners = Object.entries(totalWins)
+          .filter(([id, wins]) => wins === maxWins);
+        
+        if (winners.length === 1) {
+          room.players.get(winners[0][0]).sessionWins += 1;
+        }
+      }
       endGame(room, roomId);
     } else {
       io.to(roomId).emit('nextPsychicRound', { round: state.round });
@@ -1666,10 +2214,18 @@ function resolvePsychicRound(room, roomId) {
 }
 
 function endGame(room, roomId) {
-  const players = room.getPlayerList().sort((a, b) => b.score - a.score);
+  const playerList = room.getPlayerList();
+  
+  // Find the winner of this round (most session wins in current session)
+  const sortedBySessionWins = [...playerList].sort((a, b) => b.sessionWins - a.sessionWins);
+  const roundWinner = sortedBySessionWins[0];
+  
+  // Sort by trophies for display
+  const sortedByTrophies = [...playerList].sort((a, b) => b.trophies - a.trophies);
+  
   io.to(roomId).emit('gameEnded', {
-    winner: players[0],
-    players
+    sessionWinner: roundWinner,
+    players: sortedByTrophies
   });
   room.currentGame = null;
 }
@@ -1699,34 +2255,80 @@ function startMoleWhackRound(room, roomId) {
   state.molePositions = [];
   state.roundStartTime = Date.now();
   
-  io.to(roomId).emit('moleRoundStart', { round: state.round });
+  // Intensity progression: each round gets faster
+  // Round 1: spawn every 1000ms, mole stays 2000ms
+  // Round 5: spawn every 500ms, mole stays 1200ms
+  const roundProgress = (state.round - 1) / (state.maxRounds - 1); // 0 to 1
+  const spawnInterval = Math.max(500, 1000 - (roundProgress * 500)); // 1000ms -> 500ms
+  const moleLifetime = Math.max(1200, 2000 - (roundProgress * 800)); // 2000ms -> 1200ms
   
-  // Spawn moles during the round
+  state.spawnInterval = spawnInterval;
+  state.moleLifetime = moleLifetime;
+  
+  io.to(roomId).emit('moleRoundStart', { 
+    round: state.round,
+    intensity: Math.round((1 - roundProgress) * 100), // 100% = slow, 0% = fast
+    spawnInterval,
+    moleLifetime
+  });
+  
+  // Helper function to spawn a mole assigned to a random player
+  const spawnMole = () => {
+    if (!room.currentGame || room.currentGame !== 'molewhack' || !state.roundActive) {
+      return;
+    }
+    
+    // Find an available position
+    const occupiedPositions = state.molePositions.map(m => m.position);
+    const availablePositions = [0,1,2,3,4,5,6,7,8].filter(i => !occupiedPositions.includes(i));
+    if (availablePositions.length === 0) return;
+    
+    const molePosition = availablePositions[Math.floor(Math.random() * availablePositions.length)];
+    
+    // Assign mole to a random player
+    const playerList = state.playerList || [];
+    if (playerList.length === 0) return;
+    const assignedPlayer = playerList[Math.floor(Math.random() * playerList.length)];
+    
+    const moleData = {
+      position: molePosition,
+      playerId: assignedPlayer.id,
+      color: assignedPlayer.color,
+      playerName: assignedPlayer.name
+    };
+    
+    state.molePositions.push(moleData);
+    io.to(roomId).emit('moleSpawned', { 
+      moleIndex: molePosition,
+      playerId: assignedPlayer.id,
+      color: assignedPlayer.color,
+      playerName: assignedPlayer.name
+    });
+    
+    // Hide mole after lifetime if not whacked
+    const hideDelay = moleLifetime + (Math.random() * 300);
+    setTimeout(() => {
+      if (room.currentGame === 'molewhack' && state.roundActive) {
+        const idx = state.molePositions.findIndex(m => m.position === molePosition);
+        if (idx !== -1) {
+          state.molePositions.splice(idx, 1);
+          io.to(roomId).emit('moleHidden', { moleIndex: molePosition });
+        }
+      }
+    }, hideDelay);
+  };
+  
+  // Spawn first mole immediately after a short delay (let UI render)
+  setTimeout(() => spawnMole(), 500);
+  
+  // Then spawn more moles at the current interval rate
   const moleSpawner = setInterval(() => {
     if (!room.currentGame || room.currentGame !== 'molewhack' || !state.roundActive) {
       clearInterval(moleSpawner);
       return;
     }
-    
-    // Spawn a mole at random position (0-8)
-    const moleIndex = Math.floor(Math.random() * 9);
-    
-    // Don't spawn at same position if already there
-    if (!state.molePositions.includes(moleIndex)) {
-      state.molePositions.push(moleIndex);
-      io.to(roomId).emit('moleSpawned', { moleIndex });
-      
-      // Hide mole after 1-2 seconds if not whacked
-      const hideDelay = 1000 + Math.random() * 1000;
-      setTimeout(() => {
-        const idx = state.molePositions.indexOf(moleIndex);
-        if (idx !== -1) {
-          state.molePositions.splice(idx, 1);
-          io.to(roomId).emit('moleHidden', { moleIndex });
-        }
-      }, hideDelay);
-    }
-  }, 600); // Spawn every 600ms
+    spawnMole();
+  }, spawnInterval);
   
   // End round after 10 seconds
   setTimeout(() => {
@@ -1745,6 +2347,17 @@ function startMoleWhackRound(room, roomId) {
       state.round++;
       
       if (state.round > state.maxRounds) {
+        // Award session win to player with highest score
+        const scores = state.scores || {};
+        if (Object.keys(scores).length > 0) {
+          const maxScore = Math.max(...Object.values(scores));
+          const winners = Object.entries(scores)
+            .filter(([id, score]) => score === maxScore);
+          
+          if (winners.length === 1) {
+            room.players.get(winners[0][0]).sessionWins += 1;
+          }
+        }
         endGame(room, roomId);
       } else {
         // Start next round after 3 seconds
@@ -1758,7 +2371,7 @@ function startMoleWhackRound(room, roomId) {
   }, 10000);
 }
 
-// Trivia timer
+// Trivia and Math quiz timer only (mole spawning handled separately)
 setInterval(() => {
   rooms.forEach((room, roomId) => {
     if (room.currentGame === 'trivia' && room.gameState.timeLeft > 0) {
@@ -1779,27 +2392,7 @@ setInterval(() => {
         revealMathAnswer(room, roomId);
       }
     }
-    
-    // Mole whack game - spawn moles
-    if (room.currentGame === 'molewhack' && room.gameState.roundActive) {
-      // Randomly spawn moles
-      if (Math.random() < 0.3 && room.gameState.molePositions.length < 3) {
-        const newMole = Math.floor(Math.random() * 9);
-        if (!room.gameState.molePositions.includes(newMole)) {
-          room.gameState.molePositions.push(newMole);
-          io.to(roomId).emit('moleSpawned', { moleIndex: newMole });
-          
-          // Auto-hide mole after 1.5 seconds
-          setTimeout(() => {
-            const idx = room.gameState.molePositions.indexOf(newMole);
-            if (idx !== -1) {
-              room.gameState.molePositions.splice(idx, 1);
-              io.to(roomId).emit('moleHidden', { moleIndex: newMole });
-            }
-          }, 1500);
-        }
-      }
-    }
+    // NOTE: Mole spawning is handled ONLY in startMoleWhackRound - no duplicate here
   });
 }, 1000);
 
@@ -1834,7 +2427,7 @@ setInterval(() => {
           if (state.score2 >= state.maxScore) {
             state.winner = state.player2;
             state.gameActive = false;
-            room.players.get(state.player2).score += 20;
+            room.players.get(state.player2).sessionWins += 1;  // Track session win
             endGame(room, roomId);
           }
         } else {
@@ -1853,7 +2446,7 @@ setInterval(() => {
           if (state.score1 >= state.maxScore) {
             state.winner = state.player1;
             state.gameActive = false;
-            room.players.get(state.player1).score += 20;
+            room.players.get(state.player1).sessionWins += 1;  // Track session win
             endGame(room, roomId);
           }
         } else {

@@ -4,14 +4,15 @@
 // ============================================
 
 // ============================================
-// 🔧 BACKEND SERVER URL - UPDATE THIS! 🔧
+// 🔧 BACKEND SERVER URL 🔧
 // ============================================
-// After deploying to Render, replace the URL below with your Render URL
-// Example: 'https://upside-down-nevermore-games.onrender.com'
+// Railway backend
 // ============================================
 const BACKEND_URL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
   ? window.location.origin  // Local development
-  : 'https://upside-down-nevermore-games.onrender.com'; // ← UPDATE THIS after Render deploy!
+  : 'https://wednesday-addams-production.up.railway.app';
+
+console.log('🔌 Connecting to backend:', BACKEND_URL);
 
 const socket = io(BACKEND_URL, {
   transports: ['websocket', 'polling']
@@ -19,17 +20,35 @@ const socket = io(BACKEND_URL, {
 
 // DOM Elements
 const screens = {
+  authScreen: document.getElementById('authScreen'),
   mainMenu: document.getElementById('mainMenu'),
   lobby: document.getElementById('lobby'),
-  gameScreen: document.getElementById('gameScreen')
+  gameScreen: document.getElementById('gameScreen'),
+  leaderboardScreen: document.getElementById('leaderboardScreen')
 };
 
 const elements = {
+  // Auth screen
+  authTabs: document.querySelectorAll('.auth-tab'),
+  loginForm: document.getElementById('loginForm'),
+  registerForm: document.getElementById('registerForm'),
+  loginUsername: document.getElementById('loginUsername'),
+  loginPassword: document.getElementById('loginPassword'),
+  loginBtn: document.getElementById('loginBtn'),
+  registerUsername: document.getElementById('registerUsername'),
+  registerPassword: document.getElementById('registerPassword'),
+  registerDisplayName: document.getElementById('registerDisplayName'),
+  registerBtn: document.getElementById('registerBtn'),
+  guestBtn: document.getElementById('guestBtn'),
+  
   // Main menu
   playerName: document.getElementById('playerName'),
   createRoomBtn: document.getElementById('createRoomBtn'),
   roomCode: document.getElementById('roomCode'),
   joinRoomBtn: document.getElementById('joinRoomBtn'),
+  userInfoDisplay: document.getElementById('userInfoDisplay'),
+  leaderboardBtn: document.getElementById('leaderboardBtn'),
+  logoutBtn: document.getElementById('logoutBtn'),
   
   // Lobby
   displayRoomCode: document.getElementById('displayRoomCode'),
@@ -40,6 +59,7 @@ const elements = {
   sendChatBtn: document.getElementById('sendChatBtn'),
   gameSelection: document.getElementById('gameSelection'),
   leaveRoomBtn: document.getElementById('leaveRoomBtn'),
+  startVotingBtn: document.getElementById('startVotingBtn'),
   
   // Game screen
   gameTitle: document.getElementById('gameTitle'),
@@ -50,11 +70,17 @@ const elements = {
   gameChatInput: document.getElementById('gameChatInput'),
   sendGameChatBtn: document.getElementById('sendGameChatBtn'),
   
+  // Leaderboard
+  leaderboardList: document.getElementById('leaderboardList'),
+  backFromLeaderboardBtn: document.getElementById('backFromLeaderboardBtn'),
+  
   // Modal
   resultsModal: document.getElementById('resultsModal'),
   resultsTitle: document.getElementById('resultsTitle'),
   resultsContent: document.getElementById('resultsContent'),
   closeResultsBtn: document.getElementById('closeResultsBtn'),
+  votingModal: document.getElementById('votingModal'),
+  votingContent: document.getElementById('votingContent'),
   
   // Toast
   errorToast: document.getElementById('errorToast')
@@ -65,10 +91,13 @@ let state = {
   playerId: null,
   playerName: '',
   roomId: null,
-  isHost: false,
+  isAuthenticated: false,
+  username: null,
+  userStats: null,
   players: [],
   currentGame: null,
-  gameState: {}
+  gameState: {},
+  votingActive: false
 };
 
 // Chess state
@@ -86,14 +115,235 @@ let chessState = {
 document.addEventListener('DOMContentLoaded', () => {
   initParticles();
   setupEventListeners();
+  setupAuthListeners();
   setupFullscreenToggle();
   
-  // Load saved name
-  const savedName = localStorage.getItem('playerName');
-  if (savedName) {
-    elements.playerName.value = savedName;
+  // Always show auth screen first
+  showScreen('authScreen');
+  
+  // Then check for saved session and attempt auto-login
+  const savedAuth = localStorage.getItem('authSession');
+  if (savedAuth) {
+    try {
+      const auth = JSON.parse(savedAuth);
+      if (auth.username && auth.password) {
+        // Show loading state
+        const loginBtn = document.getElementById('loginBtn');
+        if (loginBtn) {
+          loginBtn.textContent = '⏳ Logging in...';
+          loginBtn.disabled = true;
+        }
+        // Pre-fill the form
+        const loginUsername = document.getElementById('loginUsername');
+        const loginPassword = document.getElementById('loginPassword');
+        if (loginUsername) loginUsername.value = auth.username;
+        if (loginPassword) loginPassword.value = '••••••••';
+        
+        // Attempt auto-login
+        socket.emit('login', auth);
+      }
+    } catch (e) {
+      console.error('Failed to parse saved auth:', e);
+      localStorage.removeItem('authSession');
+    }
   }
 });
+
+// ============================================
+// AUTHENTICATION (The Nevermore Archives)
+// ============================================
+
+function setupAuthListeners() {
+  // Tab switching
+  document.querySelectorAll('.auth-tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+      document.querySelectorAll('.auth-tab').forEach(t => t.classList.remove('active'));
+      tab.classList.add('active');
+      
+      const formType = tab.dataset.tab;
+      document.getElementById('loginForm').style.display = formType === 'login' ? 'block' : 'none';
+      document.getElementById('registerForm').style.display = formType === 'register' ? 'block' : 'none';
+    });
+  });
+  
+  // Login
+  document.getElementById('loginBtn')?.addEventListener('click', () => {
+    const username = document.getElementById('loginUsername').value.trim();
+    const password = document.getElementById('loginPassword').value;
+    
+    if (!username || !password) {
+      showError('Enter username and password');
+      return;
+    }
+    
+    socket.emit('login', { username, password });
+  });
+  
+  // Register
+  document.getElementById('registerBtn')?.addEventListener('click', () => {
+    const username = document.getElementById('registerUsername').value.trim();
+    const password = document.getElementById('registerPassword').value;
+    const displayName = document.getElementById('registerDisplayName').value.trim();
+    
+    if (!username || !password) {
+      showError('Enter username and password');
+      return;
+    }
+    
+    socket.emit('register', { username, password, displayName: displayName || username });
+  });
+  
+  // Guest mode
+  document.getElementById('guestBtn')?.addEventListener('click', () => {
+    state.isAuthenticated = false;
+    state.username = null;
+    state.userStats = null;
+    showScreen('mainMenu');
+    updateUserInfoDisplay();
+  });
+  
+  // Logout
+  document.getElementById('logoutBtn')?.addEventListener('click', () => {
+    socket.emit('logout');
+    localStorage.removeItem('authSession');
+    state.isAuthenticated = false;
+    state.username = null;
+    state.userStats = null;
+    showScreen('authScreen');
+  });
+  
+  // Leaderboard
+  document.getElementById('leaderboardBtn')?.addEventListener('click', () => {
+    socket.emit('getLeaderboard');
+    showScreen('leaderboardScreen');
+  });
+  
+  document.getElementById('backFromLeaderboardBtn')?.addEventListener('click', () => {
+    showScreen('mainMenu');
+  });
+  
+  // Enter key for forms
+  document.getElementById('loginPassword')?.addEventListener('keypress', (e) => {
+    if (e.key === 'Enter') document.getElementById('loginBtn')?.click();
+  });
+  document.getElementById('registerDisplayName')?.addEventListener('keypress', (e) => {
+    if (e.key === 'Enter') document.getElementById('registerBtn')?.click();
+  });
+}
+
+function updateUserInfoDisplay() {
+  const container = document.getElementById('userInfoDisplay');
+  if (!container) return;
+  
+  if (state.isAuthenticated && state.userStats) {
+    container.innerHTML = `
+      <div class="user-info-card">
+        <div class="user-title">${state.userStats.title}</div>
+        <div class="user-name">${escapeHtml(state.userStats.displayName)}</div>
+        <div class="user-stats">
+          <span>🏆 ${state.userStats.trophies} Trophies</span>
+          <span>⭐ ${state.userStats.totalWins} Wins</span>
+          <span>🎮 ${state.userStats.gamesPlayed} Games</span>
+        </div>
+      </div>
+    `;
+    container.style.display = 'block';
+    document.getElementById('logoutBtn').style.display = 'inline-block';
+  } else {
+    container.innerHTML = `
+      <div class="user-info-card guest">
+        <div class="user-title">👻 Guest Mode</div>
+        <div class="user-name">Playing without account</div>
+        <div class="user-stats">
+          <span>Stats won't be saved</span>
+        </div>
+      </div>
+    `;
+    container.style.display = 'block';
+    document.getElementById('logoutBtn').style.display = 'none';
+  }
+}
+
+// Auth socket events
+socket.on('authSuccess', (data) => {
+  state.isAuthenticated = true;
+  state.username = data.username;
+  state.userStats = data;
+  
+  // Save session (for auto-login)
+  const loginUsername = document.getElementById('loginUsername')?.value.trim();
+  const loginPassword = document.getElementById('loginPassword')?.value;
+  if (loginUsername && loginPassword) {
+    localStorage.setItem('authSession', JSON.stringify({ 
+      username: loginUsername, 
+      password: loginPassword 
+    }));
+  }
+  
+  // Use display name for player name
+  if (elements.playerName) {
+    elements.playerName.value = data.displayName;
+  }
+  
+  showScreen('mainMenu');
+  updateUserInfoDisplay();
+  showNotification(`Welcome back, ${data.displayName}! ${data.title}`, 'success');
+});
+
+socket.on('authError', (data) => {
+  showError(data.message);
+  
+  // Reset login button state
+  const loginBtn = document.getElementById('loginBtn');
+  if (loginBtn) {
+    loginBtn.innerHTML = '<span class="btn-icon">⚡</span> Enter the Archives';
+    loginBtn.disabled = false;
+  }
+  
+  // Clear invalid saved session
+  if (data.message.includes('not found') || data.message.includes('Incorrect')) {
+    localStorage.removeItem('authSession');
+  }
+  
+  // Make sure auth screen is visible
+  showScreen('authScreen');
+});
+
+socket.on('loggedOut', () => {
+  state.isAuthenticated = false;
+  state.username = null;
+  state.userStats = null;
+  showScreen('authScreen');
+});
+
+socket.on('leaderboardData', (data) => {
+  renderLeaderboard(data);
+});
+
+function renderLeaderboard(players) {
+  const container = document.getElementById('leaderboardList');
+  if (!container) return;
+  
+  if (players.length === 0) {
+    container.innerHTML = '<div class="empty-leaderboard">No rankings yet. Be the first to earn trophies!</div>';
+    return;
+  }
+  
+  container.innerHTML = players.map((p, i) => `
+    <div class="leaderboard-item ${i < 3 ? 'top-' + (i + 1) : ''} ${p.username === state.username ? 'is-me' : ''}">
+      <div class="rank">${i === 0 ? '👑' : i === 1 ? '🥈' : i === 2 ? '🥉' : '#' + (i + 1)}</div>
+      <div class="player-info">
+        <div class="player-name">${escapeHtml(p.displayName)}</div>
+        <div class="player-title">${p.title}</div>
+      </div>
+      <div class="player-stats">
+        <span class="trophies">🏆 ${p.trophies}</span>
+        <span class="wins">⭐ ${p.totalWins}</span>
+        <span class="games">🎮 ${p.gamesPlayed}</span>
+      </div>
+    </div>
+  `).join('');
+}
 
 // ============================================
 // FULLSCREEN TOGGLE
@@ -197,11 +447,22 @@ function setupEventListeners() {
   });
   elements.leaveRoomBtn.addEventListener('click', leaveRoom);
   
-  // Game selection - use event delegation since cards are dynamic
+  // Start voting button
+  document.getElementById('startVotingBtn')?.addEventListener('click', () => {
+    socket.emit('startVoting');
+  });
+  
+  // Game selection - use event delegation for voting
   elements.gameSelection.addEventListener('click', (e) => {
     const card = e.target.closest('.game-card');
     if (card && card.dataset.game) {
-      handleGameSelection(card.dataset.game);
+      if (state.votingActive) {
+        // Cast vote during voting phase
+        handleVote(card.dataset.game);
+      } else {
+        // Legacy: direct selection (backward compatible)
+        handleGameSelection(card.dataset.game);
+      }
     }
   });
   
@@ -214,6 +475,149 @@ function setupEventListeners() {
   
   // Modal
   elements.closeResultsBtn.addEventListener('click', closeResults);
+}
+
+// ============================================
+// GAME VOTING (The Séance Circle)
+// ============================================
+
+function handleVote(gameType) {
+  // Show vote confirmation
+  const card = document.querySelector(`.game-card[data-game="${gameType}"]`);
+  if (card) {
+    document.querySelectorAll('.game-card').forEach(c => c.classList.remove('voted'));
+    card.classList.add('voted');
+  }
+  
+  // Check for games that need difficulty selection
+  if (gameType === 'memory') {
+    showMemoryVoteOptions(gameType);
+  } else if (gameType === 'sudoku') {
+    showSudokuVoteOptions(gameType);
+  } else {
+    socket.emit('voteGame', { gameType });
+    showNotification(`Voted for ${getGameName(gameType)}! 🗳️`, 'info');
+  }
+}
+
+function showMemoryVoteOptions(gameType) {
+  const modal = document.getElementById('votingModal');
+  if (!modal) {
+    socket.emit('voteGame', { gameType, options: { difficulty: 'medium' } });
+    return;
+  }
+  
+  modal.innerHTML = `
+    <div class="voting-modal-content">
+      <h3>🧠 Memory Difficulty</h3>
+      <div class="difficulty-options">
+        <button class="difficulty-btn" data-difficulty="easy">Easy (8 pairs)</button>
+        <button class="difficulty-btn" data-difficulty="medium">Medium (12 pairs)</button>
+        <button class="difficulty-btn" data-difficulty="hard">Hard (18 pairs)</button>
+      </div>
+    </div>
+  `;
+  modal.classList.add('active');
+  
+  modal.querySelectorAll('.difficulty-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      socket.emit('voteGame', { gameType, options: { difficulty: btn.dataset.difficulty } });
+      modal.classList.remove('active');
+      showNotification(`Voted for Memory (${btn.dataset.difficulty})! 🗳️`, 'info');
+    });
+  });
+}
+
+function showSudokuVoteOptions(gameType) {
+  const modal = document.getElementById('votingModal');
+  if (!modal) {
+    socket.emit('voteGame', { gameType, options: { difficulty: 'medium' } });
+    return;
+  }
+  
+  modal.innerHTML = `
+    <div class="voting-modal-content">
+      <h3>🔢 Sudoku Difficulty</h3>
+      <div class="difficulty-options">
+        <button class="difficulty-btn" data-difficulty="easy">Easy</button>
+        <button class="difficulty-btn" data-difficulty="medium">Medium</button>
+        <button class="difficulty-btn" data-difficulty="hard">Hard</button>
+      </div>
+    </div>
+  `;
+  modal.classList.add('active');
+  
+  modal.querySelectorAll('.difficulty-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      socket.emit('voteGame', { gameType, options: { difficulty: btn.dataset.difficulty } });
+      modal.classList.remove('active');
+      showNotification(`Voted for Sudoku (${btn.dataset.difficulty})! 🗳️`, 'info');
+    });
+  });
+}
+
+function getGameName(gameType) {
+  const names = {
+    tictactoe: 'Tic Tac Toe',
+    memory: 'Memory Match',
+    trivia: 'Trivia',
+    chess: "Vecna's Chess",
+    psychic: 'Psychic Showdown',
+    sudoku: 'Sudoku',
+    connect4: 'Connect 4',
+    molewhack: 'Whack-a-Mole',
+    mathquiz: 'Math Quiz',
+    ludo: 'Ludo'
+  };
+  return names[gameType] || gameType;
+}
+
+// Socket events for voting
+socket.on('votingStarted', (data) => {
+  state.votingActive = true;
+  state.players = data.players;
+  updatePlayersList(data.players);
+  updateVoteDisplay(data.voteCounts);
+  showNotification('🗳️ Voting has begun! Choose a game!', 'info');
+  
+  // Highlight game selection
+  document.querySelectorAll('.game-card').forEach(card => {
+    card.classList.add('voting-mode');
+  });
+  
+  // Update button
+  const startVotingBtn = document.getElementById('startVotingBtn');
+  if (startVotingBtn) {
+    startVotingBtn.textContent = '⏳ Voting in progress...';
+    startVotingBtn.disabled = true;
+  }
+});
+
+socket.on('voteUpdate', (data) => {
+  updateVoteDisplay(data.voteCounts);
+  
+  // Show progress
+  const progress = document.getElementById('voteProgress');
+  if (progress) {
+    progress.textContent = `${data.voterCount}/${data.totalPlayers} voted`;
+  }
+});
+
+function updateVoteDisplay(voteCounts) {
+  document.querySelectorAll('.game-card').forEach(card => {
+    const game = card.dataset.game;
+    const count = voteCounts[game] || 0;
+    
+    let voteIndicator = card.querySelector('.vote-count');
+    if (!voteIndicator) {
+      voteIndicator = document.createElement('div');
+      voteIndicator.className = 'vote-count';
+      card.appendChild(voteIndicator);
+    }
+    
+    voteIndicator.textContent = count > 0 ? `🗳️ ${count}` : '';
+    voteIndicator.style.display = count > 0 ? 'block' : 'none';
+  });
 }
 
 // ============================================
@@ -230,6 +634,22 @@ function showError(message) {
   elements.errorToast.classList.add('active');
   setTimeout(() => {
     elements.errorToast.classList.remove('active');
+  }, 4000);
+}
+
+function showNotification(message, type = 'info') {
+  const notification = document.createElement('div');
+  notification.className = `notification notification-${type}`;
+  notification.innerHTML = `<span>${message}</span>`;
+  document.body.appendChild(notification);
+  
+  // Trigger animation
+  setTimeout(() => notification.classList.add('active'), 10);
+  
+  // Remove after delay
+  setTimeout(() => {
+    notification.classList.remove('active');
+    setTimeout(() => notification.remove(), 300);
   }, 4000);
 }
 
@@ -286,89 +706,82 @@ function copyRoomCode() {
 function updatePlayersList(players) {
   state.players = players;
   elements.playersList.innerHTML = players.map(p => `
-    <div class="player-item ${p.id === state.playerId && state.isHost ? 'host' : ''}">
+    <div class="player-item ${p.id === state.playerId ? 'is-me' : ''}">
       <span class="player-color-indicator" style="background: ${p.color || '#e50914'}"></span>
       <span class="player-name" style="color: ${p.color || '#e50914'}">${escapeHtml(p.name)}</span>
-      ${p.id === state.playerId && state.isHost ? '<span class="host-badge">👑 Host</span>' : ''}
-      ${state.isHost && p.id !== state.playerId ? `<button class="color-change-btn" data-player-id="${p.id}" title="Change color">🎨</button>` : ''}
-      <span class="score">⭐ ${p.score}</span>
+      ${p.username ? `<span class="verified-badge" title="Registered">✓</span>` : ''}
+      <span class="score" title="Trophies this session">🏆 ${p.trophies || 0}</span>
     </div>
   `).join('');
   
-  // Add color change click handlers for host
-  if (state.isHost) {
-    document.querySelectorAll('.color-change-btn').forEach(btn => {
-      btn.addEventListener('click', () => showColorPicker(btn.dataset.playerId));
-    });
-  }
-  
-  // Show game selection only for host, show waiting message for others
-  if (state.isHost) {
-    elements.gameSelection.style.display = 'block';
-    elements.gameSelection.innerHTML = `
-      <h3>⚔️ Choose Your Battle ⚔️</h3>
-      <div class="games-grid">
-        <button class="game-card" data-game="tictactoe">
-          <span class="game-icon">⭕❌</span>
-          <span class="game-name">Upside Down<br>Tic-Tac-Toe</span>
-          <span class="game-players">2 players</span>
-        </button>
-        <button class="game-card" data-game="memory">
-          <span class="game-icon">🃏</span>
-          <span class="game-name">Vecna's<br>Memory Match</span>
-          <span class="game-players">2+ players</span>
-        </button>
-        <button class="game-card" data-game="chess">
-          <span class="game-icon">♟️👑</span>
-          <span class="game-name">Vecna's<br>Chess</span>
-          <span class="game-players">2 players</span>
-        </button>
-        <button class="game-card" data-game="psychic">
-          <span class="game-icon">🔮⚡</span>
-          <span class="game-name">Psychic<br>Showdown</span>
-          <span class="game-players">2+ players</span>
-        </button>
-        <button class="game-card" data-game="trivia">
-          <span class="game-icon">🧠📺</span>
-          <span class="game-name">Nevermore<br>Trivia</span>
-          <span class="game-players">2+ players</span>
-        </button>
-        <button class="game-card" data-game="sudoku">
-          <span class="game-icon">🔢🧩</span>
-          <span class="game-name">Vecna's<br>Sudoku</span>
-          <span class="game-players">2+ players</span>
-        </button>
-        <button class="game-card" data-game="connect4">
-          <span class="game-icon">🔴🟡</span>
-          <span class="game-name">4 in<br>a Row</span>
-          <span class="game-players">2 players</span>
-        </button>
-        <button class="game-card" data-game="molewhack">
-          <span class="game-icon">🔨🐹</span>
-          <span class="game-name">Mole<br>Whacker</span>
-          <span class="game-players">2+ players</span>
-        </button>
-        <button class="game-card" data-game="mathquiz">
-          <span class="game-icon">🔢➕</span>
-          <span class="game-name">Math<br>Quiz</span>
-          <span class="game-players">2+ players</span>
-        </button>
-        <button class="game-card" data-game="ludo">
-          <span class="game-icon">🎲🦇</span>
-          <span class="game-name">Upside Down<br>Ludo</span>
-          <span class="game-players">2-4 players</span>
-        </button>
-      </div>
-    `;
-    // Event delegation handles clicks - no need to attach individual listeners
-  } else {
-    elements.gameSelection.style.display = 'block';
-    elements.gameSelection.innerHTML = '<h3 style="text-align: center; color: var(--text-secondary); font-family: Cinzel, serif;">⏳ Waiting for host to select a game... ⏳</h3>';
-  }
+  // Show game selection for everyone (voting-based)
+  elements.gameSelection.style.display = 'block';
+  elements.gameSelection.innerHTML = `
+    <div class="games-grid">
+      <button class="game-card" data-game="tictactoe">
+        <span class="game-icon">⭕❌</span>
+        <span class="game-name">Upside Down<br>Tic-Tac-Toe</span>
+        <span class="game-players">2 players</span>
+      </button>
+      <button class="game-card" data-game="memory">
+        <span class="game-icon">🃏</span>
+        <span class="game-name">Vecna's<br>Memory Match</span>
+        <span class="game-players">2+ players</span>
+      </button>
+      <button class="game-card" data-game="chess">
+        <span class="game-icon">♟️👑</span>
+        <span class="game-name">Vecna's<br>Chess</span>
+        <span class="game-players">2 players</span>
+      </button>
+      <button class="game-card" data-game="psychic">
+        <span class="game-icon">🔮⚡</span>
+        <span class="game-name">Psychic<br>Showdown</span>
+        <span class="game-players">2+ players</span>
+      </button>
+      <button class="game-card" data-game="trivia">
+        <span class="game-icon">🧠📺</span>
+        <span class="game-name">Nevermore<br>Trivia</span>
+        <span class="game-players">2+ players</span>
+      </button>
+      <button class="game-card" data-game="sudoku">
+        <span class="game-icon">🔢🧩</span>
+        <span class="game-name">Vecna's<br>Sudoku</span>
+        <span class="game-players">2+ players (Co-op)</span>
+      </button>
+      <button class="game-card" data-game="connect4">
+        <span class="game-icon">🔴🟡</span>
+        <span class="game-name">4 in<br>a Row</span>
+        <span class="game-players">2 players</span>
+      </button>
+      <button class="game-card" data-game="molewhack">
+        <span class="game-icon">🔨🐹</span>
+        <span class="game-name">Mole<br>Whacker</span>
+        <span class="game-players">2+ players</span>
+      </button>
+      <button class="game-card" data-game="mathquiz">
+        <span class="game-icon">🔢➕</span>
+        <span class="game-name">Math<br>Quiz</span>
+        <span class="game-players">2+ players</span>
+      </button>
+      <button class="game-card" data-game="ludo">
+        <span class="game-icon">🎲🦇</span>
+        <span class="game-name">Upside Down<br>Ludo</span>
+        <span class="game-players">2-4 players</span>
+      </button>
+    </div>
+    <p class="voting-hint">💡 Click "Start Voting" then everyone picks a game. Most votes wins!</p>
+  `;
 }
 
-// Handle game selection with options modal for certain games
+// Handle game selection (legacy - directly starts game without voting)
 function handleGameSelection(gameType) {
+  // If voting is active, this shouldn't be called - use handleVote instead
+  if (state.votingActive) {
+    handleVote(gameType);
+    return;
+  }
+  
+  // Legacy direct start (only if not in voting mode)
   if (gameType === 'memory') {
     showMemoryDifficultyModal();
   } else if (gameType === 'sudoku') {
@@ -449,11 +862,6 @@ function showMemoryDifficultyModal() {
           <span class="diff-name">Insane</span>
           <span class="diff-desc">6×4 Grid (12 pairs, 24 cards)</span>
         </button>
-        <button class="difficulty-btn impossible" data-difficulty="impossible">
-          <span class="diff-icon">☠️</span>
-          <span class="diff-name">IMPOSSIBLE</span>
-          <span class="diff-desc">10×5 Grid (25 pairs, 50 cards)</span>
-        </button>
       </div>
       <button class="btn btn-secondary" id="cancelDifficultyBtn" style="margin-top: 20px;">Cancel</button>
     </div>
@@ -485,22 +893,17 @@ function showSudokuDifficultyModal() {
         <button class="difficulty-btn" data-difficulty="easy">
           <span class="diff-icon">😊</span>
           <span class="diff-name">Easy</span>
-          <span class="diff-desc">~35 empty cells</span>
+          <span class="diff-desc">~30 empty cells</span>
         </button>
         <button class="difficulty-btn" data-difficulty="medium">
           <span class="diff-icon">🤔</span>
           <span class="diff-name">Medium</span>
-          <span class="diff-desc">~45 empty cells</span>
+          <span class="diff-desc">~40 empty cells</span>
         </button>
         <button class="difficulty-btn" data-difficulty="hard">
           <span class="diff-icon">😈</span>
           <span class="diff-name">Hard</span>
-          <span class="diff-desc">~55 empty cells</span>
-        </button>
-        <button class="difficulty-btn impossible" data-difficulty="evil">
-          <span class="diff-icon">👁️</span>
-          <span class="diff-name">EVIL</span>
-          <span class="diff-desc">~60 empty cells (Vecna mode)</span>
+          <span class="diff-desc">~50 empty cells</span>
         </button>
       </div>
       <button class="btn btn-secondary" id="cancelDifficultyBtn" style="margin-top: 20px;">Cancel</button>
@@ -546,8 +949,10 @@ function addChatMessage(msg, container = elements.chatMessages) {
   if (msg.system) {
     div.innerHTML = `<span class="message">${escapeHtml(msg.message)}</span>`;
   } else {
+    // Use player color if available, fallback to default
+    const senderColor = msg.playerColor || '#ff2a6d';
     div.innerHTML = `
-      <span class="sender">${escapeHtml(msg.playerName)}:</span>
+      <span class="sender" style="color: ${senderColor}">${escapeHtml(msg.playerName)}:</span>
       <span class="message">${escapeHtml(msg.message)}</span>
     `;
   }
@@ -561,7 +966,6 @@ function addChatMessage(msg, container = elements.chatMessages) {
 // ============================================
 
 function startGame(gameType) {
-  if (!state.isHost) return;
   socket.emit('startGame', gameType);
 }
 
@@ -578,12 +982,22 @@ function closeResults() {
 }
 
 function updateScoreBoard(players, currentPlayer = null) {
-  elements.scoreBoard.innerHTML = players.map(p => `
-    <div class="score-item ${p.id === currentPlayer ? 'current-turn' : ''}">
-      <span class="name">${escapeHtml(p.name)}</span>
-      <span class="points">${p.score}</span>
+  elements.scoreBoard.innerHTML = `
+    <div class="score-header">
+      <span>Player</span>
+      <span title="In-game Points">Pts</span>
+      <span title="Session Wins">Wins</span>
+      <span title="Trophies">🏆</span>
     </div>
-  `).join('');
+    ${players.map(p => `
+      <div class="score-item ${p.id === currentPlayer ? 'current-turn' : ''} ${p.id === state.playerId ? 'is-me' : ''}">
+        <span class="name" style="color: ${p.color || '#fff'}">${escapeHtml(p.name)}</span>
+        <span class="points">${p.points || 0}</span>
+        <span class="session-wins">${p.sessionWins || 0}</span>
+        <span class="trophies">${p.trophies || 0}</span>
+      </div>
+    `).join('')}
+  `;
 }
 
 // ============================================
@@ -678,17 +1092,13 @@ function showPlayAgainButton(gameType) {
   container.appendChild(playAgainDiv);
   
   document.getElementById('playAgainBtn').addEventListener('click', () => {
-    if (state.isHost) {
-      // For memory game, preserve the difficulty
-      if (state.currentGame === 'memory' && state.gameState.difficulty) {
-        socket.emit('restartGame', { type: 'memory', options: { difficulty: state.gameState.difficulty } });
-      } else if (state.currentGame === 'sudoku' && state.gameState.difficulty) {
-        socket.emit('restartGame', { type: 'sudoku', options: { difficulty: state.gameState.difficulty } });
-      } else {
-        socket.emit('restartGame', state.currentGame);
-      }
+    // Any player can trigger play again
+    if (state.currentGame === 'memory' && state.gameState.difficulty) {
+      socket.emit('restartGame', { type: 'memory', options: { difficulty: state.gameState.difficulty } });
+    } else if (state.currentGame === 'sudoku' && state.gameState.difficulty) {
+      socket.emit('restartGame', { type: 'sudoku', options: { difficulty: state.gameState.difficulty } });
     } else {
-      showError('Only the host can restart the game!');
+      socket.emit('restartGame', state.currentGame);
     }
   });
   
@@ -1516,41 +1926,50 @@ socket.on('error', (data) => {
 
 // Game events
 socket.on('gameStarted', (data) => {
+  console.log('🎮 Game started:', data.gameType, data.gameState);
   state.currentGame = data.gameType;
   state.players = data.players;
   showScreen('gameScreen');
   
-  switch (data.gameType) {
-    case 'tictactoe':
-      initTicTacToe(data.gameState, data.players);
-      break;
-    case 'memory':
-      initMemoryGame(data.gameState, data.players);
-      break;
-    case 'trivia':
-      initTrivia(data.gameState, data.players);
-      break;
-    case 'chess':
-      initChessGame(data.gameState, data.players);
-      break;
-    case 'psychic':
-      initPsychicGame(data.gameState, data.players);
-      break;
-    case 'sudoku':
-      initSudokuGame(data.gameState, data.players);
-      break;
-    case 'connect4':
-      initConnect4Game(data.gameState, data.players);
-      break;
-    case 'molewhack':
-      initMoleWhackGame(data.gameState, data.players);
-      break;
-    case 'mathquiz':
-      initMathQuizGame(data.gameState, data.players);
-      break;
-    case 'ludo':
-      initLudoGame(data.gameState, data.players);
-      break;
+  try {
+    switch (data.gameType) {
+      case 'tictactoe':
+        initTicTacToe(data.gameState, data.players);
+        break;
+      case 'memory':
+        initMemoryGame(data.gameState, data.players);
+        break;
+      case 'trivia':
+        initTrivia(data.gameState, data.players);
+        break;
+      case 'chess':
+        initChessGame(data.gameState, data.players);
+        break;
+      case 'psychic':
+        initPsychicGame(data.gameState, data.players);
+        break;
+      case 'sudoku':
+        initSudokuGame(data.gameState, data.players);
+        break;
+      case 'connect4':
+        initConnect4Game(data.gameState, data.players);
+        break;
+      case 'molewhack':
+        initMoleWhackGame(data.gameState, data.players);
+        break;
+      case 'mathquiz':
+        initMathQuizGame(data.gameState, data.players);
+        break;
+      case 'ludo':
+        initLudoGame(data.gameState, data.players);
+        break;
+      default:
+        console.error('Unknown game type:', data.gameType);
+        elements.gameContent.innerHTML = '<div style="text-align:center;color:red;">Unknown game type</div>';
+    }
+  } catch (err) {
+    console.error('Error initializing game:', err);
+    elements.gameContent.innerHTML = `<div style="text-align:center;color:red;">Error loading game: ${err.message}</div>`;
   }
 });
 
@@ -1562,12 +1981,38 @@ socket.on('returnToLobby', (data) => {
   state.currentGame = null;
   state.gameState = {};
   state.players = data.players;
+  state.votingActive = false;
+  
   // Clear game content
   elements.gameContent.innerHTML = '';
   // Close any open modals
   elements.resultsModal.classList.remove('active');
+  
+  // Reset voting UI
+  document.querySelectorAll('.game-card').forEach(card => {
+    card.classList.remove('voting-mode', 'voted');
+    const voteCount = card.querySelector('.vote-count');
+    if (voteCount) voteCount.remove();
+  });
+  const startVotingBtn = document.getElementById('startVotingBtn');
+  if (startVotingBtn) {
+    startVotingBtn.textContent = '🗳️ Start Voting';
+    startVotingBtn.disabled = false;
+  }
+  
   updatePlayersList(data.players);
   showScreen('lobby');
+  
+  // Show notification about trophy
+  if (data.trophyWinner) {
+    showNotification(`🏆 ${data.trophyWinner.name} earned a Trophy! (Total: ${data.trophyWinner.totalTrophies})`, 'success');
+    
+    // Update own stats if we're the winner
+    if (data.trophyWinner.id === state.playerId && state.userStats) {
+      state.userStats.trophies = data.trophyWinner.totalTrophies;
+      updateUserInfoDisplay();
+    }
+  }
 });
 
 // Tic Tac Toe
@@ -1629,32 +2074,59 @@ socket.on('playerColorChanged', (data) => {
 
 // Game end
 socket.on('gameEnded', (data) => {
-  elements.resultsTitle.textContent = '🏆 Game Over! 🏆';
+  const sessionWinner = data.sessionWinner;
+  const hasWinner = sessionWinner && sessionWinner.sessionWins > 0;
+  
+  elements.resultsTitle.textContent = '🎭 Round Complete! 🎭';
   elements.resultsContent.innerHTML = `
     <div class="results-winner">
-      👑 Winner: <span class="winner-name">${escapeHtml(data.winner.name)}</span>
-      with ${data.winner.score} points!
+      ${hasWinner 
+        ? `🥇 <span class="winner-name">${escapeHtml(sessionWinner.name)}</span> won this round!`
+        : `🤝 It's a tie! No winner this round.`
+      }
     </div>
+    
+    <div class="scoring-explanation">
+      <h4>📊 How Scoring Works:</h4>
+      <div class="score-tiers">
+        <div class="tier"><span class="tier-icon">⭐</span> <strong>Points</strong> - In-game score (resets each round)</div>
+        <div class="tier"><span class="tier-icon">🏅</span> <strong>Wins</strong> - Rounds won this session</div>
+        <div class="tier"><span class="tier-icon">🏆</span> <strong>Trophy</strong> - Most wins when leaving = +1 Trophy!</div>
+      </div>
+    </div>
+    
     <div class="results-list">
+      <h4>Session Standings:</h4>
+      <div class="results-header">
+        <span>Player</span>
+        <span>Points</span>
+        <span>Wins</span>
+        <span>Trophies</span>
+      </div>
       ${data.players.map((p, i) => `
-        <div class="results-item">
-          <span><span class="rank">#${i + 1}</span> ${escapeHtml(p.name)}</span>
-          <span class="score">${p.score} pts</span>
+        <div class="results-item ${p.id === sessionWinner?.id ? 'session-leader' : ''} ${p.id === state.playerId ? 'is-me' : ''}">
+          <span class="player-name">${escapeHtml(p.name)}</span>
+          <span class="points">⭐ ${p.points || 0}</span>
+          <span class="session-wins">🏅 ${p.sessionWins || 0}</span>
+          <span class="trophies">🏆 ${p.trophies || 0}</span>
         </div>
       `).join('')}
     </div>
+    
     <div class="results-actions">
-      ${state.isHost ? `
-        <button class="btn btn-primary" id="modalPlayAgainBtn">
-          <span class="btn-icon">🔄</span> Play Again
-        </button>
-      ` : '<p style="color: var(--text-secondary); margin-top: 15px;">Waiting for host to restart...</p>'}
+      <button class="btn btn-primary" id="modalPlayAgainBtn">
+        <span class="btn-icon">🔄</span> Play Again
+      </button>
+      <button class="btn btn-secondary" id="modalBackToLobbyBtn">
+        <span class="btn-icon">🏠</span> Back to Lobby
+      </button>
+      <p class="trophy-hint">🏆 Most session wins gets +1 Trophy when returning to lobby!</p>
     </div>
   `;
   elements.resultsModal.classList.add('active');
   state.players = data.players;
   
-  // Add play again handler in modal
+  // Add play again handler in modal - any player can trigger
   const modalPlayAgainBtn = document.getElementById('modalPlayAgainBtn');
   if (modalPlayAgainBtn) {
     modalPlayAgainBtn.addEventListener('click', () => {
@@ -1668,45 +2140,61 @@ socket.on('gameEnded', (data) => {
       }
     });
   }
+  
+  // Add back to lobby handler - any player can trigger
+  const modalBackToLobbyBtn = document.getElementById('modalBackToLobbyBtn');
+  if (modalBackToLobbyBtn) {
+    modalBackToLobbyBtn.addEventListener('click', () => {
+      socket.emit('endGame');
+    });
+  }
 });
 
 // Game restarted
 socket.on('gameRestarted', (data) => {
+  console.log('🔄 Game restarted:', data.gameType, data.gameState);
   elements.resultsModal.classList.remove('active');
   state.currentGame = data.gameType;
   state.players = data.players;
   
-  switch (data.gameType) {
-    case 'tictactoe':
-      initTicTacToe(data.gameState, data.players);
-      break;
-    case 'memory':
-      initMemoryGame(data.gameState, data.players);
-      break;
-    case 'trivia':
-      initTrivia(data.gameState, data.players);
-      break;
-    case 'chess':
-      initChessGame(data.gameState, data.players);
-      break;
-    case 'psychic':
-      initPsychicGame(data.gameState, data.players);
-      break;
-    case 'sudoku':
-      initSudokuGame(data.gameState, data.players);
-      break;
-    case 'connect4':
-      initConnect4Game(data.gameState, data.players);
-      break;
-    case 'molewhack':
-      initMoleWhackGame(data.gameState, data.players);
-      break;
-    case 'mathquiz':
-      initMathQuizGame(data.gameState, data.players);
-      break;
-    case 'ludo':
-      initLudoGame(data.gameState, data.players);
-      break;
+  try {
+    switch (data.gameType) {
+      case 'tictactoe':
+        initTicTacToe(data.gameState, data.players);
+        break;
+      case 'memory':
+        initMemoryGame(data.gameState, data.players);
+        break;
+      case 'trivia':
+        initTrivia(data.gameState, data.players);
+        break;
+      case 'chess':
+        initChessGame(data.gameState, data.players);
+        break;
+      case 'psychic':
+        initPsychicGame(data.gameState, data.players);
+        break;
+      case 'sudoku':
+        initSudokuGame(data.gameState, data.players);
+        break;
+      case 'connect4':
+        initConnect4Game(data.gameState, data.players);
+        break;
+      case 'molewhack':
+        initMoleWhackGame(data.gameState, data.players);
+        break;
+      case 'mathquiz':
+        initMathQuizGame(data.gameState, data.players);
+        break;
+      case 'ludo':
+        initLudoGame(data.gameState, data.players);
+        break;
+      default:
+        console.error('Unknown game type:', data.gameType);
+    }
+  } catch (err) {
+    console.error('Error restarting game:', err);
+    elements.gameContent.innerHTML = `<div style="text-align:center;color:red;">Error loading game: ${err.message}</div>`;
   }
 });
 
@@ -1715,8 +2203,17 @@ socket.on('gameRestarted', (data) => {
 // ============================================
 
 function initSudokuGame(gameState, players) {
-  state.gameState = gameState;
+  console.log('Initializing Sudoku:', gameState);
+  state.gameState = gameState || {};
   state.gameState.selectedCell = null;
+  
+  // Ensure currentBoard exists
+  if (!state.gameState.currentBoard || !Array.isArray(state.gameState.currentBoard)) {
+    console.error('Sudoku: Invalid currentBoard');
+    elements.gameTitle.textContent = '🔢 Vecna\'s Sudoku 🧩';
+    elements.gameContent.innerHTML = '<div style="text-align:center;color:red;">Error loading Sudoku puzzle</div>';
+    return;
+  }
   
   const difficultyLabel = gameState.difficulty ? gameState.difficulty.charAt(0).toUpperCase() + gameState.difficulty.slice(1) : 'Medium';
   elements.gameTitle.textContent = `🔢 Vecna's Sudoku (${difficultyLabel}) 🧩`;
@@ -1727,6 +2224,10 @@ function initSudokuGame(gameState, players) {
 
 function renderSudokuBoard(gameState) {
   const selectedCell = state.gameState.selectedCell;
+  const puzzle = gameState.puzzle || [];
+  const solution = gameState.solution || [];
+  const currentBoard = gameState.currentBoard || [];
+  const playerMoves = gameState.playerMoves || {};
   
   elements.gameContent.innerHTML = `
     <div class="sudoku-container">
@@ -1735,17 +2236,20 @@ function renderSudokuBoard(gameState) {
         <p>✅ Correct = +5 points | ❌ Wrong = -2 points</p>
       </div>
       <div class="sudoku-board" id="sudokuBoard">
-        ${gameState.currentBoard.map((row, rowIndex) => 
-          row.map((cell, colIndex) => {
-            const isOriginal = gameState.puzzle[rowIndex][colIndex] !== 0;
+        ${currentBoard.map((row, rowIndex) => 
+          (row || []).map((cell, colIndex) => {
+            const puzzleRow = puzzle[rowIndex] || [];
+            const solutionRow = solution[rowIndex] || [];
+            const isOriginal = puzzleRow[colIndex] !== 0;
             const isSelected = selectedCell && selectedCell[0] === rowIndex && selectedCell[1] === colIndex;
-            const isWrong = cell !== 0 && cell !== gameState.solution[rowIndex][colIndex];
+            const isWrong = cell !== 0 && cell !== solutionRow[colIndex];
             const cellKey = `${rowIndex}-${colIndex}`;
-            const filledBy = gameState.playerMoves[cellKey];
+            const filledBy = playerMoves[cellKey];
             const playerName = filledBy ? state.players.find(p => p.id === filledBy)?.name : null;
             
             // Highlight same number
-            const selectedValue = selectedCell ? gameState.currentBoard[selectedCell[0]][selectedCell[1]] : 0;
+            const selectedRow = selectedCell ? currentBoard[selectedCell[0]] || [] : [];
+            const selectedValue = selectedCell ? selectedRow[selectedCell[1]] : 0;
             const isSameNumber = cell !== 0 && cell === selectedValue;
             
             return `
@@ -1868,8 +2372,16 @@ function handleSudokuComplete(data) {
 // ============================================
 
 function initConnect4Game(gameState, players) {
-  state.gameState = gameState;
+  console.log('Initializing Connect 4:', gameState);
+  state.gameState = gameState || {};
   elements.gameTitle.textContent = '🔴 4 in a Row 🟡';
+  
+  // Ensure board exists
+  if (!state.gameState.board || !Array.isArray(state.gameState.board)) {
+    console.error('Connect4: Invalid board');
+    elements.gameContent.innerHTML = '<div style="text-align:center;color:red;">Error loading Connect 4</div>';
+    return;
+  }
   
   renderConnect4Board(gameState, players);
   updateScoreBoard(players, gameState.currentPlayer);
@@ -1905,7 +2417,7 @@ function renderConnect4Board(gameState, players) {
       <div class="connect4-board" id="connect4Board">
         ${[0,1,2,3,4,5].map(row => 
           [0,1,2,3,4,5,6].map(col => {
-            const cell = gameState.board[row][col];
+            const cell = gameState.board && gameState.board[row] ? gameState.board[row][col] : null;
             const isWinning = gameState.winningCells?.some(([r,c]) => r === row && c === col);
             return `<div class="c4-cell ${cell ? 'filled' : 'empty'} ${isWinning ? 'winning' : ''}" data-col="${col}">
               ${cell || ''}
@@ -1947,99 +2459,193 @@ function handleConnect4Update(data) {
 // ============================================
 
 function initMoleWhackGame(gameState, players) {
-  state.gameState = gameState;
-  state.gameState.activeMoles = new Set();
+  console.log('Initializing Mole Whack:', gameState);
+  state.gameState = gameState || { maxRounds: 5, round: 1 };
+  state.gameState.activeMoles = new Map(); // Map of position -> mole data
   elements.gameTitle.textContent = '🔨 Mole Whacker 🐹';
+  
+  const maxRounds = state.gameState.maxRounds || 5;
+  
+  // Find current player's color
+  const myPlayer = players.find(p => p.id === state.playerId);
+  const myColor = myPlayer?.color || '#e50914';
   
   elements.gameContent.innerHTML = `
     <div class="mole-container">
       <div class="mole-status" id="moleStatus">🎯 Get Ready!</div>
-      <div class="mole-round" id="moleRound">Round 1/${gameState.maxRounds}</div>
-      <div class="mole-score" id="moleScore">Your Whacks: 0</div>
+      <div class="mole-round" id="moleRound">Round 1/${maxRounds}</div>
+      <div class="mole-info">
+        <div class="mole-your-color">Your moles: <span class="color-indicator" style="background:${myColor}"></span></div>
+        <div class="mole-score" id="moleScore">Score: 0</div>
+      </div>
+      <div class="mole-rules">
+        <span class="rule-good">✅ Hit YOUR color = +10</span>
+        <span class="rule-bad">❌ Hit other color = -5</span>
+      </div>
       <div class="mole-board" id="moleBoard">
         ${[0,1,2,3,4,5,6,7,8].map(i => `
           <div class="mole-hole" data-index="${i}">
-            <div class="mole" id="mole-${i}">🐹</div>
+            <div class="mole" id="mole-${i}" data-color="">
+              <span class="mole-headband"></span>
+              <span class="mole-face">🐹</span>
+            </div>
           </div>
         `).join('')}
       </div>
       <div class="mole-instructions">
-        <p>👆 Tap the moles as fast as you can!</p>
-        <p>⏱️ 10 seconds per round</p>
+        <p>👆 Only hit moles with YOUR color!</p>
+        <p>⚡ Speed increases each round!</p>
       </div>
     </div>
   `;
   
   updateScoreBoard(players);
   setupMoleClickHandlers();
+  console.log('Mole Whack initialized, waiting for moles...');
 }
 
 function setupMoleClickHandlers() {
+  console.log('Setting up mole click handlers');
   document.querySelectorAll('.mole-hole').forEach(hole => {
-    hole.addEventListener('click', (e) => {
+    // Use both click and touchstart for better mobile support
+    const handleWhack = (e) => {
       e.preventDefault();
+      e.stopPropagation();
       const index = parseInt(hole.dataset.index);
       const mole = document.getElementById(`mole-${index}`);
       if (mole && mole.classList.contains('visible')) {
+        console.log('🔨 Whacking mole at:', index);
         socket.emit('whackMole', index);
         // Immediate visual feedback
         mole.classList.add('hit');
+        mole.classList.remove('visible');
         setTimeout(() => mole.classList.remove('hit'), 150);
       }
-    });
+    };
+    
+    hole.addEventListener('click', handleWhack);
+    hole.addEventListener('touchstart', handleWhack, { passive: false });
   });
 }
 
 function handleMoleRoundStart(data) {
-  state.gameState.round = data.round;
-  state.gameState.activeMoles = new Set();
+  console.log('🎯 Mole round started:', data.round, 'intensity:', data.intensity);
+  if (state.gameState) {
+    state.gameState.round = data.round;
+    state.gameState.activeMoles = new Map();
+  }
   
   const statusEl = document.getElementById('moleStatus');
   const roundEl = document.getElementById('moleRound');
-  if (statusEl) statusEl.textContent = '🔨 WHACK THE MOLES!';
-  if (roundEl) roundEl.textContent = `Round ${data.round}/${state.gameState.maxRounds}`;
+  const maxRounds = state.gameState?.maxRounds || 5;
   
-  // Clear all moles
-  document.querySelectorAll('.mole').forEach(m => m.classList.remove('visible', 'hit'));
+  // Show intensity level
+  const intensityLabel = data.round === 1 ? '🐢 Slow' : 
+                         data.round === 2 ? '🚶 Normal' :
+                         data.round === 3 ? '🏃 Fast' :
+                         data.round === 4 ? '⚡ Very Fast' : '🔥 INSANE!';
+  
+  if (statusEl) statusEl.innerHTML = `🔨 WHACK YOUR MOLES! <span class="intensity">${intensityLabel}</span>`;
+  if (roundEl) roundEl.textContent = `Round ${data.round}/${maxRounds}`;
+  
+  // Clear all moles - reset their visibility
+  document.querySelectorAll('.mole').forEach(m => {
+    m.classList.remove('visible', 'hit', 'whacked', 'my-mole', 'other-mole');
+    m.dataset.color = '';
+    m.dataset.playerId = '';
+  });
 }
 
 function handleMoleSpawned(data) {
+  console.log('🐹 Mole spawned at:', data.moleIndex, 'for player:', data.playerName, 'color:', data.color);
   const mole = document.getElementById(`mole-${data.moleIndex}`);
   if (mole) {
-    mole.classList.remove('hit');
+    mole.classList.remove('hit', 'whacked');
     mole.classList.add('visible');
-    state.gameState.activeMoles.add(data.moleIndex);
+    mole.dataset.color = data.color || '';
+    mole.dataset.playerId = data.playerId || '';
+    
+    // Set headband color
+    const headband = mole.querySelector('.mole-headband');
+    if (headband) {
+      headband.style.background = data.color || '#888';
+      headband.style.boxShadow = `0 0 8px ${data.color || '#888'}`;
+    }
+    
+    // Check if it's the current player's mole
+    const isMyMole = data.playerId === state.playerId;
+    mole.classList.toggle('my-mole', isMyMole);
+    mole.classList.toggle('other-mole', !isMyMole);
+    
+    if (state.gameState && state.gameState.activeMoles) {
+      state.gameState.activeMoles.set(data.moleIndex, {
+        playerId: data.playerId,
+        color: data.color,
+        playerName: data.playerName
+      });
+    }
+  } else {
+    console.warn('Mole element not found:', `mole-${data.moleIndex}`);
   }
 }
 
 function handleMoleWhacked(data) {
   const mole = document.getElementById(`mole-${data.moleIndex}`);
   if (mole) {
-    mole.classList.remove('visible');
+    mole.classList.remove('visible', 'my-mole', 'other-mole');
     mole.classList.add('whacked');
-    state.gameState.activeMoles.delete(data.moleIndex);
-    setTimeout(() => mole.classList.remove('whacked'), 300);
+    if (state.gameState && state.gameState.activeMoles) {
+      state.gameState.activeMoles.delete(data.moleIndex);
+    }
+    setTimeout(() => {
+      mole.classList.remove('whacked');
+      mole.dataset.color = '';
+      mole.dataset.playerId = '';
+    }, 300);
   }
   
-  // Show who whacked it
+  // Show feedback based on whether they hit their own mole
+  const feedbackMsg = data.isOwnMole 
+    ? `🔨 ${data.whackerName} whacked their mole! (+10)` 
+    : `❌ ${data.whackerName} hit ${data.moleOwnerName}'s mole! (${data.pointsChange})`;
+  
   addChatMessage({
     system: true,
-    message: `🔨 ${data.playerName} whacked a mole! (+10)`
+    message: feedbackMsg
   }, elements.gameChatMessages);
+  
+  // Show floating feedback on the mole position
+  showMoleHitFeedback(data.moleIndex, data.isOwnMole, data.pointsChange);
   
   // Update personal score display
   const myScore = data.players.find(p => p.id === state.playerId)?.score || 0;
   const scoreEl = document.getElementById('moleScore');
-  if (scoreEl) scoreEl.textContent = `Your Score: ${myScore}`;
+  if (scoreEl) scoreEl.textContent = `Score: ${myScore}`;
   
   updateScoreBoard(data.players);
+}
+
+function showMoleHitFeedback(moleIndex, isOwnMole, points) {
+  const hole = document.querySelector(`.mole-hole[data-index="${moleIndex}"]`);
+  if (!hole) return;
+  
+  const feedback = document.createElement('div');
+  feedback.className = `mole-feedback ${isOwnMole ? 'positive' : 'negative'}`;
+  feedback.textContent = points > 0 ? `+${points}` : `${points}`;
+  hole.appendChild(feedback);
+  
+  setTimeout(() => feedback.remove(), 800);
 }
 
 function handleMoleHidden(data) {
   const mole = document.getElementById(`mole-${data.moleIndex}`);
   if (mole) {
-    mole.classList.remove('visible');
-    state.gameState.activeMoles.delete(data.moleIndex);
+    mole.classList.remove('visible', 'my-mole', 'other-mole');
+    mole.dataset.color = '';
+    mole.dataset.playerId = '';
+    if (state.gameState && state.gameState.activeMoles) {
+      state.gameState.activeMoles.delete(data.moleIndex);
+    }
   }
 }
 
@@ -2068,9 +2674,17 @@ function handleMoleRoundEnd(data) {
 // ============================================
 
 function initMathQuizGame(gameState, players) {
-  state.gameState = gameState;
+  console.log('Initializing Math Quiz:', gameState);
+  state.gameState = gameState || {};
   state.gameState.selectedAnswer = null;
   elements.gameTitle.textContent = '🔢 Math Quiz ➕';
+  
+  // Ensure questions exist
+  if (!state.gameState.questions || !Array.isArray(state.gameState.questions) || state.gameState.questions.length === 0) {
+    console.error('MathQuiz: Invalid questions');
+    elements.gameContent.innerHTML = '<div style="text-align:center;color:red;">Error loading Math Quiz</div>';
+    return;
+  }
   
   showMathQuestion(0, gameState.questions[0], 15);
   updateScoreBoard(players);
@@ -2147,10 +2761,18 @@ const LUDO_COLORS = {
 };
 
 function initLudoGame(gameState, players) {
-  state.gameState = gameState;
+  console.log('Initializing Ludo:', gameState);
+  state.gameState = gameState || {};
   state.gameState.selectedToken = null;
   state.gameState.canRoll = gameState.currentPlayer === state.playerId && !gameState.diceRolled;
   elements.gameTitle.textContent = '🎲 Upside Down Ludo 🦇';
+  
+  // Ensure required data exists
+  if (!state.gameState.tokens || !state.gameState.playerOrder) {
+    console.error('Ludo: Invalid game state');
+    elements.gameContent.innerHTML = '<div style="text-align:center;color:red;">Error loading Ludo</div>';
+    return;
+  }
   
   renderLudoBoard(gameState, players);
   updateScoreBoard(players, gameState.currentPlayer);
@@ -2246,83 +2868,96 @@ function renderLudoBoard(gameState, players) {
 }
 
 function renderLudoBoardHTML(gameState) {
-  // Simplified Ludo board - a path with home bases and finish
-  const pathLength = 52; // Standard Ludo path
+  // Simplified Ludo board display
+  if (!gameState.playerOrder || !gameState.tokens) {
+    return '<div style="color:red;">Error rendering Ludo board</div>';
+  }
   
   let html = '<div class="ludo-path">';
   
-  // Render home bases
+  // Render home bases for each player
+  html += '<div style="display:flex;flex-wrap:wrap;justify-content:center;gap:15px;margin-bottom:20px;">';
   gameState.playerOrder.forEach((playerId, playerIdx) => {
-    const colorInfo = LUDO_COLORS[playerIdx];
+    const colorInfo = LUDO_COLORS[playerIdx] || { color: '#888', emoji: '⚪', name: 'Player' };
     const tokens = gameState.tokens[playerId] || [];
     const homeTokens = tokens.filter(t => t.position === 'home');
+    const onBoardTokens = tokens.filter(t => typeof t.position === 'number');
+    const finishedTokens = tokens.filter(t => t.position === 'finished');
     
     html += `
-      <div class="ludo-home ludo-home-${playerIdx}" style="background: ${colorInfo.color}20; border-color: ${colorInfo.color}">
-        <div class="ludo-home-label">${colorInfo.emoji} Home</div>
-        <div class="ludo-home-tokens">
+      <div class="ludo-home" style="background: ${colorInfo.color}20; border-color: ${colorInfo.color}; padding:15px; border-radius:10px; border:2px solid; min-width:120px;">
+        <div style="text-align:center;margin-bottom:10px;">${colorInfo.emoji} ${colorInfo.name}</div>
+        <div style="display:flex;gap:5px;justify-content:center;flex-wrap:wrap;">
           ${homeTokens.map((t, i) => {
+            const tokenIdx = tokens.indexOf(t);
             const isMovable = gameState.validMoves && 
-                             gameState.validMoves.some(m => m.tokenIndex === tokens.indexOf(t)) &&
+                             gameState.validMoves.some(m => m.tokenIndex === tokenIdx) &&
                              playerId === state.playerId;
             return `<div class="ludo-token ${isMovable ? 'movable' : ''}" 
-                        data-token-index="${tokens.indexOf(t)}"
-                        style="background: ${colorInfo.color}">${colorInfo.emoji}</div>`;
+                        data-token-index="${tokenIdx}"
+                        style="background: ${colorInfo.color}; width:30px; height:30px; border-radius:50%; display:flex; align-items:center; justify-content:center; cursor:${isMovable ? 'pointer' : 'default'}; ${isMovable ? 'box-shadow: 0 0 10px gold; animation: tokenPulse 1s infinite;' : ''}">${colorInfo.emoji}</div>`;
           }).join('')}
+        </div>
+        <div style="font-size:0.8rem;color:var(--text-secondary);margin-top:8px;text-align:center;">
+          🏠 ${homeTokens.length} | 🎯 ${onBoardTokens.length} | ✅ ${finishedTokens.length}
         </div>
       </div>
     `;
   });
-  
-  // Render the track (simplified circular display)
-  html += '<div class="ludo-track">';
-  for (let i = 0; i < pathLength; i++) {
-    const tokensHere = [];
-    gameState.playerOrder.forEach((playerId, playerIdx) => {
-      const tokens = gameState.tokens[playerId] || [];
-      tokens.forEach((t, tIdx) => {
-        if (t.position === i) {
-          const colorInfo = LUDO_COLORS[playerIdx];
-          const isMovable = gameState.validMoves && 
-                           gameState.validMoves.some(m => m.tokenIndex === tIdx) &&
-                           playerId === state.playerId;
-          tokensHere.push({ playerIdx, tIdx, colorInfo, isMovable, playerId });
-        }
-      });
-    });
-    
-    // Highlight special squares
-    const isStartSquare = i === 0 || i === 13 || i === 26 || i === 39;
-    const isSafeSquare = i === 8 || i === 21 || i === 34 || i === 47;
-    
-    html += `
-      <div class="ludo-square ${isStartSquare ? 'start-square' : ''} ${isSafeSquare ? 'safe-square' : ''}">
-        ${tokensHere.map(t => `
-          <div class="ludo-token ${t.isMovable ? 'movable' : ''}" 
-               data-token-index="${t.tIdx}"
-               data-player-id="${t.playerId}"
-               style="background: ${t.colorInfo.color}">${t.colorInfo.emoji}</div>
-        `).join('')}
-      </div>
-    `;
-  }
   html += '</div>';
   
-  // Render finish areas
-  html += '<div class="ludo-finish-area">';
+  // Simplified track - just show tokens on board
+  const onBoardInfo = [];
   gameState.playerOrder.forEach((playerId, playerIdx) => {
-    const colorInfo = LUDO_COLORS[playerIdx];
+    const colorInfo = LUDO_COLORS[playerIdx] || { color: '#888', emoji: '⚪' };
+    const tokens = gameState.tokens[playerId] || [];
+    tokens.forEach((t, tIdx) => {
+      if (typeof t.position === 'number') {
+        const isMovable = gameState.validMoves && 
+                         gameState.validMoves.some(m => m.tokenIndex === tIdx) &&
+                         playerId === state.playerId;
+        onBoardInfo.push({
+          position: t.position,
+          colorInfo,
+          isMovable,
+          tokenIdx: tIdx,
+          playerId
+        });
+      }
+    });
+  });
+  
+  if (onBoardInfo.length > 0) {
+    html += '<div style="background:rgba(0,0,0,0.3);padding:15px;border-radius:10px;margin-bottom:20px;">';
+    html += '<div style="text-align:center;margin-bottom:10px;color:var(--text-secondary);">Tokens on Track:</div>';
+    html += '<div style="display:flex;flex-wrap:wrap;gap:10px;justify-content:center;">';
+    onBoardInfo.forEach(info => {
+      html += `<div class="ludo-token ${info.isMovable ? 'movable' : ''}" 
+                   data-token-index="${info.tokenIdx}"
+                   data-player-id="${info.playerId}"
+                   style="background: ${info.colorInfo.color}; width:35px; height:35px; border-radius:50%; display:flex; align-items:center; justify-content:center; position:relative; cursor:${info.isMovable ? 'pointer' : 'default'}; ${info.isMovable ? 'box-shadow: 0 0 10px gold; animation: tokenPulse 1s infinite;' : ''}">
+                ${info.colorInfo.emoji}
+                <span style="position:absolute;bottom:-15px;font-size:0.7rem;color:var(--text-secondary);">${info.position}</span>
+              </div>`;
+    });
+    html += '</div></div>';
+  }
+  
+  // Finish area
+  html += '<div style="display:flex;justify-content:center;gap:15px;flex-wrap:wrap;">';
+  gameState.playerOrder.forEach((playerId, playerIdx) => {
+    const colorInfo = LUDO_COLORS[playerIdx] || { color: '#888', emoji: '⚪' };
     const tokens = gameState.tokens[playerId] || [];
     const finishedTokens = tokens.filter(t => t.position === 'finished');
     
-    html += `
-      <div class="ludo-finish ludo-finish-${playerIdx}" style="border-color: ${colorInfo.color}">
-        <div class="ludo-finish-label">✅</div>
-        ${finishedTokens.map(() => `
-          <div class="ludo-token finished" style="background: ${colorInfo.color}">${colorInfo.emoji}</div>
-        `).join('')}
-      </div>
-    `;
+    if (finishedTokens.length > 0) {
+      html += `<div style="border:2px dashed ${colorInfo.color}; padding:10px; border-radius:10px; text-align:center;">
+                <div>✅ Finished</div>
+                <div style="display:flex;gap:5px;margin-top:5px;">
+                  ${finishedTokens.map(() => `<div style="background:${colorInfo.color};width:25px;height:25px;border-radius:50%;display:flex;align-items:center;justify-content:center;">${colorInfo.emoji}</div>`).join('')}
+                </div>
+              </div>`;
+    }
   });
   html += '</div>';
   
