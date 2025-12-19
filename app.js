@@ -6,14 +6,11 @@
 // ============================================
 // 🔧 BACKEND SERVER URL 🔧
 // ============================================
-// Railway backend - Update this URL after deploying to Railway!
-// Find your Railway URL in: Railway Dashboard > Your Project > Settings > Domains
+// Railway backend
 // ============================================
-const RAILWAY_URL = 'https://upside-down-nevermore-games-production.up.railway.app';
-
 const BACKEND_URL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
   ? window.location.origin  // Local development
-  : RAILWAY_URL;
+  : 'https://wednesday-addams-production.up.railway.app';
 
 console.log('🔌 Connecting to backend:', BACKEND_URL);
 
