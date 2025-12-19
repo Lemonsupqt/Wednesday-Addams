@@ -1713,6 +1713,290 @@ io.on('connection', (socket) => {
     console.log(`⚔️ Challenge: ${challenger.name} -> ${target.name} (${gameType})`);
   });
   
+  // Challenge Wednesday AI (from within a regular room)
+  socket.on('challengeWednesday', ({ gameType, difficulty, options = {} }) => {
+    const roomId = players.get(socket.id);
+    const room = rooms.get(roomId);
+    if (!room) return;
+    
+    const player = room.players.get(socket.id);
+    if (!player) return;
+    
+    // Check if player is already in a match
+    if (player.inMatch) {
+      socket.emit('error', { message: 'You are already in a game' });
+      return;
+    }
+    
+    // Create an AI match
+    const matchId = 'AI_' + uuidv4();
+    if (!room.activeMatches) room.activeMatches = new Map();
+    
+    // Mark player as in a match
+    player.inMatch = matchId;
+    
+    // Setup match players (player vs Wednesday AI)
+    const matchPlayers = [
+      { id: player.id, name: player.name, color: player.color },
+      { id: AI_PLAYER_ID, name: AI_PLAYER_NAME, color: '#9333ea', isAI: true }
+    ];
+    
+    // Initialize game state based on game type
+    const gameState = initializeAIMatchGame(gameType, matchPlayers, difficulty, options);
+    
+    const match = {
+      matchId,
+      gameType,
+      players: matchPlayers,
+      spectators: [],
+      gameState,
+      options,
+      isAIMatch: true,
+      aiDifficulty: difficulty
+    };
+    
+    room.activeMatches.set(matchId, match);
+    
+    // Store AI match state
+    if (!aiRooms.has(matchId)) {
+      const aiState = createAIGameState(matchId, gameType, difficulty);
+      aiRooms.set(matchId, aiState);
+    }
+    
+    // Notify the player that match started
+    socket.emit('matchStarted', {
+      matchId,
+      gameType,
+      players: matchPlayers,
+      gameState,
+      isAIMatch: true,
+      aiDifficulty: difficulty
+    });
+    
+    // Update room that player is now in a match
+    io.to(roomId).emit('playerUpdate', { players: room.getPlayerList() });
+    
+    console.log(`🤖 AI Challenge: ${player.name} vs Wednesday (${gameType} - ${difficulty})`);
+    
+    // If it's a game where AI goes first (e.g., chess when AI is white), schedule AI move
+    if (gameType === 'chess' && gameState.currentPlayer === AI_PLAYER_ID) {
+      setTimeout(() => {
+        makeAIMatchMove(room, matchId, gameType);
+      }, 1000);
+    }
+  });
+  
+  // Initialize AI match game state
+  function initializeAIMatchGame(gameType, matchPlayers, difficulty, options) {
+    const playerId = matchPlayers[0].id;
+    
+    switch (gameType) {
+      case 'tictactoe': {
+        const symbols = new Map();
+        symbols.set(playerId, 'X');
+        symbols.set(AI_PLAYER_ID, 'O');
+        return {
+          board: Array(9).fill(null),
+          currentPlayer: playerId, // Player goes first
+          playerSymbols: Object.fromEntries(symbols)
+        };
+      }
+      case 'chess': {
+        // Random assignment for variety
+        const playerIsWhite = Math.random() < 0.5;
+        const colors = new Map();
+        colors.set(playerId, playerIsWhite ? 'white' : 'black');
+        colors.set(AI_PLAYER_ID, playerIsWhite ? 'black' : 'white');
+        return {
+          board: getInitialChessBoard(),
+          currentPlayer: playerIsWhite ? playerId : AI_PLAYER_ID,
+          playerColors: Object.fromEntries(colors),
+          castlingRights: { whiteKing: true, whiteQueen: true, blackKing: true, blackQueen: true },
+          moveHistory: [],
+          enPassantTarget: null
+        };
+      }
+      case 'connect4': {
+        return {
+          board: Array(6).fill(null).map(() => Array(7).fill(null)),
+          currentPlayer: playerId,
+          playerPieces: { [playerId]: '🔴', [AI_PLAYER_ID]: '🟡' },
+          winCondition: options.winCondition || 4
+        };
+      }
+      default:
+        return {};
+    }
+  }
+  
+  // Make AI move in a match
+  function makeAIMatchMove(room, matchId, gameType) {
+    const match = room.activeMatches?.get(matchId);
+    if (!match || !match.isAIMatch) return;
+    
+    const aiState = aiRooms.get(matchId);
+    if (!aiState) return;
+    
+    const difficulty = match.aiDifficulty || 'medium';
+    const state = match.gameState;
+    
+    switch (gameType) {
+      case 'tictactoe': {
+        const aiSymbol = state.playerSymbols[AI_PLAYER_ID];
+        const playerSymbol = aiSymbol === 'X' ? 'O' : 'X';
+        const move = getAITTTMove(state.board, aiSymbol, playerSymbol, difficulty);
+        
+        if (move !== null) {
+          state.board[move] = aiSymbol;
+          
+          const winner = checkTTTWinner(state.board);
+          const playerId = match.players[0].id;
+          
+          if (winner) {
+            io.to(playerId).emit('matchUpdate', {
+              matchId,
+              gameType: 'tictactoe',
+              board: state.board,
+              winner: AI_PLAYER_ID,
+              winnerName: AI_PLAYER_NAME
+            });
+            endAIMatch(room, matchId);
+          } else if (!state.board.includes(null)) {
+            io.to(playerId).emit('matchUpdate', {
+              matchId,
+              gameType: 'tictactoe',
+              board: state.board,
+              draw: true
+            });
+            endAIMatch(room, matchId);
+          } else {
+            state.currentPlayer = playerId;
+            io.to(playerId).emit('matchUpdate', {
+              matchId,
+              gameType: 'tictactoe',
+              board: state.board,
+              currentPlayer: playerId
+            });
+          }
+        }
+        break;
+      }
+      case 'chess': {
+        const isAIWhite = state.playerColors[AI_PLAYER_ID] === 'white';
+        const move = getAIChessMove(state.board, isAIWhite, state.castlingRights, difficulty);
+        
+        if (move) {
+          // Apply move
+          const piece = state.board[move.from.row][move.from.col];
+          state.board[move.to.row][move.to.col] = move.promotion || piece;
+          state.board[move.from.row][move.from.col] = null;
+          
+          // Handle castling
+          if (move.castle) {
+            if (move.castle === 'kingside') {
+              state.board[move.from.row][5] = state.board[move.from.row][7];
+              state.board[move.from.row][7] = null;
+            } else {
+              state.board[move.from.row][3] = state.board[move.from.row][0];
+              state.board[move.from.row][0] = null;
+            }
+          }
+          
+          // Update castling rights
+          updateCastlingRights(state, move.from);
+          
+          state.moveHistory.push(move);
+          
+          const playerId = match.players[0].id;
+          state.currentPlayer = playerId;
+          
+          io.to(playerId).emit('matchUpdate', {
+            matchId,
+            gameType: 'chess',
+            board: state.board,
+            currentPlayer: playerId,
+            lastMove: move,
+            castlingRights: state.castlingRights
+          });
+        }
+        break;
+      }
+      case 'connect4': {
+        const aiPiece = state.playerPieces[AI_PLAYER_ID];
+        const playerPiece = state.playerPieces[match.players[0].id];
+        const col = getAIConnect4Move(state.board, aiPiece, playerPiece, state.winCondition, difficulty);
+        
+        if (col !== null) {
+          // Find lowest empty row
+          let row = -1;
+          for (let r = 5; r >= 0; r--) {
+            if (!state.board[r][col]) {
+              row = r;
+              break;
+            }
+          }
+          
+          if (row >= 0) {
+            state.board[row][col] = aiPiece;
+            
+            const playerId = match.players[0].id;
+            const winner = checkConnect4Winner(state.board, state.winCondition);
+            
+            if (winner) {
+              io.to(playerId).emit('matchUpdate', {
+                matchId,
+                gameType: 'connect4',
+                board: state.board,
+                winner: AI_PLAYER_ID,
+                winnerName: AI_PLAYER_NAME,
+                lastMove: { row, col }
+              });
+              endAIMatch(room, matchId);
+            } else if (state.board[0].every(cell => cell !== null)) {
+              io.to(playerId).emit('matchUpdate', {
+                matchId,
+                gameType: 'connect4',
+                board: state.board,
+                draw: true,
+                lastMove: { row, col }
+              });
+              endAIMatch(room, matchId);
+            } else {
+              state.currentPlayer = playerId;
+              io.to(playerId).emit('matchUpdate', {
+                matchId,
+                gameType: 'connect4',
+                board: state.board,
+                currentPlayer: playerId,
+                lastMove: { row, col }
+              });
+            }
+          }
+        }
+        break;
+      }
+    }
+  }
+  
+  // End AI match
+  function endAIMatch(room, matchId) {
+    const match = room.activeMatches?.get(matchId);
+    if (!match) return;
+    
+    // Free up the player
+    const player = room.players.get(match.players[0].id);
+    if (player) {
+      player.inMatch = null;
+    }
+    
+    // Clean up
+    room.activeMatches.delete(matchId);
+    aiRooms.delete(matchId);
+    
+    // Update room
+    io.to(room.id).emit('playerUpdate', { players: room.getPlayerList() });
+  }
+  
   // Accept a challenge
   socket.on('acceptChallenge', ({ challengeId }) => {
     const roomId = players.get(socket.id);
@@ -1869,7 +2153,33 @@ io.on('connection', (socket) => {
     const match = room.activeMatches.get(matchId);
     if (!match) return;
     
-    // Process move based on game type
+    // Check if this is an AI match
+    if (match.isAIMatch) {
+      // Process player move in AI match
+      const result = processAIMatchMove(room, match, socket.id, moveData);
+      
+      if (result) {
+        // Send update to player
+        socket.emit('matchUpdate', {
+          matchId,
+          gameType: match.gameType,
+          ...result.updateData
+        });
+        
+        // Check for game end
+        if (result.gameOver) {
+          endAIMatch(room, matchId);
+        } else if (result.aiTurn) {
+          // Schedule AI move after delay
+          setTimeout(() => {
+            makeAIMatchMove(room, matchId, match.gameType);
+          }, 800 + Math.random() * 700);
+        }
+      }
+      return;
+    }
+    
+    // Process move based on game type (regular match)
     const result = processMatchMove(match, socket.id, moveData);
     
     if (result) {
@@ -1891,6 +2201,145 @@ io.on('connection', (socket) => {
       }
     }
   });
+  
+  // Process player move in AI match
+  function processAIMatchMove(room, match, playerId, moveData) {
+    const state = match.gameState;
+    
+    // Verify it's the player's turn
+    if (state.currentPlayer !== playerId) {
+      return null;
+    }
+    
+    switch (match.gameType) {
+      case 'tictactoe': {
+        const { index } = moveData;
+        if (state.board[index] !== null) return null;
+        
+        state.board[index] = state.playerSymbols[playerId];
+        
+        const winner = checkTTTWinner(state.board);
+        if (winner) {
+          return {
+            gameOver: true,
+            updateData: {
+              board: state.board,
+              winner: playerId,
+              winnerName: match.players[0].name
+            }
+          };
+        }
+        if (!state.board.includes(null)) {
+          return {
+            gameOver: true,
+            updateData: {
+              board: state.board,
+              draw: true
+            }
+          };
+        }
+        
+        state.currentPlayer = AI_PLAYER_ID;
+        return {
+          aiTurn: true,
+          updateData: {
+            board: state.board,
+            currentPlayer: AI_PLAYER_ID
+          }
+        };
+      }
+      
+      case 'chess': {
+        const { from, to, promotion } = moveData;
+        const piece = state.board[from.row][from.col];
+        
+        if (!piece) return null;
+        
+        // Apply move
+        state.board[to.row][to.col] = promotion || piece;
+        state.board[from.row][from.col] = null;
+        
+        // Handle castling
+        if (moveData.castle) {
+          if (moveData.castle === 'kingside') {
+            state.board[from.row][5] = state.board[from.row][7];
+            state.board[from.row][7] = null;
+          } else {
+            state.board[from.row][3] = state.board[from.row][0];
+            state.board[from.row][0] = null;
+          }
+        }
+        
+        updateCastlingRights(state, from);
+        state.moveHistory.push({ from, to, promotion });
+        state.currentPlayer = AI_PLAYER_ID;
+        
+        return {
+          aiTurn: true,
+          updateData: {
+            board: state.board,
+            currentPlayer: AI_PLAYER_ID,
+            lastMove: { from, to },
+            castlingRights: state.castlingRights
+          }
+        };
+      }
+      
+      case 'connect4': {
+        const { col } = moveData;
+        
+        // Find lowest empty row
+        let row = -1;
+        for (let r = 5; r >= 0; r--) {
+          if (!state.board[r][col]) {
+            row = r;
+            break;
+          }
+        }
+        
+        if (row < 0) return null;
+        
+        state.board[row][col] = state.playerPieces[playerId];
+        
+        const winner = checkConnect4Winner(state.board, state.winCondition);
+        if (winner) {
+          return {
+            gameOver: true,
+            updateData: {
+              board: state.board,
+              winner: playerId,
+              winnerName: match.players[0].name,
+              lastMove: { row, col }
+            }
+          };
+        }
+        
+        if (state.board[0].every(cell => cell !== null)) {
+          return {
+            gameOver: true,
+            updateData: {
+              board: state.board,
+              draw: true,
+              lastMove: { row, col }
+            }
+          };
+        }
+        
+        state.currentPlayer = AI_PLAYER_ID;
+        return {
+          aiTurn: true,
+          updateData: {
+            board: state.board,
+            currentPlayer: AI_PLAYER_ID,
+            lastMove: { row, col }
+          }
+        };
+      }
+      
+      default:
+        return null;
+    }
+  }
 
   // ============================================
   // GAME VOTING SYSTEM (The Séance Circle)

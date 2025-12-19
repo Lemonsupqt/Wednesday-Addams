@@ -1369,23 +1369,31 @@ function showPlayerSelectionModal(gameType) {
     'connect4': '🔴🟡 Connect 4'
   };
   
-  if (availablePlayers.length === 0) {
-    showError('No players available to challenge!');
-    return;
-  }
+  // Build player list HTML
+  const playerListHtml = availablePlayers.map(p => `
+    <button class="player-select-btn" data-player-id="${p.id}">
+      <span class="player-color-dot" style="background: ${p.color || '#e50914'}"></span>
+      <span class="player-select-name">${escapeHtml(p.name)}</span>
+      ${p.username ? '<span class="verified-small">✓</span>' : ''}
+    </button>
+  `).join('');
+  
+  // Always add Wednesday as an option
+  const wednesdayOption = `
+    <button class="player-select-btn wednesday-select" data-player-id="WEDNESDAY_AI">
+      <span class="player-color-dot wednesday-dot">🖤</span>
+      <span class="player-select-name">Wednesday AI</span>
+      <span class="ai-badge">🤖</span>
+    </button>
+  `;
   
   modal.innerHTML = `
     <div class="voting-modal-content player-select-modal">
       <h3>${gameNames[gameType] || gameType}</h3>
       <p class="modal-subtitle">Choose your opponent:</p>
       <div class="player-select-list">
-        ${availablePlayers.map(p => `
-          <button class="player-select-btn" data-player-id="${p.id}">
-            <span class="player-color-dot" style="background: ${p.color || '#e50914'}"></span>
-            <span class="player-select-name">${escapeHtml(p.name)}</span>
-            ${p.username ? '<span class="verified-small">✓</span>' : ''}
-          </button>
-        `).join('')}
+        ${playerListHtml}
+        ${wednesdayOption}
       </div>
       <button class="btn btn-secondary" style="margin-top: 15px;" id="cancelPlayerSelect">Cancel</button>
     </div>
@@ -1398,16 +1406,126 @@ function showPlayerSelectionModal(gameType) {
       const targetId = btn.dataset.playerId;
       modal.classList.remove('active');
       
-      // For connect4, ask for win condition first
-      if (gameType === 'connect4') {
-        showConnect4OptionsAndChallenge(targetId);
+      // Check if challenging Wednesday AI
+      if (targetId === 'WEDNESDAY_AI') {
+        // For connect4, ask for win condition first
+        if (gameType === 'connect4') {
+          showConnect4AIOptions(gameType);
+        } else {
+          // Show difficulty selection for AI game
+          showAIDifficultyForChallenge(gameType);
+        }
       } else {
-        sendChallenge(targetId, gameType, {});
+        // Regular player challenge
+        if (gameType === 'connect4') {
+          showConnect4OptionsAndChallenge(targetId);
+        } else {
+          sendChallenge(targetId, gameType, {});
+        }
       }
     });
   });
   
   document.getElementById('cancelPlayerSelect')?.addEventListener('click', () => {
+    modal.classList.remove('active');
+  });
+}
+
+// Show AI difficulty selection for challenge from lobby
+function showAIDifficultyForChallenge(gameType, options = {}) {
+  const modal = document.getElementById('votingModal');
+  if (!modal) return;
+  
+  modal.innerHTML = `
+    <div class="voting-modal-content">
+      <h3>🤖 Challenge Wednesday</h3>
+      <p class="modal-subtitle">Select difficulty:</p>
+      <div class="difficulty-options">
+        <button class="difficulty-btn ai-diff" data-diff="easy">
+          <span class="diff-icon">😊</span>
+          <div>
+            <strong>Easy</strong>
+            <small>For beginners</small>
+          </div>
+        </button>
+        <button class="difficulty-btn ai-diff" data-diff="medium">
+          <span class="diff-icon">🤔</span>
+          <div>
+            <strong>Medium</strong>
+            <small>A fair challenge</small>
+          </div>
+        </button>
+        <button class="difficulty-btn ai-diff" data-diff="hard">
+          <span class="diff-icon">😈</span>
+          <div>
+            <strong>Hard</strong>
+            <small>Good luck</small>
+          </div>
+        </button>
+        <button class="difficulty-btn ai-diff impossible" data-diff="impossible">
+          <span class="diff-icon">💀</span>
+          <div>
+            <strong>Impossible</strong>
+            <small>Wednesday's wrath</small>
+          </div>
+        </button>
+      </div>
+      <button class="btn btn-secondary" style="margin-top: 15px;" id="cancelAIDiff">Cancel</button>
+    </div>
+  `;
+  modal.classList.add('active');
+  
+  modal.querySelectorAll('.ai-diff').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const difficulty = btn.dataset.diff;
+      modal.classList.remove('active');
+      // Start AI game from within the room
+      socket.emit('challengeWednesday', { gameType, difficulty, options });
+    });
+  });
+  
+  document.getElementById('cancelAIDiff')?.addEventListener('click', () => {
+    modal.classList.remove('active');
+  });
+}
+
+// Show Connect4 options for AI game
+function showConnect4AIOptions(gameType) {
+  const modal = document.getElementById('votingModal');
+  modal.innerHTML = `
+    <div class="voting-modal-content">
+      <h3>🔴🟡 Choose Mode vs Wednesday</h3>
+      <div class="difficulty-options">
+        <button class="difficulty-btn" data-win="4">
+          <span class="diff-icon">4️⃣</span>
+          <div>
+            <strong>Connect 4</strong>
+            <small>Classic mode</small>
+          </div>
+        </button>
+        <button class="difficulty-btn" data-win="5">
+          <span class="diff-icon">5️⃣</span>
+          <div>
+            <strong>Connect 5</strong>
+            <small>Extended challenge</small>
+          </div>
+        </button>
+      </div>
+      <button class="btn btn-secondary" style="margin-top: 15px;" id="cancelC4AI">Cancel</button>
+    </div>
+  `;
+  modal.classList.add('active');
+  
+  modal.querySelectorAll('.difficulty-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const winCondition = parseInt(btn.dataset.win);
+      modal.classList.remove('active');
+      // Now show difficulty selection
+      showAIDifficultyForChallenge('connect4', { winCondition });
+    });
+  });
+  
+  document.getElementById('cancelC4AI')?.addEventListener('click', () => {
     modal.classList.remove('active');
   });
 }
@@ -1879,7 +1997,8 @@ function setReplyTo(container, msgId, playerName, text) {
   let textId = 'replyToText';
   let inputId = 'chatInput';
   
-  if (container === elements.gameChatMessages) {
+  // Check both reference and ID for game chat (more reliable)
+  if (container === elements.gameChatMessages || container.id === 'gameChatMessages') {
     stateKey = 'game';
     previewId = 'gameReplyPreview';
     nameId = 'gameReplyToName';
@@ -3527,8 +3646,17 @@ socket.on('matchStarted', (data) => {
     state.matchId = data.matchId;
     state.isSpectator = false;
     
-    if (data.autoRotation) {
-      showNotification('🔄 New round! Your turn to play!', 'info');
+    // Check if this is an AI match
+    if (data.isAIMatch) {
+      state.isAIGame = true;
+      state.aiDifficulty = data.aiDifficulty;
+      showNotification(`🤖 Match vs Wednesday (${data.aiDifficulty})!`, 'info');
+    } else {
+      state.isAIGame = false;
+      state.aiDifficulty = null;
+      if (data.autoRotation) {
+        showNotification('🔄 New round! Your turn to play!', 'info');
+      }
     }
     
     showScreen('gameScreen');
@@ -3537,7 +3665,8 @@ socket.on('matchStarted', (data) => {
     // We're spectating this match
     state.currentGame = data.gameType;
     state.matchId = data.matchId;
-    state.isSpectator = true;
+    state.isSpectator = false;
+    state.isAIGame = false;
     
     if (data.autoRotation) {
       showNotification('🔄 New round started - you\'re next in queue!', 'info');
