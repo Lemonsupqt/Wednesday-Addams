@@ -97,7 +97,11 @@ let state = {
   players: [],
   currentGame: null,
   gameState: {},
-  votingActive: false
+  votingActive: false,
+  // Challenge/match system state
+  matchId: null,
+  isSpectator: false,
+  activeMatches: []
 };
 
 // Chess state
@@ -117,13 +121,28 @@ document.addEventListener('DOMContentLoaded', () => {
   setupEventListeners();
   setupAuthListeners();
   setupFullscreenToggle();
+  setupMobileChatOverlay();
+  setupScoreToggle();
   
-  // Always show auth screen first
-  showScreen('authScreen');
+  // Restore saved player name for both guests and registered users
+  const savedPlayerName = localStorage.getItem('playerName');
+  if (savedPlayerName && elements.playerName) {
+    elements.playerName.value = savedPlayerName;
+  }
   
-  // Then check for saved session and attempt auto-login
+  // Restore last used room code if any
+  const savedRoomCode = localStorage.getItem('lastRoomCode');
+  if (savedRoomCode && elements.roomCode) {
+    elements.roomCode.value = savedRoomCode;
+  }
+  
+  // Check for saved session and attempt auto-login
   const savedAuth = localStorage.getItem('authSession');
+  const savedGuestSession = localStorage.getItem('guestSession');
+  
   if (savedAuth) {
+    // Show auth screen while attempting login
+    showScreen('authScreen');
     try {
       const auth = JSON.parse(savedAuth);
       if (auth.username && auth.password) {
@@ -133,19 +152,38 @@ document.addEventListener('DOMContentLoaded', () => {
           loginBtn.textContent = '⏳ Logging in...';
           loginBtn.disabled = true;
         }
-        // Pre-fill the form
+        // Pre-fill the username only (not password for security)
         const loginUsername = document.getElementById('loginUsername');
         const loginPassword = document.getElementById('loginPassword');
         if (loginUsername) loginUsername.value = auth.username;
-        if (loginPassword) loginPassword.value = '••••••••';
+        // Don't pre-fill password with dots - it causes issues if auto-login fails
+        // The actual login uses saved credentials from localStorage
+        if (loginPassword) loginPassword.placeholder = 'Auto-logging in...';
         
-        // Attempt auto-login
-        socket.emit('login', auth);
+        // Wait for socket to connect before auto-login
+        if (socket.connected) {
+          socket.emit('login', auth);
+        } else {
+          socket.once('connect', () => {
+            socket.emit('login', auth);
+          });
+        }
       }
     } catch (e) {
       console.error('Failed to parse saved auth:', e);
       localStorage.removeItem('authSession');
+      showScreen('authScreen');
     }
+  } else if (savedGuestSession === 'true') {
+    // Restore guest session - skip auth screen
+    state.isAuthenticated = false;
+    state.username = null;
+    state.userStats = null;
+    showScreen('mainMenu');
+    updateUserInfoDisplay();
+  } else {
+    // No saved session - show auth screen
+    showScreen('authScreen');
   }
 });
 
@@ -198,6 +236,8 @@ function setupAuthListeners() {
     state.isAuthenticated = false;
     state.username = null;
     state.userStats = null;
+    // Save guest session preference so user can skip auth screen next time
+    localStorage.setItem('guestSession', 'true');
     showScreen('mainMenu');
     updateUserInfoDisplay();
   });
@@ -206,6 +246,7 @@ function setupAuthListeners() {
   document.getElementById('logoutBtn')?.addEventListener('click', () => {
     socket.emit('logout');
     localStorage.removeItem('authSession');
+    localStorage.removeItem('guestSession');
     state.isAuthenticated = false;
     state.username = null;
     state.userStats = null;
@@ -257,10 +298,23 @@ function updateUserInfoDisplay() {
         <div class="user-stats">
           <span>Stats won't be saved</span>
         </div>
+        <button id="exitGuestBtn" class="btn btn-small btn-secondary" style="margin-top: 10px;">
+          🚪 Exit Guest Mode
+        </button>
       </div>
     `;
     container.style.display = 'block';
     document.getElementById('logoutBtn').style.display = 'none';
+    
+    // Add exit guest mode handler
+    document.getElementById('exitGuestBtn')?.addEventListener('click', () => {
+      localStorage.removeItem('guestSession');
+      localStorage.removeItem('playerName');
+      state.isAuthenticated = false;
+      state.username = null;
+      state.userStats = null;
+      showScreen('authScreen');
+    });
   }
 }
 
@@ -270,7 +324,7 @@ socket.on('authSuccess', (data) => {
   state.username = data.username;
   state.userStats = data;
   
-  // Save session (for auto-login)
+  // Save session (for auto-login) - only if manually logging in (not auto-login)
   const loginUsername = document.getElementById('loginUsername')?.value.trim();
   const loginPassword = document.getElementById('loginPassword')?.value;
   if (loginUsername && loginPassword) {
@@ -279,10 +333,24 @@ socket.on('authSuccess', (data) => {
       password: loginPassword 
     }));
   }
+  // Note: During auto-login, the saved session is preserved (not overwritten)
   
   // Use display name for player name
   if (elements.playerName) {
     elements.playerName.value = data.displayName;
+  }
+  
+  // Reset login button state
+  const loginBtn = document.getElementById('loginBtn');
+  if (loginBtn) {
+    loginBtn.innerHTML = '<span class="btn-icon">⚡</span> Enter the Archives';
+    loginBtn.disabled = false;
+  }
+  
+  // Reset password placeholder
+  const loginPasswordEl = document.getElementById('loginPassword');
+  if (loginPasswordEl) {
+    loginPasswordEl.placeholder = 'Password';
   }
   
   showScreen('mainMenu');
@@ -298,6 +366,13 @@ socket.on('authError', (data) => {
   if (loginBtn) {
     loginBtn.innerHTML = '<span class="btn-icon">⚡</span> Enter the Archives';
     loginBtn.disabled = false;
+  }
+  
+  // Clear password field and reset placeholder
+  const loginPassword = document.getElementById('loginPassword');
+  if (loginPassword) {
+    loginPassword.value = '';
+    loginPassword.placeholder = 'Password';
   }
   
   // Clear invalid saved session
@@ -409,6 +484,81 @@ function setupFullscreenToggle() {
   updateFullscreenButton();
 }
 
+// Setup mobile chat overlay
+function setupMobileChatOverlay() {
+  const chatToggleBtn = document.getElementById('chatToggleBtn');
+  const chatOverlay = document.getElementById('gameChatOverlay');
+  const closeChatBtn = document.getElementById('closeChatOverlay');
+  const mobileChatInput = document.getElementById('mobileChatInput');
+  const sendMobileChatBtn = document.getElementById('sendMobileChatBtn');
+  const mobileChatMessages = document.getElementById('mobileChatMessages');
+  
+  if (!chatToggleBtn || !chatOverlay) return;
+  
+  // Toggle chat overlay
+  chatToggleBtn.addEventListener('click', () => {
+    chatOverlay.classList.add('active');
+    // Sync messages from main chat
+    syncMobileChat();
+  });
+  
+  // Close chat overlay
+  closeChatBtn?.addEventListener('click', () => {
+    chatOverlay.classList.remove('active');
+  });
+  
+  // Send message from mobile chat
+  function sendMobileChat() {
+    const message = mobileChatInput.value.trim();
+    if (!message) return;
+    
+    socket.emit('chatMessage', message);
+    mobileChatInput.value = '';
+  }
+  
+  sendMobileChatBtn?.addEventListener('click', sendMobileChat);
+  mobileChatInput?.addEventListener('keypress', (e) => {
+    if (e.key === 'Enter') sendMobileChat();
+  });
+  
+  // Sync mobile chat with main chat
+  window.syncMobileChat = function() {
+    if (!mobileChatMessages || !elements.gameChatMessages) return;
+    mobileChatMessages.innerHTML = elements.gameChatMessages.innerHTML;
+    mobileChatMessages.scrollTop = mobileChatMessages.scrollHeight;
+  };
+  
+  // Show/hide chat toggle button based on screen
+  window.updateChatToggleVisibility = function() {
+    const isGameScreen = screens.gameScreen?.classList.contains('active');
+    chatToggleBtn.style.display = isGameScreen && window.innerWidth <= 768 ? 'flex' : 'none';
+    if (!isGameScreen) {
+      chatOverlay.classList.remove('active');
+    }
+  };
+}
+
+// Setup collapsible score bar for mobile
+function setupScoreToggle() {
+  const toggleBtn = document.getElementById('toggleScoreBtn');
+  const scoreBoard = document.getElementById('scoreBoard');
+  
+  if (!toggleBtn || !scoreBoard) return;
+  
+  toggleBtn.addEventListener('click', () => {
+    scoreBoard.classList.toggle('expanded');
+    toggleBtn.textContent = scoreBoard.classList.contains('expanded') ? '✕' : '📊';
+  });
+  
+  // Close score board when clicking outside
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('.game-title-bar') && scoreBoard.classList.contains('expanded')) {
+      scoreBoard.classList.remove('expanded');
+      toggleBtn.textContent = '📊';
+    }
+  });
+}
+
 function initParticles() {
   const container = document.getElementById('particles');
   for (let i = 0; i < 50; i++) {
@@ -489,15 +639,57 @@ function handleVote(gameType) {
     card.classList.add('voted');
   }
   
-  // Check for games that need difficulty selection
+  // Check for games that need difficulty/mode selection
   if (gameType === 'memory') {
     showMemoryVoteOptions(gameType);
   } else if (gameType === 'sudoku') {
     showSudokuVoteOptions(gameType);
+  } else if (gameType === 'connect4') {
+    showConnect4VoteOptions(gameType);
   } else {
     socket.emit('voteGame', { gameType });
     showNotification(`Voted for ${getGameName(gameType)}! 🗳️`, 'info');
   }
+}
+
+function showConnect4VoteOptions(gameType) {
+  const modal = document.getElementById('votingModal');
+  if (!modal) {
+    socket.emit('voteGame', { gameType, options: { winCondition: 4 } });
+    return;
+  }
+  
+  modal.innerHTML = `
+    <div class="voting-modal-content">
+      <h3>🔴🟡 Connect Game Mode</h3>
+      <div class="difficulty-options">
+        <button class="difficulty-btn" data-win="4">
+          <span class="diff-icon">4️⃣</span>
+          <div>
+            <span class="diff-name">4 in a Row</span>
+            <span class="diff-desc">Classic mode - connect 4 to win</span>
+          </div>
+        </button>
+        <button class="difficulty-btn" data-win="5">
+          <span class="diff-icon">5️⃣</span>
+          <div>
+            <span class="diff-name">5 in a Row</span>
+            <span class="diff-desc">Challenge mode - connect 5 to win</span>
+          </div>
+        </button>
+      </div>
+    </div>
+  `;
+  modal.classList.add('active');
+  
+  modal.querySelectorAll('.difficulty-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const winCondition = parseInt(btn.dataset.win);
+      socket.emit('voteGame', { gameType, options: { winCondition } });
+      modal.classList.remove('active');
+      showNotification(`Voted for ${winCondition} in a Row! 🗳️`, 'info');
+    });
+  });
 }
 
 function showMemoryVoteOptions(gameType) {
@@ -627,13 +819,99 @@ function updateVoteDisplay(voteCounts) {
 function showScreen(screenName) {
   Object.values(screens).forEach(screen => screen.classList.remove('active'));
   screens[screenName].classList.add('active');
+  
+  // Toggle game mode class (but don't auto-fullscreen - let user control it)
+  if (screenName === 'gameScreen') {
+    document.body.classList.add('game-fullscreen');
+  } else {
+    document.body.classList.remove('game-fullscreen');
+    // Exit fullscreen when leaving game
+    exitGameFullscreen();
+  }
+  
+  // Update mobile chat toggle visibility
+  if (typeof updateChatToggleVisibility === 'function') {
+    updateChatToggleVisibility();
+  }
 }
 
+// Enter fullscreen mode for games (mobile-friendly)
+function enterGameFullscreen() {
+  // Only attempt fullscreen on mobile devices
+  const isMobile = window.innerWidth <= 768 || 'ontouchstart' in window;
+  if (!isMobile) return;
+  
+  // Don't auto-enter if already in fullscreen
+  const isFullscreen = !!(document.fullscreenElement || document.webkitFullscreenElement || 
+                          document.mozFullScreenElement || document.msFullscreenElement);
+  if (isFullscreen) return;
+  
+  // Try to enter fullscreen
+  const elem = document.documentElement;
+  try {
+    if (elem.requestFullscreen) {
+      elem.requestFullscreen().catch(() => {});
+    } else if (elem.webkitRequestFullscreen) {
+      elem.webkitRequestFullscreen();
+    } else if (elem.mozRequestFullScreen) {
+      elem.mozRequestFullScreen();
+    } else if (elem.msRequestFullscreen) {
+      elem.msRequestFullscreen();
+    }
+  } catch (err) {
+    // Fullscreen may fail silently on some devices - that's OK
+    console.log('Fullscreen not supported or blocked');
+  }
+}
+
+// Exit fullscreen mode
+function exitGameFullscreen() {
+  const isFullscreen = !!(document.fullscreenElement || document.webkitFullscreenElement || 
+                          document.mozFullScreenElement || document.msFullscreenElement);
+  if (!isFullscreen) return;
+  
+  try {
+    if (document.exitFullscreen) {
+      document.exitFullscreen().catch(() => {});
+    } else if (document.webkitExitFullscreen) {
+      document.webkitExitFullscreen();
+    } else if (document.mozCancelFullScreen) {
+      document.mozCancelFullScreen();
+    } else if (document.msExitFullscreen) {
+      document.msExitFullscreen();
+    }
+  } catch (err) {
+    console.log('Exit fullscreen failed');
+  }
+}
+
+// Track error toast timeout to prevent stacking
+let errorToastTimeout = null;
+
 function showError(message) {
+  // Clear any existing timeout
+  if (errorToastTimeout) {
+    clearTimeout(errorToastTimeout);
+  }
+  
+  // Remove any existing classes first
+  elements.errorToast.classList.remove('active', 'hiding');
+  
+  // Set the message and show
   elements.errorToast.textContent = message;
+  
+  // Force reflow to restart animation
+  void elements.errorToast.offsetWidth;
+  
   elements.errorToast.classList.add('active');
-  setTimeout(() => {
-    elements.errorToast.classList.remove('active');
+  
+  // Hide after 4 seconds with fade out
+  errorToastTimeout = setTimeout(() => {
+    elements.errorToast.classList.add('hiding');
+    setTimeout(() => {
+      elements.errorToast.classList.remove('active', 'hiding');
+      errorToastTimeout = null;
+    }, 300);
   }, 4000);
 }
 
@@ -683,6 +961,7 @@ function joinRoom() {
   
   state.playerName = name;
   localStorage.setItem('playerName', name);
+  localStorage.setItem('lastRoomCode', code);
   socket.emit('joinRoom', { roomId: code, playerName: name });
 }
 
@@ -706,10 +985,11 @@ function copyRoomCode() {
 function updatePlayersList(players) {
   state.players = players;
   elements.playersList.innerHTML = players.map(p => `
-    <div class="player-item ${p.id === state.playerId ? 'is-me' : ''}">
+    <div class="player-item ${p.id === state.playerId ? 'is-me' : ''} ${p.inMatch ? 'in-game' : ''}">
       <span class="player-color-indicator" style="background: ${p.color || '#e50914'}"></span>
       <span class="player-name" style="color: ${p.color || '#e50914'}">${escapeHtml(p.name)}</span>
       ${p.username ? `<span class="verified-badge" title="Registered">✓</span>` : ''}
+      ${p.inMatch ? '<span class="in-game-badge" title="In a game">🎮</span>' : ''}
       <span class="score" title="Trophies this session">🏆 ${p.trophies || 0}</span>
     </div>
   `).join('');
@@ -750,7 +1030,7 @@ function updatePlayersList(players) {
       </button>
       <button class="game-card" data-game="connect4">
         <span class="game-icon">🔴🟡</span>
-        <span class="game-name">4 in<br>a Row</span>
+        <span class="game-name">Connect<br>4 or 5</span>
         <span class="game-players">2 players</span>
       </button>
       <button class="game-card" data-game="molewhack">
@@ -773,15 +1053,24 @@ function updatePlayersList(players) {
   `;
 }
 
-// Handle game selection (legacy - directly starts game without voting)
+// 2-player games that use challenge system
+const TWO_PLAYER_GAMES = ['tictactoe', 'chess', 'connect4'];
+
+// Handle game selection
 function handleGameSelection(gameType) {
-  // If voting is active, this shouldn't be called - use handleVote instead
+  // If voting is active, use voting system
   if (state.votingActive) {
     handleVote(gameType);
     return;
   }
   
-  // Legacy direct start (only if not in voting mode)
+  // For 2-player games, show player selection modal
+  if (TWO_PLAYER_GAMES.includes(gameType)) {
+    showPlayerSelectionModal(gameType);
+    return;
+  }
+  
+  // For multiplayer games, use normal flow
   if (gameType === 'memory') {
     showMemoryDifficultyModal();
   } else if (gameType === 'sudoku') {
@@ -789,6 +1078,223 @@ function handleGameSelection(gameType) {
   } else {
     startGame(gameType);
   }
+}
+
+// Show player selection modal for 2-player games
+function showPlayerSelectionModal(gameType) {
+  const modal = document.getElementById('votingModal');
+  if (!modal) return;
+  
+  // Get other players (not me, not already in a game)
+  const availablePlayers = state.players.filter(p => 
+    p.id !== state.playerId && !p.inGame
+  );
+  
+  const gameNames = {
+    'tictactoe': '⭕❌ Tic-Tac-Toe',
+    'chess': '♟️ Chess',
+    'connect4': '🔴🟡 Connect 4'
+  };
+  
+  if (availablePlayers.length === 0) {
+    showError('No players available to challenge!');
+    return;
+  }
+  
+  modal.innerHTML = `
+    <div class="voting-modal-content player-select-modal">
+      <h3>${gameNames[gameType] || gameType}</h3>
+      <p class="modal-subtitle">Choose your opponent:</p>
+      <div class="player-select-list">
+        ${availablePlayers.map(p => `
+          <button class="player-select-btn" data-player-id="${p.id}">
+            <span class="player-color-dot" style="background: ${p.color || '#e50914'}"></span>
+            <span class="player-select-name">${escapeHtml(p.name)}</span>
+            ${p.username ? '<span class="verified-small">✓</span>' : ''}
+          </button>
+        `).join('')}
+      </div>
+      <button class="btn btn-secondary" style="margin-top: 15px;" id="cancelPlayerSelect">Cancel</button>
+    </div>
+  `;
+  modal.classList.add('active');
+  
+  // Add click handlers
+  modal.querySelectorAll('.player-select-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const targetId = btn.dataset.playerId;
+      modal.classList.remove('active');
+      
+      // For connect4, ask for win condition first
+      if (gameType === 'connect4') {
+        showConnect4OptionsAndChallenge(targetId);
+      } else {
+        sendChallenge(targetId, gameType, {});
+      }
+    });
+  });
+  
+  document.getElementById('cancelPlayerSelect')?.addEventListener('click', () => {
+    modal.classList.remove('active');
+  });
+}
+
+// Show Connect4 options then send challenge
+function showConnect4OptionsAndChallenge(targetPlayerId) {
+  const modal = document.getElementById('votingModal');
+  modal.innerHTML = `
+    <div class="voting-modal-content">
+      <h3>🔴🟡 Choose Mode</h3>
+      <div class="difficulty-options">
+        <button class="difficulty-btn" data-win="4">
+          <span class="diff-icon">4️⃣</span>
+          <div>
+            <span class="diff-name">Connect 4</span>
+            <span class="diff-desc">Classic</span>
+          </div>
+        </button>
+        <button class="difficulty-btn" data-win="5">
+          <span class="diff-icon">5️⃣</span>
+          <div>
+            <span class="diff-name">Connect 5</span>
+            <span class="diff-desc">Harder</span>
+          </div>
+        </button>
+      </div>
+      <button class="btn btn-secondary" style="margin-top: 15px;" id="cancelConnect4">Cancel</button>
+    </div>
+  `;
+  modal.classList.add('active');
+  
+  modal.querySelectorAll('.difficulty-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const winCondition = parseInt(btn.dataset.win);
+      modal.classList.remove('active');
+      sendChallenge(targetPlayerId, 'connect4', { winCondition });
+    });
+  });
+  
+  document.getElementById('cancelConnect4')?.addEventListener('click', () => {
+    modal.classList.remove('active');
+  });
+}
+
+// Send challenge to another player
+function sendChallenge(targetPlayerId, gameType, options) {
+  const targetPlayer = state.players.find(p => p.id === targetPlayerId);
+  socket.emit('challengePlayer', { targetPlayerId, gameType, options });
+  showNotification(`Challenge sent to ${targetPlayer?.name || 'player'}!`, 'info');
+}
+
+// Show incoming challenge popup
+function showIncomingChallenge(data) {
+  const modal = document.getElementById('votingModal');
+  const gameNames = {
+    'tictactoe': '⭕❌ Tic-Tac-Toe',
+    'chess': '♟️ Chess',
+    'connect4': '🔴🟡 Connect 4'
+  };
+  
+  modal.innerHTML = `
+    <div class="voting-modal-content challenge-received">
+      <h3>⚔️ Challenge!</h3>
+      <p class="challenger-info">${escapeHtml(data.challengerName)} wants to play:</p>
+      <div class="challenge-game-name">${gameNames[data.gameType] || data.gameType}</div>
+      <div class="challenge-buttons">
+        <button class="btn btn-primary" id="acceptChallenge">Accept</button>
+        <button class="btn btn-danger" id="declineChallenge">Decline</button>
+      </div>
+    </div>
+  `;
+  modal.classList.add('active');
+  
+  document.getElementById('acceptChallenge')?.addEventListener('click', () => {
+    socket.emit('acceptChallenge', { challengeId: data.challengeId });
+    modal.classList.remove('active');
+  });
+  
+  document.getElementById('declineChallenge')?.addEventListener('click', () => {
+    socket.emit('declineChallenge', { challengeId: data.challengeId });
+    modal.classList.remove('active');
+  });
+}
+
+// Simple notification function
+function showNotification(message, type = 'info') {
+  // Use existing error toast for now, but style differently
+  const toast = document.getElementById('errorToast');
+  if (toast) {
+    toast.textContent = message;
+    toast.className = `toast ${type} active`;
+    setTimeout(() => {
+      toast.classList.remove('active');
+    }, 3000);
+  }
+}
+
+// Floating translucent notification (for in-game player join alerts)
+function showFloatingNotification(message) {
+  // Create or reuse floating notification element
+  let floater = document.getElementById('floatingNotification');
+  if (!floater) {
+    floater = document.createElement('div');
+    floater.id = 'floatingNotification';
+    floater.className = 'floating-notification';
+    document.body.appendChild(floater);
+  }
+  
+  floater.textContent = message;
+  floater.classList.add('active');
+  
+  // Auto-hide after 3 seconds
+  setTimeout(() => {
+    floater.classList.remove('active');
+  }, 3000);
+}
+
+// Show Connect 4/5 selection modal (non-voting mode)
+function showConnect4DifficultyModal() {
+  const modal = document.getElementById('votingModal');
+  if (!modal) {
+    startGame('connect4');
+    return;
+  }
+  
+  modal.innerHTML = `
+    <div class="voting-modal-content">
+      <h3>🔴🟡 Choose Your Battle</h3>
+      <div class="difficulty-options">
+        <button class="difficulty-btn" data-win="4">
+          <span class="diff-icon">4️⃣</span>
+          <div>
+            <span class="diff-name">4 in a Row</span>
+            <span class="diff-desc">Classic Connect 4</span>
+          </div>
+        </button>
+        <button class="difficulty-btn" data-win="5">
+          <span class="diff-icon">5️⃣</span>
+          <div>
+            <span class="diff-name">5 in a Row</span>
+            <span class="diff-desc">Extended Challenge</span>
+          </div>
+        </button>
+      </div>
+      <button class="btn btn-secondary" style="margin-top: 15px;" id="cancelConnect4Modal">Cancel</button>
+    </div>
+  `;
+  modal.classList.add('active');
+  
+  modal.querySelectorAll('.difficulty-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const winCondition = parseInt(btn.dataset.win);
+      modal.classList.remove('active');
+      socket.emit('startGame', { type: 'connect4', options: { winCondition } });
+    });
+  });
+  
+  document.getElementById('cancelConnect4Modal')?.addEventListener('click', () => {
+    modal.classList.remove('active');
+  });
 }
 
 // Player colors
@@ -959,6 +1465,11 @@ function addChatMessage(msg, container = elements.chatMessages) {
   
   container.appendChild(div);
   container.scrollTop = container.scrollHeight;
+  
+  // Sync to mobile chat if this is the game chat
+  if (container === elements.gameChatMessages && typeof syncMobileChat === 'function') {
+    syncMobileChat();
+  }
 }
 
 // ============================================
@@ -972,6 +1483,7 @@ function startGame(gameType) {
 function endGame() {
   // Clean up any game-specific listeners
   document.removeEventListener('keydown', handleSudokuKeypress);
+  window.sudokuKeyboardListenerAdded = false;
   socket.emit('endGame');
 }
 
@@ -1010,11 +1522,22 @@ function initTicTacToe(gameState, players) {
   
   const playerSymbols = new Map(Object.entries(gameState.playerSymbols));
   const mySymbol = playerSymbols.get(state.playerId);
+  const isSpectator = state.isSpectator || !mySymbol;
+  
+  // Update "Now Playing" display
+  if (players && players.length > 0) {
+    updateNowPlayingDisplay(players);
+  }
+  
+  // Add spectator badge if watching
+  if (isSpectator) {
+    addSpectatorBadge();
+  }
   
   elements.gameContent.innerHTML = `
     <div class="ttt-container">
       <div class="ttt-status" id="tttStatus">
-        ${gameState.currentPlayer === state.playerId ? "🔴 Your turn!" : "Waiting for opponent..."}
+        ${isSpectator ? '👁️ Watching...' : (gameState.currentPlayer === state.playerId ? "🔴 Your turn!" : "Waiting for opponent...")}
       </div>
       <div class="ttt-board" id="tttBoard">
         ${gameState.board.map((cell, i) => `
@@ -1022,25 +1545,86 @@ function initTicTacToe(gameState, players) {
         `).join('')}
       </div>
       <div class="ttt-info" style="margin-top: 20px; color: var(--text-secondary);">
-        Your symbol: ${mySymbol || 'Spectating'}
+        ${isSpectator ? '👁️ Spectating' : `Your symbol: ${mySymbol}`}
       </div>
     </div>
   `;
   
-  document.querySelectorAll('.ttt-cell').forEach(cell => {
-    cell.addEventListener('click', () => {
-      if (gameState.currentPlayer !== state.playerId) return;
-      if (cell.classList.contains('taken')) return;
-      socket.emit('tttMove', parseInt(cell.dataset.index));
+  if (!isSpectator) {
+    document.querySelectorAll('.ttt-cell').forEach(cell => {
+      cell.addEventListener('click', () => {
+        if (state.gameState.currentPlayer !== state.playerId) return;
+        if (cell.classList.contains('taken')) return;
+        // Use matchMove for challenge matches, tttMove for regular games
+        if (state.matchId) {
+          socket.emit('matchMove', { matchId: state.matchId, moveData: { cellIndex: parseInt(cell.dataset.index) }});
+        } else {
+          socket.emit('tttMove', parseInt(cell.dataset.index));
+        }
+      });
     });
-  });
+  }
   
   updateScoreBoard(players, gameState.currentPlayer);
+}
+
+// Add spectator badge to screen with leave button
+function addSpectatorBadge() {
+  let badge = document.getElementById('spectatorBadge');
+  if (!badge) {
+    badge = document.createElement('div');
+    badge.id = 'spectatorBadge';
+    badge.className = 'spectator-badge';
+    badge.innerHTML = '👁️ SPECTATING <button class="leave-spectate-btn" onclick="leaveSpectate()">✕ Leave</button>';
+    document.body.appendChild(badge);
+  }
+}
+
+// Remove spectator badge
+function removeSpectatorBadge() {
+  const badge = document.getElementById('spectatorBadge');
+  if (badge) badge.remove();
+}
+
+// Leave spectating mode
+function leaveSpectate() {
+  if (state.matchId && state.isSpectator) {
+    socket.emit('leaveSpectate', { matchId: state.matchId });
+    state.matchId = null;
+    state.isSpectator = false;
+    state.currentGame = null;
+    state.gameState = {};
+    removeSpectatorBadge();
+    showScreen('lobby');
+  }
+}
+
+// Update the "Now Playing" display next to End Game button
+function updateNowPlayingDisplay(players) {
+  const display = document.getElementById('nowPlayingDisplay');
+  if (!display) return;
+  
+  if (!players || players.length === 0) {
+    display.innerHTML = '';
+    return;
+  }
+  
+  const names = players.map(p => p.name).join(' vs ');
+  display.innerHTML = `<span class="now-playing-label">🎮</span><span class="now-playing-names">${escapeHtml(names)}</span>`;
+}
+
+// Clear the "Now Playing" display
+function clearNowPlayingDisplay() {
+  const display = document.getElementById('nowPlayingDisplay');
+  if (display) display.innerHTML = '';
 }
 
 function updateTicTacToe(data) {
   const board = document.getElementById('tttBoard');
   const status = document.getElementById('tttStatus');
+  const isSpectator = state.isSpectator;
+  
+  if (!board || !status) return;
   
   if (data.board) {
     state.gameState.board = data.board;
@@ -1048,26 +1632,39 @@ function updateTicTacToe(data) {
       <div class="ttt-cell ${cell ? 'taken' : ''}" data-index="${i}">${cell || ''}</div>
     `).join('');
     
-    document.querySelectorAll('.ttt-cell').forEach(cell => {
-      cell.addEventListener('click', () => {
-        if (state.gameState.currentPlayer !== state.playerId) return;
-        if (cell.classList.contains('taken')) return;
-        socket.emit('tttMove', parseInt(cell.dataset.index));
+    if (!isSpectator) {
+      document.querySelectorAll('.ttt-cell').forEach(cell => {
+        cell.addEventListener('click', () => {
+          if (state.gameState.currentPlayer !== state.playerId) return;
+          if (cell.classList.contains('taken')) return;
+          if (state.matchId) {
+            socket.emit('matchMove', { matchId: state.matchId, moveData: { cellIndex: parseInt(cell.dataset.index) }});
+          } else {
+            socket.emit('tttMove', parseInt(cell.dataset.index));
+          }
+        });
       });
-    });
+    }
   }
+  
+  // Use players from data if available (for real-time score updates)
+  const players = data.players || state.players;
   
   if (data.winner) {
     status.innerHTML = `🏆 ${escapeHtml(data.winnerName)} wins! 🏆`;
-    updateScoreBoard(data.players);
-    showPlayAgainButton('ttt');
+    updateScoreBoard(players);
+    if (!state.matchId) showPlayAgainButton('ttt');
   } else if (data.draw) {
     status.innerHTML = "🤝 It's a draw! 🤝";
-    showPlayAgainButton('ttt');
+    if (!state.matchId) showPlayAgainButton('ttt');
   } else if (data.currentPlayer) {
     state.gameState.currentPlayer = data.currentPlayer;
-    status.innerHTML = data.currentPlayer === state.playerId ? "🔴 Your turn!" : "Waiting for opponent...";
-    updateScoreBoard(state.players, data.currentPlayer);
+    if (isSpectator) {
+      status.innerHTML = '👁️ Watching...';
+    } else {
+      status.innerHTML = data.currentPlayer === state.playerId ? "🔴 Your turn!" : "Waiting for opponent...";
+    }
+    updateScoreBoard(players, data.currentPlayer);
   }
 }
 
@@ -1116,15 +1713,33 @@ function initMemoryGame(gameState, players) {
   const difficultyLabel = gameState.difficulty ? gameState.difficulty.charAt(0).toUpperCase() + gameState.difficulty.slice(1) : 'Normal';
   elements.gameTitle.textContent = `🃏 Vecna's Memory Match (${difficultyLabel}) 🃏`;
   
-  // Determine grid columns based on difficulty
-  const gridCols = gameState.gridCols || 4;
+  // Determine grid columns based on difficulty and screen
+  let gridCols = gameState.gridCols || 4;
+  const totalCards = gameState.cards.length;
+  
+  // Smart grid sizing for portrait mode on mobile
+  const isPortrait = window.innerHeight > window.innerWidth;
+  const isMobile = window.innerWidth <= 480;
+  
+  if (isMobile && isPortrait) {
+    // Adjust columns to fit better in portrait
+    if (totalCards <= 16) {
+      gridCols = 4; // 4x4 fits well
+    } else if (totalCards <= 24) {
+      gridCols = 4; // 4x6 fits vertically
+    } else if (totalCards <= 36) {
+      gridCols = 4; // 4x9 scrolls less
+    } else {
+      gridCols = 5; // Larger grids use 5 columns to minimize horizontal space
+    }
+  }
   
   elements.gameContent.innerHTML = `
     <div class="memory-container">
       <div class="memory-status" id="memoryStatus">
         ${gameState.currentPlayer === state.playerId ? "🧠 Your turn to find a match!" : "Watching..."}
       </div>
-      <div class="memory-board" id="memoryBoard" style="grid-template-columns: repeat(${gridCols}, 1fr);">
+      <div class="memory-board" id="memoryBoard" data-cols="${gridCols}" style="grid-template-columns: repeat(${gridCols}, 1fr);">
         ${gameState.cards.map((card, i) => `
           <div class="memory-card" data-index="${i}">
             <div class="card-content">
@@ -1312,6 +1927,11 @@ function initChessGame(gameState, players) {
   const whiteName = players.find(p => p.id === gameState.whitePlayer)?.name || 'White';
   const blackName = players.find(p => p.id === gameState.blackPlayer)?.name || 'Black';
   
+  // Update "Now Playing" display
+  if (players && players.length > 0) {
+    updateNowPlayingDisplay(players);
+  }
+  
   renderChessBoard(gameState.board, gameState.isWhiteTurn, whiteName, blackName);
   updateScoreBoard(players, gameState.currentPlayer);
 }
@@ -1476,10 +2096,17 @@ function handleChessSquareClick(row, col) {
     }
     
     // Try to make the move
-    socket.emit('chessMove', {
-      from: [fromRow, fromCol],
-      to: [row, col]
-    });
+    if (state.matchId) {
+      socket.emit('matchMove', { 
+        matchId: state.matchId, 
+        moveData: { from: [fromRow, fromCol], to: [row, col] }
+      });
+    } else {
+      socket.emit('chessMove', {
+        from: [fromRow, fromCol],
+        to: [row, col]
+      });
+    }
     
     chessState.selectedSquare = null;
     chessState.validMoves = [];
@@ -1603,6 +2230,33 @@ function calculateValidMoves(board, fromRow, fromCol, isWhiteTurn) {
     case 'k': // King
       for (const [dr, dc] of [[-1,-1],[-1,0],[-1,1],[0,-1],[0,1],[1,-1],[1,0],[1,1]]) {
         if (canMoveTo(fromRow + dr, fromCol + dc)) moves.push([fromRow + dr, fromCol + dc]);
+      }
+      
+      // Add castling moves if available
+      if (state.gameState && state.gameState.castlingRights) {
+        const rights = state.gameState.castlingRights;
+        const row = isWhite ? 7 : 0;
+        
+        // Only check castling if king is on starting square
+        if (fromRow === row && fromCol === 4) {
+          // Kingside castling (O-O)
+          const canKingside = isWhite ? rights.whiteKingside : rights.blackKingside;
+          if (canKingside) {
+            // Check path is clear (f1/f8 and g1/g8)
+            if (isEmpty(row, 5) && isEmpty(row, 6)) {
+              moves.push([row, 6]); // King moves to g1 or g8
+            }
+          }
+          
+          // Queenside castling (O-O-O)
+          const canQueenside = isWhite ? rights.whiteQueenside : rights.blackQueenside;
+          if (canQueenside) {
+            // Check path is clear (b1/b8, c1/c8, and d1/d8)
+            if (isEmpty(row, 1) && isEmpty(row, 2) && isEmpty(row, 3)) {
+              moves.push([row, 2]); // King moves to c1 or c8
+            }
+          }
+        }
       }
       break;
   }
@@ -1875,6 +2529,17 @@ socket.on('disconnect', () => {
   updateConnectionStatus('disconnected', '🔌', 'Disconnected from server');
 });
 
+// Forced logout (account logged in elsewhere)
+socket.on('forcedLogout', (data) => {
+  console.log('⚠️ Forced logout:', data.message);
+  showError(data.message);
+  state.isAuthenticated = false;
+  state.username = null;
+  state.userStats = null;
+  localStorage.removeItem('authSession');
+  showScreen('authScreen');
+});
+
 function updateConnectionStatus(status, icon, text) {
   const statusEl = document.getElementById('connectionStatus');
   if (statusEl) {
@@ -1896,14 +2561,26 @@ socket.on('roomJoined', (data) => {
   state.roomId = data.roomId;
   state.isHost = false;
   state.players = data.players;
+  state.activeMatches = data.activeMatches || [];
   elements.displayRoomCode.textContent = data.roomId;
   updatePlayersList(data.players);
+  
+  // Display active matches if any
+  if (data.activeMatches && data.activeMatches.length > 0) {
+    updateActiveMatchesDisplay(data.activeMatches);
+  }
+  
   showScreen('lobby');
 });
 
 socket.on('playerJoined', (data) => {
   updatePlayersList(data.players);
   addChatMessage({ system: true, message: '👤 A new outcast has arrived!' });
+  
+  // Show floating notification for new player (especially for those in-game)
+  if (data.newPlayer && data.newPlayer.id !== state.playerId) {
+    showFloatingNotification(`${data.newPlayer.name} joined the room`);
+  }
 });
 
 socket.on('playerLeft', (data) => {
@@ -1922,6 +2599,202 @@ socket.on('chatMessage', (msg) => {
 
 socket.on('error', (data) => {
   showError(data.message);
+});
+
+// Challenge system events
+socket.on('challengeReceived', (data) => {
+  showIncomingChallenge(data);
+});
+
+socket.on('challengeDeclined', (data) => {
+  showNotification(`${data.playerName} declined your challenge`, 'error');
+});
+
+socket.on('challengeCancelled', (data) => {
+  const modal = document.getElementById('votingModal');
+  if (modal) modal.classList.remove('active');
+  showNotification(data.message || 'Challenge was cancelled', 'info');
+});
+
+socket.on('matchStarted', (data) => {
+  // A 2-player match started - could be us or spectating
+  console.log('🎮 Match started:', data);
+  
+  // Remove spectator badge from previous match
+  removeSpectatorBadge();
+  
+  if (data.players.some(p => p.id === state.playerId)) {
+    // We're in the match - start the game
+    state.currentGame = data.gameType;
+    state.matchId = data.matchId;
+    state.isSpectator = false;
+    
+    if (data.autoRotation) {
+      showNotification('🔄 New round! Your turn to play!', 'info');
+    }
+    
+    showScreen('gameScreen');
+    initMatchGame(data);
+  } else if (data.isSpectator) {
+    // We're spectating this match
+    state.currentGame = data.gameType;
+    state.matchId = data.matchId;
+    state.isSpectator = true;
+    
+    if (data.autoRotation) {
+      showNotification('🔄 New round started - you\'re next in queue!', 'info');
+    }
+    
+    showScreen('gameScreen');
+    initMatchGame(data);
+  } else {
+    // We're in the lobby - update to show match in progress
+    updateLobbyWithActiveMatch(data);
+  }
+});
+
+socket.on('matchUpdate', (data) => {
+  // Update match state (for both players and spectators)
+  if (state.matchId === data.matchId) {
+    handleMatchUpdate(data);
+  }
+});
+
+socket.on('matchEnded', (data) => {
+  console.log('🏁 Match ended:', data);
+  const wasMyMatch = state.matchId === data.matchId;
+  state.matchId = null;
+  state.isSpectator = false;
+  
+  // Remove spectator badge if present
+  removeSpectatorBadge();
+  
+  // Show results
+  if (data.winner) {
+    showNotification(`🏆 ${data.winner.name} wins!`, 'success');
+  } else if (data.draw) {
+    showNotification(`🤝 It's a draw!`, 'info');
+  }
+  
+  // If no auto-rotation (new match starting), return to lobby
+  if (wasMyMatch && !data.autoRotation) {
+    setTimeout(() => {
+      state.currentGame = null;
+      state.gameState = {};
+      showScreen('lobby');
+    }, 2000);
+  }
+});
+
+socket.on('activeMatchesUpdate', (data) => {
+  // Update lobby display with current matches
+  updateActiveMatchesDisplay(data.matches);
+});
+
+// Initialize match game based on type
+function initMatchGame(data) {
+  switch (data.gameType) {
+    case 'tictactoe':
+      initTicTacToe(data.gameState, data.players);
+      break;
+    case 'chess':
+      initChessGame(data.gameState, data.players);
+      break;
+    case 'connect4':
+      initConnect4Game(data.gameState, data.players);
+      break;
+    default:
+      console.error('Unknown match game type:', data.gameType);
+  }
+}
+
+// Handle match updates
+function handleMatchUpdate(data) {
+  // Update state with match game state
+  state.gameState = { ...state.gameState, ...data.gameState };
+  
+  // Update "Now Playing" display with current player info
+  if (data.players) {
+    updateNowPlayingDisplay(data.players);
+  }
+  
+  switch (data.gameType) {
+    case 'tictactoe':
+      updateTicTacToe({ ...data.gameState, players: data.players || state.players });
+      break;
+    case 'chess':
+      handleChessUpdate({ ...data.gameState, players: data.players || state.players });
+      break;
+    case 'connect4':
+      handleConnect4Update({ ...data.gameState, players: data.players || state.players });
+      break;
+  }
+}
+
+// Update lobby with active match info
+function updateLobbyWithActiveMatch(matchData) {
+  state.activeMatches = state.activeMatches || [];
+  const existingIdx = state.activeMatches.findIndex(m => m.matchId === matchData.matchId);
+  if (existingIdx >= 0) {
+    state.activeMatches[existingIdx] = matchData;
+  } else {
+    state.activeMatches.push(matchData);
+  }
+  updateActiveMatchesDisplay(state.activeMatches);
+}
+
+// Display active matches in lobby
+function updateActiveMatchesDisplay(matches) {
+  let container = document.getElementById('activeMatchesContainer');
+  
+  if (!matches || matches.length === 0) {
+    if (container) container.remove();
+    return;
+  }
+  
+  if (!container) {
+    container = document.createElement('div');
+    container.id = 'activeMatchesContainer';
+    container.className = 'active-matches-container';
+    // Insert before game cards
+    const gameCards = document.querySelector('.game-cards');
+    if (gameCards) {
+      gameCards.parentNode.insertBefore(container, gameCards);
+    }
+  }
+  
+  const gameNames = {
+    'tictactoe': '⭕❌ Tic-Tac-Toe',
+    'chess': '♟️ Chess',
+    'connect4': '🔴🟡 Connect 4'
+  };
+  
+  container.innerHTML = `
+    <h4 class="active-matches-title">🎮 Games in Progress</h4>
+    <div class="active-matches-list">
+      ${matches.map(m => `
+        <div class="active-match-card" data-match-id="${m.matchId}">
+          <span class="match-game">${gameNames[m.gameType] || m.gameType}</span>
+          <span class="match-players">${m.players.map(p => escapeHtml(p.name)).join(' vs ')}</span>
+          <button class="btn-spectate" onclick="spectateMatch('${m.matchId}')">👁️ Watch</button>
+        </div>
+      `).join('')}
+    </div>
+  `;
+}
+
+// Spectate a match
+function spectateMatch(matchId) {
+  socket.emit('spectateMatch', { matchId });
+  state.isSpectator = true;
+  state.matchId = matchId;
+}
+
+// Spectator joined notification
+socket.on('spectatorJoined', (data) => {
+  if (!state.isSpectator) {
+    showNotification(`👁️ ${data.playerName} is watching`, 'info');
+  }
 });
 
 // Game events
@@ -1982,6 +2855,18 @@ socket.on('returnToLobby', (data) => {
   state.gameState = {};
   state.players = data.players;
   state.votingActive = false;
+  state.matchId = null;
+  state.isSpectator = false;
+  
+  // Remove spectator badge if present
+  removeSpectatorBadge();
+  
+  // Clear now playing display
+  clearNowPlayingDisplay();
+  
+  // Clean up game-specific listeners
+  document.removeEventListener('keydown', handleSudokuKeypress);
+  window.sudokuKeyboardListenerAdded = false;
   
   // Clear game content
   elements.gameContent.innerHTML = '';
@@ -2203,101 +3088,201 @@ socket.on('gameRestarted', (data) => {
 // ============================================
 
 function initSudokuGame(gameState, players) {
-  console.log('Initializing Sudoku:', gameState);
-  state.gameState = gameState || {};
-  state.gameState.selectedCell = null;
-  
-  // Ensure currentBoard exists
-  if (!state.gameState.currentBoard || !Array.isArray(state.gameState.currentBoard)) {
-    console.error('Sudoku: Invalid currentBoard');
-    elements.gameTitle.textContent = '🔢 Vecna\'s Sudoku 🧩';
-    elements.gameContent.innerHTML = '<div style="text-align:center;color:red;">Error loading Sudoku puzzle</div>';
-    return;
+  try {
+    console.log('Initializing Sudoku:', gameState);
+    state.gameState = gameState || {};
+    state.gameState.selectedCell = null;
+    
+    // Ensure currentBoard exists
+    if (!state.gameState.currentBoard || !Array.isArray(state.gameState.currentBoard)) {
+      console.error('Sudoku: Invalid currentBoard');
+      elements.gameTitle.textContent = '🔢 Vecna\'s Sudoku 🧩';
+      elements.gameContent.innerHTML = '<div style="text-align:center;color:red;">Error loading Sudoku puzzle</div>';
+      return;
+    }
+    
+    const difficultyLabel = gameState.difficulty ? gameState.difficulty.charAt(0).toUpperCase() + gameState.difficulty.slice(1) : 'Medium';
+    elements.gameTitle.textContent = `🔢 Vecna's Sudoku (${difficultyLabel}) 🧩`;
+    
+    // Create the board structure ONCE
+    createSudokuBoard(gameState);
+    
+    // Set up event listeners ONCE
+    setupSudokuListeners();
+    
+    // Initial display update
+    updateSudokuDisplay();
+    
+    updateScoreBoard(players);
+  } catch (err) {
+    console.error('Sudoku init error:', err);
   }
-  
-  const difficultyLabel = gameState.difficulty ? gameState.difficulty.charAt(0).toUpperCase() + gameState.difficulty.slice(1) : 'Medium';
-  elements.gameTitle.textContent = `🔢 Vecna's Sudoku (${difficultyLabel}) 🧩`;
-  
-  renderSudokuBoard(gameState);
-  updateScoreBoard(players);
 }
 
-function renderSudokuBoard(gameState) {
-  const selectedCell = state.gameState.selectedCell;
+function createSudokuBoard(gameState) {
+  const currentBoard = gameState.currentBoard || [];
+  const puzzle = gameState.puzzle || [];
+  
+  elements.gameContent.innerHTML = `
+    <div class="sudoku-game">
+      <div class="sudoku-main">
+        <div class="sudoku-board" id="sudokuBoard">
+          ${currentBoard.map((row, rowIndex) => 
+            (row || []).map((cell, colIndex) => {
+              const isOriginal = puzzle[rowIndex] && puzzle[rowIndex][colIndex] !== 0;
+              return `<div class="sudoku-cell ${isOriginal ? 'original' : 'editable'}" 
+                          data-row="${rowIndex}" data-col="${colIndex}">
+                        <span class="cell-value">${cell !== 0 ? cell : ''}</span>
+                      </div>`;
+            }).join('')
+          ).join('')}
+        </div>
+      </div>
+      
+      <div class="sudoku-controls">
+        <div class="sudoku-numpad" id="sudokuNumpad">
+          ${[1,2,3,4,5,6,7,8,9].map(num => 
+            `<button class="numpad-btn" data-num="${num}">${num}</button>`
+          ).join('')}
+          <button class="numpad-btn erase" data-num="0">✕</button>
+        </div>
+        <div class="sudoku-hints">
+          <span>🎯 Tap cell, then number</span>
+          <span>✅ +5 pts | ❌ -2 pts</span>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function setupSudokuListeners() {
+  // Remove any existing listeners
+  document.removeEventListener('keydown', handleSudokuKeypress);
+  
+  // Get the board and numpad elements
+  const board = document.getElementById('sudokuBoard');
+  const numpad = document.getElementById('sudokuNumpad');
+  
+  // Board click handler - attach directly to cells
+  if (board) {
+    const cells = board.querySelectorAll('.sudoku-cell');
+    cells.forEach(cell => {
+      cell.addEventListener('click', function() {
+        const row = parseInt(this.dataset.row);
+        const col = parseInt(this.dataset.col);
+        
+        // Toggle selection - deselect if same cell is tapped again
+        const currentSelection = state.gameState.selectedCell;
+        if (currentSelection && currentSelection[0] === row && currentSelection[1] === col) {
+          state.gameState.selectedCell = null;
+        } else {
+          state.gameState.selectedCell = [row, col];
+        }
+        updateSudokuDisplay();
+      });
+    });
+  }
+  
+  // Numpad click handler - use event delegation on the numpad container
+  if (numpad) {
+    numpad.addEventListener('click', handleNumpadClick);
+  }
+  
+  // Keyboard handler
+  document.addEventListener('keydown', handleSudokuKeypress);
+}
+
+function updateSudokuDisplay() {
+  const gameState = state.gameState;
+  if (!gameState) return;
+  
+  const selectedCell = gameState.selectedCell;
   const puzzle = gameState.puzzle || [];
   const solution = gameState.solution || [];
   const currentBoard = gameState.currentBoard || [];
   const playerMoves = gameState.playerMoves || {};
   
-  elements.gameContent.innerHTML = `
-    <div class="sudoku-container">
-      <div class="sudoku-info">
-        <p>🧠 Work together to solve the puzzle!</p>
-        <p>✅ Correct = +5 points | ❌ Wrong = -2 points</p>
-      </div>
-      <div class="sudoku-board" id="sudokuBoard">
-        ${currentBoard.map((row, rowIndex) => 
-          (row || []).map((cell, colIndex) => {
-            const puzzleRow = puzzle[rowIndex] || [];
-            const solutionRow = solution[rowIndex] || [];
-            const isOriginal = puzzleRow[colIndex] !== 0;
-            const isSelected = selectedCell && selectedCell[0] === rowIndex && selectedCell[1] === colIndex;
-            const isWrong = cell !== 0 && cell !== solutionRow[colIndex];
-            const cellKey = `${rowIndex}-${colIndex}`;
-            const filledBy = playerMoves[cellKey];
-            const playerName = filledBy ? state.players.find(p => p.id === filledBy)?.name : null;
-            
-            // Highlight same number
-            const selectedRow = selectedCell ? currentBoard[selectedCell[0]] || [] : [];
-            const selectedValue = selectedCell ? selectedRow[selectedCell[1]] : 0;
-            const isSameNumber = cell !== 0 && cell === selectedValue;
-            
-            return `
-              <div class="sudoku-cell ${isOriginal ? 'original' : 'editable'} ${isSelected ? 'selected' : ''} ${isWrong ? 'wrong' : ''} ${isSameNumber ? 'same-number' : ''}"
-                   data-row="${rowIndex}" data-col="${colIndex}"
-                   ${playerName ? `title="Filled by ${playerName}"` : ''}>
-                ${cell !== 0 ? cell : ''}
-              </div>
-            `;
-          }).join('')
-        ).join('')}
-      </div>
-      <div class="sudoku-numpad" id="sudokuNumpad">
-        ${[1,2,3,4,5,6,7,8,9].map(num => `
-          <button class="numpad-btn" data-num="${num}">${num}</button>
-        `).join('')}
-        <button class="numpad-btn erase" data-num="0">✕</button>
-      </div>
-    </div>
-  `;
+  // Get selected cell info
+  const selectedRow = selectedCell ? selectedCell[0] : -1;
+  const selectedCol = selectedCell ? selectedCell[1] : -1;
+  const selectedValue = selectedCell && currentBoard[selectedRow] ? currentBoard[selectedRow][selectedCol] : 0;
   
-  // Add cell click handlers
-  document.querySelectorAll('.sudoku-cell.editable').forEach(cell => {
-    cell.addEventListener('click', () => {
-      const row = parseInt(cell.dataset.row);
-      const col = parseInt(cell.dataset.col);
-      selectSudokuCell(row, col);
-    });
+  // Count completed numbers
+  const numberCounts = {};
+  for (let i = 1; i <= 9; i++) numberCounts[i] = 0;
+  
+  // Update each cell
+  document.querySelectorAll('.sudoku-cell').forEach(cellEl => {
+    const row = parseInt(cellEl.dataset.row);
+    const col = parseInt(cellEl.dataset.col);
+    const cell = currentBoard[row] ? currentBoard[row][col] : 0;
+    const puzzleVal = puzzle[row] ? puzzle[row][col] : 0;
+    const solutionVal = solution[row] ? solution[row][col] : 0;
+    const isOriginal = puzzleVal !== 0;
+    
+    // Update cell value
+    const valueEl = cellEl.querySelector('.cell-value');
+    if (valueEl) {
+      valueEl.textContent = cell !== 0 ? cell : '';
+    }
+    
+    // Count correct numbers
+    if (cell !== 0 && cell === solutionVal) {
+      numberCounts[cell]++;
+    }
+    
+    // Calculate states
+    const isSelected = selectedRow === row && selectedCol === col;
+    const isWrong = cell !== 0 && cell !== solutionVal;
+    const isSameNumber = cell !== 0 && cell === selectedValue && selectedValue !== 0;
+    const isInSelectedRow = selectedRow === row && selectedRow !== -1;
+    const isInSelectedCol = selectedCol === col && selectedCol !== -1;
+    // Only highlight row and column, not 3x3 box
+    const isHighlighted = !isSelected && (isInSelectedRow || isInSelectedCol);
+    
+    // Update classes
+    cellEl.className = 'sudoku-cell';
+    if (isOriginal) cellEl.classList.add('original');
+    else cellEl.classList.add('editable');
+    if (isSelected) cellEl.classList.add('selected');
+    if (isWrong) cellEl.classList.add('wrong');
+    if (isSameNumber) cellEl.classList.add('same-number');
+    if (isHighlighted) cellEl.classList.add('highlighted');
   });
   
-  // Add numpad handlers
-  document.querySelectorAll('.numpad-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const num = parseInt(btn.dataset.num);
-      if (state.gameState.selectedCell) {
-        const [row, col] = state.gameState.selectedCell;
-        socket.emit('sudokuMove', { row, col, value: num });
-      }
-    });
+  // Update numpad buttons
+  document.querySelectorAll('.numpad-btn[data-num]').forEach(btn => {
+    const num = parseInt(btn.dataset.num);
+    if (num >= 1 && num <= 9) {
+      const isComplete = numberCounts[num] >= 9;
+      btn.classList.toggle('completed', isComplete);
+      btn.disabled = isComplete;
+    }
   });
-  
-  // Add keyboard support
-  document.addEventListener('keydown', handleSudokuKeypress);
 }
 
 function selectSudokuCell(row, col) {
   state.gameState.selectedCell = [row, col];
-  renderSudokuBoard(state.gameState);
+  updateSudokuDisplay();
+}
+
+function handleNumpadClick(e) {
+  const btn = e.target.closest('.numpad-btn');
+  if (!btn || btn.disabled) return;
+  
+  if (!state.gameState || !state.gameState.selectedCell) return;
+  
+  const num = parseInt(btn.dataset.num);
+  const [row, col] = state.gameState.selectedCell;
+  const puzzle = state.gameState.puzzle || [];
+  
+  // Check if cell is an original puzzle cell (non-zero in original puzzle)
+  const puzzleValue = puzzle[row] !== undefined && puzzle[row][col] !== undefined ? puzzle[row][col] : 0;
+  const isOriginal = puzzleValue !== 0;
+  
+  if (!isOriginal) {
+    socket.emit('sudokuMove', { row, col, value: num });
+  }
 }
 
 function handleSudokuKeypress(e) {
@@ -2305,26 +3290,35 @@ function handleSudokuKeypress(e) {
   if (!state.gameState.selectedCell) return;
   
   const [row, col] = state.gameState.selectedCell;
+  const puzzle = state.gameState.puzzle || [];
+  const puzzleValue = puzzle[row] !== undefined && puzzle[row][col] !== undefined ? puzzle[row][col] : 0;
+  const isOriginal = puzzleValue !== 0;
   
-  // Number keys 1-9
-  if (e.key >= '1' && e.key <= '9') {
+  // Number keys 1-9 (only on editable cells)
+  if (e.key >= '1' && e.key <= '9' && !isOriginal) {
+    e.preventDefault();
     socket.emit('sudokuMove', { row, col, value: parseInt(e.key) });
   }
-  // Delete or backspace to erase
-  else if (e.key === 'Delete' || e.key === 'Backspace' || e.key === '0') {
+  // Delete or backspace to erase (only on editable cells)
+  else if ((e.key === 'Delete' || e.key === 'Backspace' || e.key === '0') && !isOriginal) {
+    e.preventDefault();
     socket.emit('sudokuMove', { row, col, value: 0 });
   }
   // Arrow keys to move selection
   else if (e.key === 'ArrowUp' && row > 0) {
+    e.preventDefault();
     selectSudokuCell(row - 1, col);
   }
   else if (e.key === 'ArrowDown' && row < 8) {
+    e.preventDefault();
     selectSudokuCell(row + 1, col);
   }
   else if (e.key === 'ArrowLeft' && col > 0) {
+    e.preventDefault();
     selectSudokuCell(row, col - 1);
   }
   else if (e.key === 'ArrowRight' && col < 8) {
+    e.preventDefault();
     selectSudokuCell(row, col + 1);
   }
 }
@@ -2335,14 +3329,13 @@ function handleSudokuUpdate(data) {
   
   // Show feedback
   if (data.value !== 0) {
-    const feedbackClass = data.isCorrect ? 'correct' : 'wrong';
     addChatMessage({
       system: true,
       message: `${data.playerName} placed ${data.value} - ${data.isCorrect ? '✅ Correct!' : '❌ Wrong!'}`
     }, elements.gameChatMessages);
   }
   
-  renderSudokuBoard(state.gameState);
+  updateSudokuDisplay();
   updateScoreBoard(data.players);
 }
 
@@ -2374,7 +3367,13 @@ function handleSudokuComplete(data) {
 function initConnect4Game(gameState, players) {
   console.log('Initializing Connect 4:', gameState);
   state.gameState = gameState || {};
-  elements.gameTitle.textContent = '🔴 4 in a Row 🟡';
+  const winCondition = gameState.winCondition || 4;
+  elements.gameTitle.textContent = `🔴 ${winCondition} in a Row 🟡`;
+  
+  // Update "Now Playing" display
+  if (players && players.length > 0) {
+    updateNowPlayingDisplay(players);
+  }
   
   // Ensure board exists
   if (!state.gameState.board || !Array.isArray(state.gameState.board)) {
@@ -2433,7 +3432,11 @@ function renderConnect4Board(gameState, players) {
     document.querySelectorAll('.c4-cell.empty').forEach(cell => {
       cell.addEventListener('click', () => {
         const col = parseInt(cell.dataset.col);
-        socket.emit('connect4Move', col);
+        if (state.matchId) {
+          socket.emit('matchMove', { matchId: state.matchId, moveData: { column: col } });
+        } else {
+          socket.emit('connect4Move', col);
+        }
       });
     });
   }
@@ -2753,21 +3756,22 @@ function handleMathNextQuestion(data) {
 // LUDO GAME (Upside Down / Wednesday Theme)
 // ============================================
 
+// Ludo Colors - Wednesday/Stranger Things themed
 const LUDO_COLORS = {
-  0: { name: 'Eleven', color: '#e50914', emoji: '🔴' },      // Red - Eleven
-  1: { name: 'Wednesday', color: '#9333ea', emoji: '🖤' },   // Purple - Wednesday
-  2: { name: 'Dustin', color: '#05d9e8', emoji: '🧢' },      // Cyan - Dustin
-  3: { name: 'Enid', color: '#f59e0b', emoji: '🐺' }         // Orange - Enid
+  0: { name: 'Eleven', color: '#e50914', emoji: '🔴', light: '#ff4d4d' },
+  1: { name: 'Wednesday', color: '#9333ea', emoji: '🖤', light: '#b366ff' },
+  2: { name: 'Dustin', color: '#05d9e8', emoji: '🧢', light: '#4de8f4' },
+  3: { name: 'Enid', color: '#f59e0b', emoji: '🐺', light: '#ffc04d' }
 };
+
+const LUDO_SAFE_SQUARES = [0, 8, 13, 21, 26, 34, 39, 47];
+const LUDO_START_SQUARES = [0, 13, 26, 39];
 
 function initLudoGame(gameState, players) {
   console.log('Initializing Ludo:', gameState);
   state.gameState = gameState || {};
-  state.gameState.selectedToken = null;
-  state.gameState.canRoll = gameState.currentPlayer === state.playerId && !gameState.diceRolled;
-  elements.gameTitle.textContent = '🎲 Upside Down Ludo 🦇';
+  elements.gameTitle.textContent = '🎲 The Upside Down Race 🦇';
   
-  // Ensure required data exists
   if (!state.gameState.tokens || !state.gameState.playerOrder) {
     console.error('Ludo: Invalid game state');
     elements.gameContent.innerHTML = '<div style="text-align:center;color:red;">Error loading Ludo</div>';
@@ -2782,63 +3786,147 @@ function renderLudoBoard(gameState, players) {
   const currentPlayerName = players.find(p => p.id === gameState.currentPlayer)?.name || 'Unknown';
   const isMyTurn = gameState.currentPlayer === state.playerId;
   const myPlayerIndex = gameState.playerOrder.indexOf(state.playerId);
-  const myColor = myPlayerIndex >= 0 ? LUDO_COLORS[myPlayerIndex] : null;
+  const FINISH_STEP = 56;
+  
+  // Calculate each player's total progress (sum of all token steps)
+  const playerProgress = {};
+  gameState.playerOrder.forEach(pid => {
+    const tokens = gameState.tokens[pid] || [];
+    playerProgress[pid] = tokens.reduce((sum, t) => sum + (t.steps || 0), 0);
+  });
   
   let statusText = '';
+  let statusClass = '';
   if (gameState.winner) {
     const winnerName = players.find(p => p.id === gameState.winner)?.name || 'Winner';
-    statusText = `🏆 ${winnerName} wins!`;
+    statusText = `🏆 ${winnerName} escaped the Upside Down!`;
+    statusClass = 'winner';
   } else if (isMyTurn) {
     if (!gameState.diceRolled) {
-      statusText = '🎲 Roll the dice!';
+      statusText = '🎲 Your turn! Roll the dice!';
+      statusClass = 'roll';
     } else if (gameState.validMoves && gameState.validMoves.length > 0) {
-      statusText = '👆 Select a token to move';
+      statusText = '👆 Choose a piece to move';
+      statusClass = 'move';
     } else {
-      statusText = '❌ No valid moves - passing turn...';
+      statusText = '😱 No valid moves! Turn passing...';
+      statusClass = 'no-moves';
     }
   } else {
     statusText = `⏳ ${escapeHtml(currentPlayerName)}'s turn...`;
+    statusClass = 'waiting';
   }
   
   elements.gameContent.innerHTML = `
-    <div class="ludo-container">
-      <div class="ludo-status" id="ludoStatus">${statusText}</div>
+    <div class="ludo-game">
+      <div class="ludo-status ${statusClass}">${statusText}</div>
       
-      <div class="ludo-board" id="ludoBoard">
-        ${renderLudoBoardHTML(gameState)}
+      <!-- Dice and Controls -->
+      <div class="ludo-dice-section">
+        <div class="ludo-dice ${gameState.lastDice ? 'rolled' : ''}" id="ludoDice">
+          ${gameState.lastDice ? getDiceEmoji(gameState.lastDice) : '🎲'}
+        </div>
+        ${isMyTurn && !gameState.diceRolled && !gameState.winner ? `
+          <button class="btn btn-primary ludo-roll-btn" id="ludoRollBtn">
+            🎲 Roll Dice
+          </button>
+        ` : ''}
+        ${gameState.lastDice === 6 ? '<div class="bonus-indicator">⭐ Bonus Turn!</div>' : ''}
       </div>
       
-      <div class="ludo-controls">
-        <div class="ludo-dice-area">
-          <div class="ludo-dice" id="ludoDice">
-            ${gameState.lastDice ? getDiceEmoji(gameState.lastDice) : '🎲'}
-          </div>
-          ${isMyTurn && !gameState.diceRolled && !gameState.winner ? `
-            <button class="btn btn-primary ludo-roll-btn" id="ludoRollBtn">
-              Roll Dice
-            </button>
-          ` : ''}
-        </div>
-        
-        <div class="ludo-player-info">
-          <p>You are: ${myColor ? `${myColor.emoji} ${myColor.name}` : '👁️ Spectating'}</p>
-        </div>
-      </div>
-      
-      <div class="ludo-players">
+      <!-- Turn Order Display -->
+      <div class="ludo-turn-order">
         ${gameState.playerOrder.map((playerId, idx) => {
           const player = players.find(p => p.id === playerId);
           const colorInfo = LUDO_COLORS[idx];
-          const tokensHome = gameState.tokens[playerId].filter(t => t.position === 'home').length;
-          const tokensFinished = gameState.tokens[playerId].filter(t => t.position === 'finished').length;
+          const isCurrentPlayer = gameState.currentPlayer === playerId;
+          const progress = playerProgress[playerId] || 0;
+          const maxProgress = FINISH_STEP * 4; // 4 tokens * 56 steps
+          
           return `
-            <div class="ludo-player-card ${gameState.currentPlayer === playerId ? 'active' : ''}">
-              <span class="ludo-player-emoji">${colorInfo.emoji}</span>
-              <span class="ludo-player-name">${escapeHtml(player?.name || 'Player')}</span>
-              <span class="ludo-player-progress">🏠${tokensHome} ✅${tokensFinished}</span>
+            <div class="turn-order-player ${isCurrentPlayer ? 'current' : ''}" 
+                 style="--player-color: ${colorInfo.color}">
+              <span class="turn-emoji">${colorInfo.emoji}</span>
+              <span class="turn-name">${escapeHtml(player?.name || colorInfo.name).substring(0, 8)}</span>
+              <span class="turn-score">${progress}/${maxProgress}</span>
+              ${isCurrentPlayer ? '<span class="turn-arrow">◄</span>' : ''}
             </div>
           `;
         }).join('')}
+      </div>
+      
+      <!-- Player Areas with Tokens -->
+      <div class="ludo-player-areas">
+        ${gameState.playerOrder.map((playerId, idx) => {
+          const player = players.find(p => p.id === playerId);
+          const colorInfo = LUDO_COLORS[idx];
+          const tokens = gameState.tokens[playerId] || [];
+          const isCurrentPlayer = gameState.currentPlayer === playerId;
+          const isMe = playerId === state.playerId;
+          const finishedCount = tokens.filter(t => t.position === 'finished').length;
+          
+          return `
+            <div class="ludo-player-area ${isCurrentPlayer ? 'active' : ''} ${isMe ? 'is-me' : ''}" 
+                 style="--player-color: ${colorInfo.color}; --player-light: ${colorInfo.light}">
+              <div class="player-area-header">
+                <span class="player-emoji">${colorInfo.emoji}</span>
+                <span class="player-name">${escapeHtml(player?.name || colorInfo.name)}</span>
+                <span class="finished-count">${finishedCount}/4 🏁</span>
+                ${isCurrentPlayer ? '<span class="turn-indicator">🎯</span>' : ''}
+              </div>
+              
+              <div class="player-tokens-grid">
+                ${tokens.map((token, tokenIdx) => {
+                  const isMovable = isMyTurn && gameState.validMoves && 
+                    gameState.validMoves.some(m => m.tokenIndex === tokenIdx) &&
+                    playerId === state.playerId;
+                  
+                  let tokenStatus = '';
+                  let tokenProgress = 0;
+                  const steps = token.steps || 0;
+                  
+                  if (token.position === 'home') {
+                    tokenStatus = 'home';
+                    tokenProgress = 0;
+                  } else if (token.position === 'finished') {
+                    tokenStatus = 'finished';
+                    tokenProgress = 100;
+                  } else if (typeof token.position === 'string' && token.position.startsWith('homeStretch')) {
+                    tokenStatus = 'homeStretch';
+                    tokenProgress = Math.round((steps / FINISH_STEP) * 100);
+                  } else {
+                    tokenStatus = 'onTrack';
+                    tokenProgress = Math.round((steps / FINISH_STEP) * 100);
+                  }
+                  
+                  return `
+                    <div class="ludo-token-wrapper ${tokenStatus} ${isMovable ? 'movable' : ''}"
+                         data-token-index="${tokenIdx}" data-player-id="${playerId}">
+                      <div class="ludo-token" style="background: ${colorInfo.color}">
+                        ${colorInfo.emoji}
+                      </div>
+                      <div class="token-progress-bar">
+                        <div class="token-progress-fill" style="width: ${tokenProgress}%"></div>
+                      </div>
+                      <div class="token-status-text">
+                        ${tokenStatus === 'home' ? '🏠' : 
+                          tokenStatus === 'finished' ? '🏁' : 
+                          `${steps}/${FINISH_STEP}`}
+                      </div>
+                    </div>
+                  `;
+                }).join('')}
+              </div>
+            </div>
+          `;
+        }).join('')}
+      </div>
+      
+      <!-- Game Rules Info -->
+      <div class="ludo-rules-hint">
+        <span>🎯 Roll 6 to release</span>
+        <span>🛡️ Safe spots protect</span>
+        <span>💥 Capture = Bonus</span>
       </div>
     </div>
   `;
@@ -2854,10 +3942,14 @@ function renderLudoBoard(gameState, players) {
   
   // Add token click handlers
   if (isMyTurn && gameState.diceRolled && gameState.validMoves && gameState.validMoves.length > 0) {
-    document.querySelectorAll('.ludo-token.movable').forEach(token => {
-      token.addEventListener('click', () => {
-        const tokenIndex = parseInt(token.dataset.tokenIndex);
+    document.querySelectorAll('.ludo-token-wrapper.movable').forEach(wrapper => {
+      wrapper.addEventListener('click', () => {
+        const tokenIndex = parseInt(wrapper.dataset.tokenIndex);
         socket.emit('ludoMoveToken', tokenIndex);
+        // Disable further clicks
+        document.querySelectorAll('.ludo-token-wrapper.movable').forEach(w => {
+          w.classList.remove('movable');
+        });
       });
     });
   }
@@ -2867,103 +3959,7 @@ function renderLudoBoard(gameState, players) {
   }
 }
 
-function renderLudoBoardHTML(gameState) {
-  // Simplified Ludo board display
-  if (!gameState.playerOrder || !gameState.tokens) {
-    return '<div style="color:red;">Error rendering Ludo board</div>';
-  }
-  
-  let html = '<div class="ludo-path">';
-  
-  // Render home bases for each player
-  html += '<div style="display:flex;flex-wrap:wrap;justify-content:center;gap:15px;margin-bottom:20px;">';
-  gameState.playerOrder.forEach((playerId, playerIdx) => {
-    const colorInfo = LUDO_COLORS[playerIdx] || { color: '#888', emoji: '⚪', name: 'Player' };
-    const tokens = gameState.tokens[playerId] || [];
-    const homeTokens = tokens.filter(t => t.position === 'home');
-    const onBoardTokens = tokens.filter(t => typeof t.position === 'number');
-    const finishedTokens = tokens.filter(t => t.position === 'finished');
-    
-    html += `
-      <div class="ludo-home" style="background: ${colorInfo.color}20; border-color: ${colorInfo.color}; padding:15px; border-radius:10px; border:2px solid; min-width:120px;">
-        <div style="text-align:center;margin-bottom:10px;">${colorInfo.emoji} ${colorInfo.name}</div>
-        <div style="display:flex;gap:5px;justify-content:center;flex-wrap:wrap;">
-          ${homeTokens.map((t, i) => {
-            const tokenIdx = tokens.indexOf(t);
-            const isMovable = gameState.validMoves && 
-                             gameState.validMoves.some(m => m.tokenIndex === tokenIdx) &&
-                             playerId === state.playerId;
-            return `<div class="ludo-token ${isMovable ? 'movable' : ''}" 
-                        data-token-index="${tokenIdx}"
-                        style="background: ${colorInfo.color}; width:30px; height:30px; border-radius:50%; display:flex; align-items:center; justify-content:center; cursor:${isMovable ? 'pointer' : 'default'}; ${isMovable ? 'box-shadow: 0 0 10px gold; animation: tokenPulse 1s infinite;' : ''}">${colorInfo.emoji}</div>`;
-          }).join('')}
-        </div>
-        <div style="font-size:0.8rem;color:var(--text-secondary);margin-top:8px;text-align:center;">
-          🏠 ${homeTokens.length} | 🎯 ${onBoardTokens.length} | ✅ ${finishedTokens.length}
-        </div>
-      </div>
-    `;
-  });
-  html += '</div>';
-  
-  // Simplified track - just show tokens on board
-  const onBoardInfo = [];
-  gameState.playerOrder.forEach((playerId, playerIdx) => {
-    const colorInfo = LUDO_COLORS[playerIdx] || { color: '#888', emoji: '⚪' };
-    const tokens = gameState.tokens[playerId] || [];
-    tokens.forEach((t, tIdx) => {
-      if (typeof t.position === 'number') {
-        const isMovable = gameState.validMoves && 
-                         gameState.validMoves.some(m => m.tokenIndex === tIdx) &&
-                         playerId === state.playerId;
-        onBoardInfo.push({
-          position: t.position,
-          colorInfo,
-          isMovable,
-          tokenIdx: tIdx,
-          playerId
-        });
-      }
-    });
-  });
-  
-  if (onBoardInfo.length > 0) {
-    html += '<div style="background:rgba(0,0,0,0.3);padding:15px;border-radius:10px;margin-bottom:20px;">';
-    html += '<div style="text-align:center;margin-bottom:10px;color:var(--text-secondary);">Tokens on Track:</div>';
-    html += '<div style="display:flex;flex-wrap:wrap;gap:10px;justify-content:center;">';
-    onBoardInfo.forEach(info => {
-      html += `<div class="ludo-token ${info.isMovable ? 'movable' : ''}" 
-                   data-token-index="${info.tokenIdx}"
-                   data-player-id="${info.playerId}"
-                   style="background: ${info.colorInfo.color}; width:35px; height:35px; border-radius:50%; display:flex; align-items:center; justify-content:center; position:relative; cursor:${info.isMovable ? 'pointer' : 'default'}; ${info.isMovable ? 'box-shadow: 0 0 10px gold; animation: tokenPulse 1s infinite;' : ''}">
-                ${info.colorInfo.emoji}
-                <span style="position:absolute;bottom:-15px;font-size:0.7rem;color:var(--text-secondary);">${info.position}</span>
-              </div>`;
-    });
-    html += '</div></div>';
-  }
-  
-  // Finish area
-  html += '<div style="display:flex;justify-content:center;gap:15px;flex-wrap:wrap;">';
-  gameState.playerOrder.forEach((playerId, playerIdx) => {
-    const colorInfo = LUDO_COLORS[playerIdx] || { color: '#888', emoji: '⚪' };
-    const tokens = gameState.tokens[playerId] || [];
-    const finishedTokens = tokens.filter(t => t.position === 'finished');
-    
-    if (finishedTokens.length > 0) {
-      html += `<div style="border:2px dashed ${colorInfo.color}; padding:10px; border-radius:10px; text-align:center;">
-                <div>✅ Finished</div>
-                <div style="display:flex;gap:5px;margin-top:5px;">
-                  ${finishedTokens.map(() => `<div style="background:${colorInfo.color};width:25px;height:25px;border-radius:50%;display:flex;align-items:center;justify-content:center;">${colorInfo.emoji}</div>`).join('')}
-                </div>
-              </div>`;
-    }
-  });
-  html += '</div>';
-  
-  html += '</div>';
-  return html;
-}
+// Removed old renderLudoBoardHTML and helper functions - using new player-area based UI
 
 function getDiceEmoji(value) {
   const diceEmojis = ['', '⚀', '⚁', '⚂', '⚃', '⚄', '⚅'];
@@ -2971,16 +3967,21 @@ function getDiceEmoji(value) {
 }
 
 function handleLudoDiceRoll(data) {
+  // Update state with server data
+  if (data.gameState) {
+    state.gameState = { ...state.gameState, ...data.gameState };
+  }
   state.gameState.lastDice = data.value;
   state.gameState.diceRolled = true;
   state.gameState.validMoves = data.validMoves;
   
   const dice = document.getElementById('ludoDice');
   if (dice) {
-    dice.classList.add('rolling');
+    dice.classList.add('rolled');
     setTimeout(() => {
-      dice.classList.remove('rolling');
       dice.textContent = getDiceEmoji(data.value);
+      // Re-render to show movable tokens
+      renderLudoBoard(state.gameState, state.players);
     }, 500);
   }
   
@@ -3000,24 +4001,48 @@ function handleLudoDiceRoll(data) {
 }
 
 function handleLudoTokenMoved(data) {
+  // Update state with server data
+  if (data.gameState) {
+    state.gameState = { ...state.gameState, ...data.gameState };
+  }
   state.gameState.tokens = data.tokens;
   
-  addChatMessage({
-    system: true,
-    message: `${data.playerName} moved a token!`
-  }, elements.gameChatMessages);
+  // Show move info
+  if (data.newPosition === 'start') {
+    addChatMessage({
+      system: true,
+      message: `🎯 ${data.playerName} released a token!`
+    }, elements.gameChatMessages);
+  } else {
+    addChatMessage({
+      system: true,
+      message: `🎲 ${data.playerName} moved ${data.diceValue || ''} steps`
+    }, elements.gameChatMessages);
+  }
   
   if (data.captured) {
     addChatMessage({
       system: true,
-      message: `💥 ${data.playerName} sent a token back home!`
+      message: `💥 ${data.playerName} captured an opponent! Bonus turn!`
+    }, elements.gameChatMessages);
+  }
+  
+  if (data.finished) {
+    addChatMessage({
+      system: true,
+      message: `🏁 ${data.playerName} got a token home! Bonus turn!`
     }, elements.gameChatMessages);
   }
   
   renderLudoBoard(state.gameState, state.players);
+  updateScoreBoard(state.players, state.gameState.currentPlayer);
 }
 
 function handleLudoTurnChange(data) {
+  // Update state with server data
+  if (data.gameState) {
+    state.gameState = { ...state.gameState, ...data.gameState };
+  }
   state.gameState.currentPlayer = data.currentPlayer;
   state.gameState.diceRolled = false;
   state.gameState.lastDice = null;

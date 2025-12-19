@@ -197,8 +197,10 @@
       <div class="game-header">
         <div class="game-title-bar">
           <h2 id="gameTitle">Game</h2>
+          <button id="toggleScoreBtn" class="score-toggle-btn" title="Toggle Scoreboard">📊</button>
           <div class="score-board" id="scoreBoard"></div>
         </div>
+        <div id="nowPlayingDisplay" class="now-playing-display"></div>
         <button id="backToLobbyBtn" class="btn-small btn-danger">✖ End Game</button>
       </div>
 
@@ -235,6 +237,22 @@
   <button id="fullscreenToggle" class="fullscreen-toggle" title="Toggle Fullscreen">
     <span id="fullscreenIcon">⛶</span>
   </button>
+
+  <!-- Mobile Chat Toggle Button -->
+  <button id="chatToggleBtn" class="chat-toggle-btn" title="Open Chat">💬</button>
+
+  <!-- Mobile Chat Overlay -->
+  <div id="gameChatOverlay" class="game-chat-overlay">
+    <div class="chat-header">
+      <span>💬 Game Chat</span>
+      <button class="chat-close-btn" id="closeChatOverlay">✕</button>
+    </div>
+    <div id="mobileChatMessages" class="chat-messages"></div>
+    <div class="chat-input-area">
+      <input type="text" id="mobileChatInput" placeholder="Type a message..." maxlength="200">
+      <button id="sendMobileChatBtn" class="btn-small btn-primary">Send</button>
+    </div>
+  </div>
 
   <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
   <script src="app.js"></script>
