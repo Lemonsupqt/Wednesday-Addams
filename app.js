@@ -1075,7 +1075,7 @@ function showConnect4DifficultyModal() {
     btn.addEventListener('click', () => {
       const winCondition = parseInt(btn.dataset.win);
       modal.classList.remove('active');
-      socket.emit('startGame', { gameType: 'connect4', options: { winCondition } });
+      socket.emit('startGame', { type: 'connect4', options: { winCondition } });
     });
   });
   
@@ -2640,8 +2640,8 @@ function renderSudokuBoard(gameState) {
     </div>
   `;
   
-  // Add cell click handlers
-  document.querySelectorAll('.sudoku-cell.editable').forEach(cell => {
+  // Add cell click handlers - ALL cells can be clicked for highlighting guide
+  document.querySelectorAll('.sudoku-cell').forEach(cell => {
     cell.addEventListener('click', () => {
       const row = parseInt(cell.dataset.row);
       const col = parseInt(cell.dataset.col);
@@ -3123,21 +3123,22 @@ function handleMathNextQuestion(data) {
 // LUDO GAME (Upside Down / Wednesday Theme)
 // ============================================
 
+// Ludo Colors - Wednesday/Stranger Things themed
 const LUDO_COLORS = {
-  0: { name: 'Eleven', color: '#e50914', emoji: '🔴' },      // Red - Eleven
-  1: { name: 'Wednesday', color: '#9333ea', emoji: '🖤' },   // Purple - Wednesday
-  2: { name: 'Dustin', color: '#05d9e8', emoji: '🧢' },      // Cyan - Dustin
-  3: { name: 'Enid', color: '#f59e0b', emoji: '🐺' }         // Orange - Enid
+  0: { name: 'Eleven', color: '#e50914', emoji: '🔴', light: '#ff4d4d' },
+  1: { name: 'Wednesday', color: '#9333ea', emoji: '🖤', light: '#b366ff' },
+  2: { name: 'Dustin', color: '#05d9e8', emoji: '🧢', light: '#4de8f4' },
+  3: { name: 'Enid', color: '#f59e0b', emoji: '🐺', light: '#ffc04d' }
 };
+
+const LUDO_SAFE_SQUARES = [0, 8, 13, 21, 26, 34, 39, 47];
+const LUDO_START_SQUARES = [0, 13, 26, 39];
 
 function initLudoGame(gameState, players) {
   console.log('Initializing Ludo:', gameState);
   state.gameState = gameState || {};
-  state.gameState.selectedToken = null;
-  state.gameState.canRoll = gameState.currentPlayer === state.playerId && !gameState.diceRolled;
-  elements.gameTitle.textContent = '🎲 Upside Down Ludo 🦇';
+  elements.gameTitle.textContent = '🎲 The Upside Down Race 🦇';
   
-  // Ensure required data exists
   if (!state.gameState.tokens || !state.gameState.playerOrder) {
     console.error('Ludo: Invalid game state');
     elements.gameContent.innerHTML = '<div style="text-align:center;color:red;">Error loading Ludo</div>';
@@ -3155,60 +3156,113 @@ function renderLudoBoard(gameState, players) {
   const myColor = myPlayerIndex >= 0 ? LUDO_COLORS[myPlayerIndex] : null;
   
   let statusText = '';
+  let statusClass = '';
   if (gameState.winner) {
     const winnerName = players.find(p => p.id === gameState.winner)?.name || 'Winner';
-    statusText = `🏆 ${winnerName} wins!`;
+    statusText = `🏆 ${winnerName} escaped the Upside Down!`;
+    statusClass = 'winner';
   } else if (isMyTurn) {
     if (!gameState.diceRolled) {
-      statusText = '🎲 Roll the dice!';
+      statusText = '🎲 Roll to escape!';
+      statusClass = 'roll';
     } else if (gameState.validMoves && gameState.validMoves.length > 0) {
-      statusText = '👆 Select a token to move';
+      statusText = '👆 Choose a piece to move';
+      statusClass = 'move';
     } else {
-      statusText = '❌ No valid moves - passing turn...';
+      statusText = '😱 No escape routes! Turn passing...';
+      statusClass = 'no-moves';
     }
   } else {
-    statusText = `⏳ ${escapeHtml(currentPlayerName)}'s turn...`;
+    statusText = `⏳ ${escapeHtml(currentPlayerName)} is trying to escape...`;
+    statusClass = 'waiting';
   }
   
   elements.gameContent.innerHTML = `
-    <div class="ludo-container">
-      <div class="ludo-status" id="ludoStatus">${statusText}</div>
+    <div class="ludo-game">
+      <div class="ludo-status ${statusClass}">${statusText}</div>
       
-      <div class="ludo-board" id="ludoBoard">
-        ${renderLudoBoardHTML(gameState)}
+      <!-- Dice and Controls -->
+      <div class="ludo-dice-section">
+        <div class="ludo-dice ${gameState.lastDice ? 'rolled' : ''}" id="ludoDice">
+          ${gameState.lastDice ? getDiceEmoji(gameState.lastDice) : '🎲'}
+        </div>
+        ${isMyTurn && !gameState.diceRolled && !gameState.winner ? `
+          <button class="btn btn-primary ludo-roll-btn" id="ludoRollBtn">
+            🎲 Roll Dice
+          </button>
+        ` : ''}
+        ${gameState.lastDice === 6 ? '<div class="bonus-indicator">⭐ Bonus Turn!</div>' : ''}
       </div>
       
-      <div class="ludo-controls">
-        <div class="ludo-dice-area">
-          <div class="ludo-dice" id="ludoDice">
-            ${gameState.lastDice ? getDiceEmoji(gameState.lastDice) : '🎲'}
-          </div>
-          ${isMyTurn && !gameState.diceRolled && !gameState.winner ? `
-            <button class="btn btn-primary ludo-roll-btn" id="ludoRollBtn">
-              Roll Dice
-            </button>
-          ` : ''}
-        </div>
-        
-        <div class="ludo-player-info">
-          <p>You are: ${myColor ? `${myColor.emoji} ${myColor.name}` : '👁️ Spectating'}</p>
-        </div>
-      </div>
-      
-      <div class="ludo-players">
+      <!-- Player Areas with Tokens -->
+      <div class="ludo-player-areas">
         ${gameState.playerOrder.map((playerId, idx) => {
           const player = players.find(p => p.id === playerId);
           const colorInfo = LUDO_COLORS[idx];
-          const tokensHome = gameState.tokens[playerId].filter(t => t.position === 'home').length;
-          const tokensFinished = gameState.tokens[playerId].filter(t => t.position === 'finished').length;
+          const tokens = gameState.tokens[playerId] || [];
+          const isCurrentPlayer = gameState.currentPlayer === playerId;
+          const isMe = playerId === state.playerId;
+          
           return `
-            <div class="ludo-player-card ${gameState.currentPlayer === playerId ? 'active' : ''}">
-              <span class="ludo-player-emoji">${colorInfo.emoji}</span>
-              <span class="ludo-player-name">${escapeHtml(player?.name || 'Player')}</span>
-              <span class="ludo-player-progress">🏠${tokensHome} ✅${tokensFinished}</span>
+            <div class="ludo-player-area ${isCurrentPlayer ? 'active' : ''} ${isMe ? 'is-me' : ''}" 
+                 style="--player-color: ${colorInfo.color}; --player-light: ${colorInfo.light}">
+              <div class="player-area-header">
+                <span class="player-emoji">${colorInfo.emoji}</span>
+                <span class="player-name">${escapeHtml(player?.name || colorInfo.name)}</span>
+                ${isCurrentPlayer ? '<span class="turn-indicator">🎯</span>' : ''}
+              </div>
+              
+              <div class="player-tokens-grid">
+                ${tokens.map((token, tokenIdx) => {
+                  const isMovable = isMyTurn && gameState.validMoves && 
+                    gameState.validMoves.some(m => m.tokenIndex === tokenIdx) &&
+                    playerId === state.playerId;
+                  
+                  let tokenStatus = '';
+                  let tokenProgress = 0;
+                  
+                  if (token.position === 'home') {
+                    tokenStatus = 'home';
+                  } else if (token.position === 'finished') {
+                    tokenStatus = 'finished';
+                    tokenProgress = 100;
+                  } else if (token.position === 'homeStretch') {
+                    tokenStatus = 'homeStretch';
+                    tokenProgress = Math.round(((token.steps || 0) / 58) * 100);
+                  } else {
+                    tokenStatus = 'onTrack';
+                    tokenProgress = Math.round(((token.steps || 0) / 58) * 100);
+                  }
+                  
+                  return `
+                    <div class="ludo-token-wrapper ${tokenStatus} ${isMovable ? 'movable' : ''}"
+                         data-token-index="${tokenIdx}" data-player-id="${playerId}">
+                      <div class="ludo-token" style="background: ${colorInfo.color}">
+                        ${colorInfo.emoji}
+                      </div>
+                      <div class="token-progress-bar">
+                        <div class="token-progress-fill" style="width: ${tokenProgress}%"></div>
+                      </div>
+                      <div class="token-status-text">
+                        ${tokenStatus === 'home' ? '🏠' : 
+                          tokenStatus === 'finished' ? '🏁' : 
+                          tokenStatus === 'homeStretch' ? '🏃' :
+                          `${token.steps || 0}/58`}
+                      </div>
+                    </div>
+                  `;
+                }).join('')}
+              </div>
             </div>
           `;
         }).join('')}
+      </div>
+      
+      <!-- Game Rules Info -->
+      <div class="ludo-rules-hint">
+        <span>🎯 Roll 6 to release</span>
+        <span>⭐ Safe: ${LUDO_SAFE_SQUARES.join(', ')}</span>
+        <span>💥 Capture = Bonus turn</span>
       </div>
     </div>
   `;
@@ -3224,10 +3278,14 @@ function renderLudoBoard(gameState, players) {
   
   // Add token click handlers
   if (isMyTurn && gameState.diceRolled && gameState.validMoves && gameState.validMoves.length > 0) {
-    document.querySelectorAll('.ludo-token.movable').forEach(token => {
-      token.addEventListener('click', () => {
-        const tokenIndex = parseInt(token.dataset.tokenIndex);
+    document.querySelectorAll('.ludo-token-wrapper.movable').forEach(wrapper => {
+      wrapper.addEventListener('click', () => {
+        const tokenIndex = parseInt(wrapper.dataset.tokenIndex);
         socket.emit('ludoMoveToken', tokenIndex);
+        // Disable further clicks
+        document.querySelectorAll('.ludo-token-wrapper.movable').forEach(w => {
+          w.classList.remove('movable');
+        });
       });
     });
   }
@@ -3237,202 +3295,7 @@ function renderLudoBoard(gameState, players) {
   }
 }
 
-function renderLudoBoardHTML(gameState) {
-  // Classic Ludo board with Wednesday/Stranger Things vibe
-  if (!gameState.playerOrder || !gameState.tokens) {
-    return '<div style="color:red;">Error rendering Ludo board</div>';
-  }
-  
-  // Build position map for all tokens
-  const tokenMap = {}; // position -> [{playerId, playerIdx, tokenIdx, colorInfo}]
-  const homeTokens = {}; // playerIdx -> tokens at home
-  const finishedTokens = {}; // playerIdx -> tokens finished
-  
-  gameState.playerOrder.forEach((playerId, playerIdx) => {
-    const colorInfo = LUDO_COLORS[playerIdx] || { color: '#888', emoji: '⚪', name: 'Player' };
-    const tokens = gameState.tokens[playerId] || [];
-    homeTokens[playerIdx] = [];
-    finishedTokens[playerIdx] = [];
-    
-    tokens.forEach((token, tokenIdx) => {
-      const tokenData = { playerId, playerIdx, tokenIdx, colorInfo, token };
-      
-      if (token.position === 'home') {
-        homeTokens[playerIdx].push(tokenData);
-      } else if (token.position === 'finished') {
-        finishedTokens[playerIdx].push(tokenData);
-      } else {
-        const pos = token.position;
-        if (!tokenMap[pos]) tokenMap[pos] = [];
-        tokenMap[pos].push(tokenData);
-      }
-    });
-  });
-  
-  // Classic Ludo board is 15x15 grid
-  // Create the board layout
-  let html = '<div class="ludo-classic-board">';
-  
-  // The board has 4 colored home bases in corners and a cross-shaped track
-  // Simplified: show home bases, track visualization, and center
-  
-  // Top row: Home bases for players 0 and 1
-  html += '<div class="ludo-board-row">';
-  
-  // Player 0 Home (Red - top-left)
-  html += renderLudoHomeBase(0, gameState, homeTokens[0] || []);
-  
-  // Top center (part of track)
-  html += '<div class="ludo-center-track top">';
-  html += renderTrackColumn([1,2,3,4,5,6], tokenMap, gameState, 'vertical');
-  html += '</div>';
-  
-  // Player 1 Home (Blue - top-right)  
-  html += renderLudoHomeBase(1, gameState, homeTokens[1] || []);
-  
-  html += '</div>';
-  
-  // Middle row: Track and center
-  html += '<div class="ludo-board-row middle">';
-  
-  // Left track
-  html += '<div class="ludo-side-track left">';
-  html += renderTrackRow([51,50,49,48,47,46], tokenMap, gameState);
-  html += '</div>';
-  
-  // Center area (finish zone)
-  html += '<div class="ludo-center-zone">';
-  html += '<div class="ludo-center-finish">🏁</div>';
-  html += '<div class="ludo-finish-counts">';
-  gameState.playerOrder.forEach((pid, idx) => {
-    const colorInfo = LUDO_COLORS[idx];
-    const count = (finishedTokens[idx] || []).length;
-    if (count > 0) {
-      html += `<span style="color: ${colorInfo.color}">${colorInfo.emoji}${count}</span>`;
-    }
-  });
-  html += '</div></div>';
-  
-  // Right track
-  html += '<div class="ludo-side-track right">';
-  html += renderTrackRow([20,21,22,23,24,25], tokenMap, gameState);
-  html += '</div>';
-  
-  html += '</div>';
-  
-  // Bottom row: Home bases for players 2 and 3
-  html += '<div class="ludo-board-row">';
-  
-  // Player 3 Home (Yellow - bottom-left)
-  html += renderLudoHomeBase(3, gameState, homeTokens[3] || []);
-  
-  // Bottom center (part of track)
-  html += '<div class="ludo-center-track bottom">';
-  html += renderTrackColumn([33,32,31,30,29,28], tokenMap, gameState, 'vertical');
-  html += '</div>';
-  
-  // Player 2 Home (Green - bottom-right)
-  html += renderLudoHomeBase(2, gameState, homeTokens[2] || []);
-  
-  html += '</div>';
-  
-  // Track summary - show all tokens on track with positions
-  const tokensOnTrack = Object.entries(tokenMap).sort((a,b) => parseInt(a[0]) - parseInt(b[0]));
-  if (tokensOnTrack.length > 0) {
-    html += '<div class="ludo-track-summary">';
-    html += '<div class="track-summary-title">🛤️ On The Upside Down Track</div>';
-    html += '<div class="track-summary-tokens">';
-    tokensOnTrack.forEach(([pos, tokens]) => {
-      tokens.forEach(t => {
-        const isMovable = gameState.validMoves && 
-                         gameState.validMoves.some(m => m.tokenIndex === t.tokenIdx) &&
-                         t.playerId === state.playerId;
-        const dist = t.token.distanceTraveled || 0;
-        html += `<div class="track-token ${isMovable ? 'movable' : ''}" 
-                     data-token-index="${t.tokenIdx}"
-                     style="--token-color: ${t.colorInfo.color}">
-                  <span class="track-token-emoji">${t.colorInfo.emoji}</span>
-                  <span class="track-token-pos">${dist}/52</span>
-                </div>`;
-      });
-    });
-    html += '</div></div>';
-  }
-  
-  html += '</div>';
-  return html;
-}
-
-function renderLudoHomeBase(playerIdx, gameState, homeTokens) {
-  const colorInfo = LUDO_COLORS[playerIdx] || { color: '#888', emoji: '⚪', name: 'Player' };
-  const playerId = gameState.playerOrder[playerIdx];
-  const isCurrentTurn = gameState.currentPlayer === playerId;
-  const isMe = playerId === state.playerId;
-  
-  if (!playerId) {
-    return '<div class="ludo-home-base empty"></div>';
-  }
-  
-  let html = `<div class="ludo-home-base ${isCurrentTurn ? 'active' : ''} ${isMe ? 'is-me' : ''}" style="--home-color: ${colorInfo.color}">`;
-  html += `<div class="home-base-header">${colorInfo.emoji} ${colorInfo.name}</div>`;
-  html += '<div class="home-base-tokens">';
-  
-  // Show 4 token slots
-  for (let i = 0; i < 4; i++) {
-    const tokenData = homeTokens[i];
-    if (tokenData) {
-      const isMovable = gameState.validMoves && 
-                       gameState.validMoves.some(m => m.tokenIndex === tokenData.tokenIdx) &&
-                       tokenData.playerId === state.playerId;
-      html += `<div class="home-token ${isMovable ? 'movable' : ''}" 
-                   data-token-index="${tokenData.tokenIdx}"
-                   style="background: ${colorInfo.color}">${colorInfo.emoji}</div>`;
-    } else {
-      html += `<div class="home-token-slot"></div>`;
-    }
-  }
-  
-  html += '</div></div>';
-  return html;
-}
-
-function renderTrackRow(positions, tokenMap, gameState) {
-  let html = '<div class="track-cells-row">';
-  positions.forEach(pos => {
-    const tokensHere = tokenMap[pos] || [];
-    const isSafe = [0, 8, 13, 21, 26, 34, 39, 47].includes(pos);
-    const isStart = [0, 13, 26, 39].includes(pos);
-    
-    html += `<div class="track-cell ${isSafe ? 'safe' : ''} ${isStart ? 'start' : ''} ${tokensHere.length > 0 ? 'occupied' : ''}">`;
-    if (tokensHere.length > 0) {
-      tokensHere.forEach(t => {
-        html += `<span class="cell-token" style="background: ${t.colorInfo.color}">${t.colorInfo.emoji}</span>`;
-      });
-    }
-    html += '</div>';
-  });
-  html += '</div>';
-  return html;
-}
-
-function renderTrackColumn(positions, tokenMap, gameState) {
-  let html = '<div class="track-cells-col">';
-  positions.forEach(pos => {
-    const tokensHere = tokenMap[pos] || [];
-    const isSafe = [0, 8, 13, 21, 26, 34, 39, 47].includes(pos);
-    const isStart = [0, 13, 26, 39].includes(pos);
-    
-    html += `<div class="track-cell ${isSafe ? 'safe' : ''} ${isStart ? 'start' : ''} ${tokensHere.length > 0 ? 'occupied' : ''}">`;
-    if (tokensHere.length > 0) {
-      tokensHere.forEach(t => {
-        html += `<span class="cell-token" style="background: ${t.colorInfo.color}">${t.colorInfo.emoji}</span>`;
-      });
-    }
-    html += '</div>';
-  });
-  html += '</div>';
-  return html;
-}
+// Removed old renderLudoBoardHTML and helper functions - using new player-area based UI
 
 function getDiceEmoji(value) {
   const diceEmojis = ['', '⚀', '⚁', '⚂', '⚃', '⚄', '⚅'];
@@ -3440,16 +3303,21 @@ function getDiceEmoji(value) {
 }
 
 function handleLudoDiceRoll(data) {
+  // Update state with server data
+  if (data.gameState) {
+    state.gameState = { ...state.gameState, ...data.gameState };
+  }
   state.gameState.lastDice = data.value;
   state.gameState.diceRolled = true;
   state.gameState.validMoves = data.validMoves;
   
   const dice = document.getElementById('ludoDice');
   if (dice) {
-    dice.classList.add('rolling');
+    dice.classList.add('rolled');
     setTimeout(() => {
-      dice.classList.remove('rolling');
       dice.textContent = getDiceEmoji(data.value);
+      // Re-render to show movable tokens
+      renderLudoBoard(state.gameState, state.players);
     }, 500);
   }
   
@@ -3469,6 +3337,10 @@ function handleLudoDiceRoll(data) {
 }
 
 function handleLudoTokenMoved(data) {
+  // Update state with server data
+  if (data.gameState) {
+    state.gameState = { ...state.gameState, ...data.gameState };
+  }
   state.gameState.tokens = data.tokens;
   
   addChatMessage({
@@ -3479,7 +3351,14 @@ function handleLudoTokenMoved(data) {
   if (data.captured) {
     addChatMessage({
       system: true,
-      message: `💥 ${data.playerName} sent a token back home!`
+      message: `💥 ${data.playerName} captured an opponent! Bonus turn!`
+    }, elements.gameChatMessages);
+  }
+  
+  if (data.finished) {
+    addChatMessage({
+      system: true,
+      message: `🏁 ${data.playerName} got a token home! Bonus turn!`
     }, elements.gameChatMessages);
   }
   
@@ -3487,6 +3366,10 @@ function handleLudoTokenMoved(data) {
 }
 
 function handleLudoTurnChange(data) {
+  // Update state with server data
+  if (data.gameState) {
+    state.gameState = { ...state.gameState, ...data.gameState };
+  }
   state.gameState.currentPlayer = data.currentPlayer;
   state.gameState.diceRolled = false;
   state.gameState.lastDice = null;

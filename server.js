@@ -809,6 +809,9 @@ io.on('connection', (socket) => {
       if (winningGame === 'sudoku' && options.difficulty) {
         room.lastSudokuDifficulty = options.difficulty;
       }
+      if (winningGame === 'connect4' && options.winCondition) {
+        room.lastConnect4WinCondition = options.winCondition;
+      }
       
       io.to(roomId).emit('gameStarted', { 
         gameType: winningGame, 
@@ -890,6 +893,10 @@ io.on('connection', (socket) => {
     // Save sudoku difficulty for future restarts
     if (gameType === 'sudoku' && options.difficulty) {
       room.lastSudokuDifficulty = options.difficulty;
+    }
+    // Save connect4 win condition for future restarts
+    if (gameType === 'connect4' && options.winCondition) {
+      room.lastConnect4WinCondition = options.winCondition;
     }
     
     io.to(roomId).emit('gameStarted', { 
@@ -1445,53 +1452,22 @@ io.on('connection', (socket) => {
     state.lastDice = diceValue;
     state.diceRolled = true;
     
-    // Calculate valid moves
-    const playerTokens = state.tokens[socket.id];
-    const validMoves = [];
-    const playerIndex = state.playerOrder.indexOf(socket.id);
-    const startPosition = playerIndex * 13; // Each player starts at different point
-    
-    playerTokens.forEach((token, idx) => {
-      if (token.position === 'home') {
-        // Can only leave home with a 6
-        if (diceValue === 6) {
-          validMoves.push({ tokenIndex: idx, newPosition: startPosition });
-        }
-      } else if (token.position === 'finished') {
-        // Already finished, can't move
-      } else {
-        // Calculate new position
-        const distanceTraveled = token.distanceTraveled || 0;
-        const newDistance = distanceTraveled + diceValue;
-        
-        // Token needs to travel 52 spaces to complete one lap + enter home stretch
-        // Using 52 as the finish distance (full lap)
-        if (newDistance >= 52) {
-          // Can finish if roll is exact or would go past (in Ludo variants)
-          // Using forgiving rule: if you're within range, you can finish
-          if (newDistance <= 57) { // Allow up to 5 extra (rolling 6 when 1 away)
-            validMoves.push({ tokenIndex: idx, newPosition: 'finished' });
-          }
-          // If roll is too high, can't move this token
-        } else {
-          const newPos = (token.position + diceValue) % 52;
-          validMoves.push({ tokenIndex: idx, newPosition: newPos });
-        }
-      }
-    });
-    
+    // Calculate valid moves using proper Ludo rules
+    const validMoves = calculateLudoValidMoves(state, socket.id, diceValue);
     state.validMoves = validMoves;
     
     io.to(roomId).emit('ludoDiceRoll', {
       playerId: socket.id,
       value: diceValue,
-      validMoves: validMoves
+      validMoves: validMoves,
+      gameState: state
     });
     
     // If no valid moves, auto-pass turn after delay
     if (validMoves.length === 0) {
       setTimeout(() => {
         if (room.currentGame === 'ludo' && state.currentPlayer === socket.id) {
+          // Only get another turn on 6 if you have no moves
           passTurnLudo(room, roomId, diceValue !== 6);
         }
       }, 1500);
@@ -1515,20 +1491,34 @@ io.on('connection', (socket) => {
     const token = playerTokens[tokenIndex];
     const playerIndex = state.playerOrder.indexOf(socket.id);
     
-    // Move the token
+    // Execute the move
     let captured = false;
+    let finished = false;
+    const previousPosition = token.position;
+    
     if (validMove.newPosition === 'finished') {
       token.position = 'finished';
+      token.steps = 57; // Max steps to finish
+      finished = true;
+    } else if (validMove.entering) {
+      // Token entering home stretch
+      token.position = 'homeStretch';
+      token.homeStretchPos = validMove.homeStretchPos;
+      token.steps = (token.steps || 0) + state.lastDice;
     } else {
-      // Check for capture
-      const safeSquares = [0, 8, 13, 21, 26, 34, 39, 47];
-      if (!safeSquares.includes(validMove.newPosition)) {
+      // Normal move on main track
+      const safeSquares = getLudoSafeSquares();
+      const newPos = validMove.newPosition;
+      
+      // Check for capture (only if not on safe square)
+      if (!safeSquares.includes(newPos)) {
         state.playerOrder.forEach(otherId => {
           if (otherId !== socket.id) {
             state.tokens[otherId].forEach(otherToken => {
-              if (otherToken.position === validMove.newPosition) {
+              if (typeof otherToken.position === 'number' && otherToken.position === newPos) {
+                // Send opponent's token home
                 otherToken.position = 'home';
-                otherToken.distanceTraveled = 0;
+                otherToken.steps = 0;
                 captured = true;
               }
             });
@@ -1536,8 +1526,8 @@ io.on('connection', (socket) => {
         });
       }
       
-      token.distanceTraveled = (token.distanceTraveled || 0) + state.lastDice;
-      token.position = validMove.newPosition;
+      token.position = newPos;
+      token.steps = (token.steps || 0) + state.lastDice;
     }
     
     io.to(roomId).emit('ludoTokenMoved', {
@@ -1546,30 +1536,33 @@ io.on('connection', (socket) => {
       tokenIndex,
       newPosition: validMove.newPosition,
       tokens: state.tokens,
-      captured
+      captured,
+      finished,
+      gameState: state
     });
     
     // Check for winner (all 4 tokens finished)
     const allFinished = playerTokens.every(t => t.position === 'finished');
     if (allFinished) {
       state.winner = socket.id;
-      room.players.get(socket.id).sessionWins += 1;  // Track session win
+      room.players.get(socket.id).sessionWins += 1;
       
       io.to(roomId).emit('ludoUpdate', {
         winner: socket.id,
         tokens: state.tokens,
-        players: room.getPlayerList()
+        players: room.getPlayerList(),
+        gameState: state
       });
       
       setTimeout(() => endGame(room, roomId), 2000);
       return;
     }
     
-    // Pass turn (get another turn if rolled 6 or captured)
-    const extraTurn = state.lastDice === 6 || captured;
+    // Bonus turn rules: rolled 6, captured, or finished a token
+    const bonusTurn = state.lastDice === 6 || captured || finished;
     setTimeout(() => {
       if (room.currentGame === 'ludo') {
-        passTurnLudo(room, roomId, !extraTurn);
+        passTurnLudo(room, roomId, !bonusTurn);
       }
     }, 1000);
   });
@@ -1850,12 +1843,12 @@ function initializeGame(gameType, room, options = {}) {
       // Limit to 4 players for Ludo
       const ludoPlayers = playerIds.slice(0, 4);
       const tokens = {};
-      ludoPlayers.forEach(playerId => {
+      ludoPlayers.forEach((playerId, idx) => {
         tokens[playerId] = [
-          { position: 'home' },
-          { position: 'home' },
-          { position: 'home' },
-          { position: 'home' }
+          { position: 'home', steps: 0 },
+          { position: 'home', steps: 0 },
+          { position: 'home', steps: 0 },
+          { position: 'home', steps: 0 }
         ];
       });
       return {
@@ -1865,7 +1858,9 @@ function initializeGame(gameType, room, options = {}) {
         diceRolled: false,
         lastDice: null,
         validMoves: [],
-        winner: null
+        winner: null,
+        safeSquares: [0, 8, 13, 21, 26, 34, 39, 47],
+        startPositions: { 0: 0, 1: 13, 2: 26, 3: 39 }
       };
 
     default:
@@ -2240,6 +2235,112 @@ function endGame(room, roomId) {
 }
 
 // Ludo helper - pass turn to next player
+// Ludo helper functions
+function getLudoSafeSquares() {
+  // Start positions (0, 13, 26, 39) and star/safe squares (8, 21, 34, 47)
+  return [0, 8, 13, 21, 26, 34, 39, 47];
+}
+
+function getLudoStartPosition(playerIndex) {
+  // Each player starts at a different position on the 52-square track
+  return playerIndex * 13; // 0, 13, 26, 39
+}
+
+function calculateLudoValidMoves(state, playerId, diceValue) {
+  const validMoves = [];
+  const playerTokens = state.tokens[playerId];
+  const playerIndex = state.playerOrder.indexOf(playerId);
+  const startPos = getLudoStartPosition(playerIndex);
+  const safeSquares = getLudoSafeSquares();
+  
+  // Track length is 52, then 6 home stretch squares to finish (total 57 steps)
+  const TRACK_LENGTH = 52;
+  const HOME_STRETCH_LENGTH = 6;
+  const FINISH_STEPS = TRACK_LENGTH + HOME_STRETCH_LENGTH; // 58 steps total
+  
+  playerTokens.forEach((token, idx) => {
+    if (token.position === 'home') {
+      // Can only leave home with a 6
+      if (diceValue === 6) {
+        // Check if start position is blocked by own token
+        const startBlocked = playerTokens.some((t, i) => 
+          i !== idx && typeof t.position === 'number' && t.position === startPos
+        );
+        if (!startBlocked) {
+          validMoves.push({ 
+            tokenIndex: idx, 
+            newPosition: startPos,
+            releasing: true 
+          });
+        }
+      }
+    } else if (token.position === 'finished') {
+      // Already finished, can't move
+    } else if (token.position === 'homeStretch') {
+      // In home stretch - need to move within it or finish
+      const currentHomePos = token.homeStretchPos || 0;
+      const newHomePos = currentHomePos + diceValue;
+      
+      if (newHomePos === HOME_STRETCH_LENGTH) {
+        // Exact roll to finish!
+        validMoves.push({ tokenIndex: idx, newPosition: 'finished' });
+      } else if (newHomePos < HOME_STRETCH_LENGTH) {
+        // Move within home stretch
+        validMoves.push({ 
+          tokenIndex: idx, 
+          newPosition: 'homeStretch',
+          homeStretchPos: newHomePos,
+          entering: true
+        });
+      }
+      // If newHomePos > HOME_STRETCH_LENGTH, can't move (need exact roll)
+    } else {
+      // On main track
+      const currentPos = token.position;
+      const steps = token.steps || 0;
+      const newSteps = steps + diceValue;
+      
+      // Calculate if entering home stretch
+      // Player enters home stretch after completing almost full lap
+      // Entry point is just before their start position
+      const entrySteps = TRACK_LENGTH; // After 52 steps, enter home stretch
+      
+      if (newSteps >= entrySteps) {
+        // Entering or in home stretch
+        const homeStretchPos = newSteps - entrySteps;
+        
+        if (homeStretchPos === HOME_STRETCH_LENGTH) {
+          // Exact roll to finish!
+          validMoves.push({ tokenIndex: idx, newPosition: 'finished' });
+        } else if (homeStretchPos < HOME_STRETCH_LENGTH) {
+          // Enter home stretch
+          validMoves.push({ 
+            tokenIndex: idx, 
+            newPosition: 'homeStretch',
+            homeStretchPos: homeStretchPos,
+            entering: true
+          });
+        }
+        // If homeStretchPos > HOME_STRETCH_LENGTH, can't move
+      } else {
+        // Normal move on track
+        const newPos = (currentPos + diceValue) % TRACK_LENGTH;
+        
+        // Check if destination is blocked by own token
+        const blocked = playerTokens.some((t, i) => 
+          i !== idx && typeof t.position === 'number' && t.position === newPos
+        );
+        
+        if (!blocked) {
+          validMoves.push({ tokenIndex: idx, newPosition: newPos });
+        }
+      }
+    }
+  });
+  
+  return validMoves;
+}
+
 function passTurnLudo(room, roomId, changePlayer = true) {
   const state = room.gameState;
   
@@ -2254,7 +2355,8 @@ function passTurnLudo(room, roomId, changePlayer = true) {
   state.validMoves = [];
   
   io.to(roomId).emit('ludoTurnChange', {
-    currentPlayer: state.currentPlayer
+    currentPlayer: state.currentPlayer,
+    gameState: state
   });
 }
 
