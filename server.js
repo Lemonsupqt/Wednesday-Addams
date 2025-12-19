@@ -785,6 +785,15 @@ io.on('connection', (socket) => {
       }
     }
     
+    // Prevent duplicate player names in the same room
+    const existingName = Array.from(room.players.values()).find(
+      p => p.name.toLowerCase() === playerName.toLowerCase()
+    );
+    if (existingName) {
+      socket.emit('error', { message: 'A player with that name is already in this room! Choose a different name.' });
+      return;
+    }
+    
     // Get stored trophies for this user in this room (if any)
     let storedTrophies = 0;
     if (username) {
