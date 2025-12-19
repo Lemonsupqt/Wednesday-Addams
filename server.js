@@ -174,8 +174,8 @@ app.get('/api/leaderboard', (req, res) => {
 const rooms = new Map();
 const players = new Map();
 const authenticatedSockets = new Map(); // socket.id -> username
-const usernameToSocket = new Map(); // username -> socket.id (for preventing duplicate logins)
-const roomTrophies = new Map(); // roomId -> Map<username, trophyCount> (for persistent room trophies)
+const usernameToSocket = new Map(); // username -> socket.id (prevent duplicate logins)
+const roomTrophies = new Map(); // roomId -> Map<username, trophyCount> (persistent room trophies)
 
 // Trivia questions - Stranger Things & Wednesday themed
 const triviaQuestions = [
@@ -200,94 +200,6 @@ const triviaQuestions = [
   { q: "Who opens the gate to the Upside Down?", options: ["Will", "Eleven", "Hopper", "Brenner"], correct: 1 },
   { q: "What color is Enid's side of the room?", options: ["Black", "Purple", "Pink/Colorful", "Gray"], correct: 2 }
 ];
-
-// Game display names
-function getGameDisplayName(gameType) {
-  const names = {
-    'tictactoe': '☠️ Tic-Tac-Toe',
-    'chess': '♟️ Chess',
-    'connect4': '🔴 Connect 4',
-    'trivia': '🧠 Trivia',
-    'memory': '🎴 Memory Match',
-    'psychic': '🔮 Psychic Showdown',
-    'sudoku': '🔢 Sudoku',
-    'molewhack': '🔨 Whack-a-Mole',
-    'mathquiz': '➕ Math Quiz',
-    'ludo': '🎲 Ludo'
-  };
-  return names[gameType] || gameType;
-}
-
-// Initialize game state for a 2-player match
-function initializeMatchGame(gameType, match, options, room) {
-  const [player1Id, player2Id] = match.playerIds;
-  const player1 = room.players.get(player1Id);
-  const player2 = room.players.get(player2Id);
-  
-  switch (gameType) {
-    case 'tictactoe':
-      const symbols = ['🔴', '💀'];
-      const symbolMap = new Map();
-      // Randomly assign symbols
-      const shuffled = Math.random() > 0.5 ? [player1Id, player2Id] : [player2Id, player1Id];
-      shuffled.forEach((id, i) => symbolMap.set(id, symbols[i]));
-      // Random starting player
-      const startingPlayer = Math.random() > 0.5 ? player1Id : player2Id;
-      return {
-        board: Array(9).fill(null),
-        currentPlayer: startingPlayer,
-        playerSymbols: symbolMap,
-        winner: null,
-        matchId: match.id
-      };
-
-    case 'chess':
-      // Randomly assign white/black
-      const [whitePlayer, blackPlayer] = Math.random() > 0.5 
-        ? [player1Id, player2Id] 
-        : [player2Id, player1Id];
-      return {
-        board: getInitialChessBoard(),
-        currentPlayer: whitePlayer,
-        whitePlayer: whitePlayer,
-        blackPlayer: blackPlayer,
-        isWhiteTurn: true,
-        selectedPiece: null,
-        moveHistory: [],
-        gameOver: false,
-        winner: null,
-        inCheck: false,
-        isCheckmate: false,
-        isStalemate: false,
-        castlingRights: {
-          whiteKingside: true,
-          whiteQueenside: true,
-          blackKingside: true,
-          blackQueenside: true
-        },
-        matchId: match.id
-      };
-
-    case 'connect4':
-      const [c4Player1, c4Player2] = Math.random() > 0.5 
-        ? [player1Id, player2Id] 
-        : [player2Id, player1Id];
-      const winCondition = options.winCondition || 4;
-      return {
-        board: Array(6).fill(null).map(() => Array(7).fill(null)),
-        currentPlayer: c4Player1,
-        player1: c4Player1,
-        player2: c4Player2,
-        winner: null,
-        winningCells: [],
-        winCondition: winCondition,
-        matchId: match.id
-      };
-
-    default:
-      return { matchId: match.id };
-  }
-}
 
 // Chess helper functions
 function getInitialChessBoard() {
@@ -538,56 +450,9 @@ const PLAYER_COLORS = [
   '#eab308'  // Yellow
 ];
 
-// Games that are 2-player only (support nested matches)
-const TWO_PLAYER_GAMES = ['tictactoe', 'chess', 'connect4'];
-
-// Games that are multiplayer (all players play together)
-const MULTIPLAYER_GAMES = ['trivia', 'memory', 'psychic', 'sudoku', 'molewhack', 'mathquiz', 'ludo'];
-
-// Match class - represents a single game instance within a room
-class Match {
-  constructor(id, gameType, playerIds, roomId) {
-    this.id = id;
-    this.gameType = gameType;
-    this.playerIds = playerIds;  // Array of player IDs in this match
-    this.spectatorIds = [];      // Array of spectator IDs
-    this.spectatorQueue = [];    // Queue for auto-rotation (next player to replace loser)
-    this.gameState = {};
-    this.roomId = roomId;
-    this.createdAt = Date.now();
-    this.winner = null;
-    this.loser = null;
-    this.active = true;
-    this.chat = [];  // Match-specific chat messages
-  }
-
-  addSpectator(playerId) {
-    if (!this.spectatorIds.includes(playerId) && !this.playerIds.includes(playerId)) {
-      this.spectatorIds.push(playerId);
-      // Also add to queue if not already there
-      if (!this.spectatorQueue.includes(playerId)) {
-        this.spectatorQueue.push(playerId);
-      }
-    }
-  }
-
-  removeSpectator(playerId) {
-    this.spectatorIds = this.spectatorIds.filter(id => id !== playerId);
-    this.spectatorQueue = this.spectatorQueue.filter(id => id !== playerId);
-  }
-
-  getNextInQueue() {
-    return this.spectatorQueue.shift() || null;
-  }
-
-  addChatMessage(msg) {
-    this.chat.push(msg);
-  }
-}
-
 // Room class to manage game state
 class GameRoom {
-  constructor(id, creatorId, creatorName, creatorUsername = null, storedTrophies = 0) {
+  constructor(id, creatorId, creatorName, creatorUsername = null) {
     this.id = id;
     this.creatorId = creatorId; // Original creator (for reference)
     this.players = new Map();
@@ -595,32 +460,20 @@ class GameRoom {
       id: creatorId, 
       name: creatorName,
       username: creatorUsername,  // Linked account username
-      trophies: storedTrophies,   // Trophies earned in this room (persisted)
+      trophies: 0,        // Trophies earned in this room session
       sessionWins: 0,     // Wins in current game session  
       points: 0,          // In-game points (resets each round)
       ready: false, 
-      color: PLAYER_COLORS[0],
-      currentMatchId: null,  // Which match they're currently in (null = in lobby)
-      spectatingMatchId: null  // Which match they're spectating (null = not spectating)
+      color: PLAYER_COLORS[0] 
     });
-    
-    // Legacy single-game support (for multiplayer games)
     this.currentGame = null;
     this.gameState = {};
-    
-    // NEW: Multiple concurrent matches support (for 2-player games)
-    this.matches = new Map();  // matchId -> Match
-    this.matchCounter = 0;
-    
     this.chat = [];
     this.colorIndex = 1;
     
     // Game voting system
     this.gameVotes = new Map(); // playerId -> gameType
     this.votingActive = false;
-    
-    // Pending challenges (for 2-player game invitations)
-    this.pendingChallenges = new Map();  // challengeId -> { challengerId, challengedId, gameType, options }
   }
 
   addPlayer(playerId, playerName, username = null, storedTrophies = 0) {
@@ -630,13 +483,11 @@ class GameRoom {
       id: playerId, 
       name: playerName,
       username: username,
-      trophies: storedTrophies, // Restore persisted trophies
+      trophies: storedTrophies,  // Restore persisted trophies
       sessionWins: 0,
       points: 0,
       ready: false, 
-      color,
-      currentMatchId: null,
-      spectatingMatchId: null
+      color 
     });
   }
 
@@ -649,21 +500,7 @@ class GameRoom {
         roomTrophies.set(this.id, new Map());
       }
       roomTrophies.get(this.id).set(player.username, player.trophies);
-      console.log(`💾 Saved ${player.trophies} trophies for @${player.username} in room ${this.id} (player left)`);
     }
-    
-    // Remove from any matches they're in
-    if (player && player.currentMatchId) {
-      const match = this.matches.get(player.currentMatchId);
-      if (match) {
-        match.playerIds = match.playerIds.filter(id => id !== playerId);
-      }
-    }
-    
-    // Remove from any matches they're spectating
-    this.matches.forEach(match => {
-      match.removeSpectator(playerId);
-    });
     
     this.players.delete(playerId);
     this.gameVotes.delete(playerId);
@@ -671,67 +508,6 @@ class GameRoom {
 
   getPlayerList() {
     return Array.from(this.players.values());
-  }
-  
-  // Get players who are in the lobby (not in any match)
-  getLobbyPlayers() {
-    return this.getPlayerList().filter(p => !p.currentMatchId);
-  }
-  
-  // Get all active matches
-  getActiveMatches() {
-    return Array.from(this.matches.values()).filter(m => m.active);
-  }
-  
-  // Create a new match for 2-player games
-  createMatch(gameType, playerIds) {
-    const matchId = `${this.id}_match_${++this.matchCounter}`;
-    const match = new Match(matchId, gameType, playerIds, this.id);
-    this.matches.set(matchId, match);
-    
-    // Update player states
-    playerIds.forEach(pid => {
-      const player = this.players.get(pid);
-      if (player) {
-        player.currentMatchId = matchId;
-        player.spectatingMatchId = null;
-      }
-    });
-    
-    return match;
-  }
-  
-  // End a match and handle cleanup
-  endMatch(matchId, winnerId = null, loserId = null) {
-    const match = this.matches.get(matchId);
-    if (!match) return null;
-    
-    match.active = false;
-    match.winner = winnerId;
-    match.loser = loserId;
-    
-    // Return players to lobby
-    match.playerIds.forEach(pid => {
-      const player = this.players.get(pid);
-      if (player) {
-        player.currentMatchId = null;
-      }
-    });
-    
-    // Return spectators to lobby
-    match.spectatorIds.forEach(sid => {
-      const player = this.players.get(sid);
-      if (player) {
-        player.spectatingMatchId = null;
-      }
-    });
-    
-    return match;
-  }
-  
-  // Get match by ID
-  getMatch(matchId) {
-    return this.matches.get(matchId);
   }
 
   resetPoints() {
@@ -811,7 +587,6 @@ class GameRoom {
           roomTrophies.set(this.id, new Map());
         }
         roomTrophies.get(this.id).set(winner.username, winner.trophies);
-        console.log(`🏆 Persisted ${winner.trophies} trophies for @${winner.username} in room ${this.id}`);
       }
       
       // Update global account stats
@@ -823,31 +598,6 @@ class GameRoom {
     }
     
     return null; // Tie - no trophy awarded
-  }
-  
-  // Award trophy for a specific match winner
-  awardMatchTrophy(winnerId) {
-    const winner = this.players.get(winnerId);
-    if (!winner) return null;
-    
-    winner.trophies += 1;
-    winner.sessionWins += 1;
-    
-    // Persist room trophies for this user
-    if (winner.username) {
-      if (!roomTrophies.has(this.id)) {
-        roomTrophies.set(this.id, new Map());
-      }
-      roomTrophies.get(this.id).set(winner.username, winner.trophies);
-      console.log(`🏆 Persisted ${winner.trophies} trophies for @${winner.username} in room ${this.id}`);
-    }
-    
-    // Update global account stats
-    if (winner.username && userAccounts[winner.username]) {
-      updateUserStats(winner.username, false, true);
-    }
-    
-    return winner;
   }
 }
 
@@ -930,20 +680,16 @@ io.on('connection', (socket) => {
       return;
     }
     
-    // Check if this account is already logged in elsewhere
+    // Kick existing session if logged in elsewhere
     const existingSocketId = usernameToSocket.get(cleanUsername);
     if (existingSocketId && existingSocketId !== socket.id) {
-      // Kick the existing session
       const existingSocket = io.sockets.sockets.get(existingSocketId);
       if (existingSocket) {
         existingSocket.emit('forcedLogout', { 
           message: 'Your account was logged in from another device' 
         });
-        // Clean up the old session
         authenticatedSockets.delete(existingSocketId);
-        // Handle disconnect for old socket (remove from room, etc.)
-        handleDisconnectCleanup(existingSocketId);
-        console.log(`⚠️ Kicked existing session for ${cleanUsername} (socket: ${existingSocketId})`);
+        console.log(`⚠️ Kicked existing session for ${cleanUsername}`);
       }
     }
     
@@ -966,7 +712,6 @@ io.on('connection', (socket) => {
     const username = authenticatedSockets.get(socket.id);
     if (username) {
       authenticatedSockets.delete(socket.id);
-      // Only remove from usernameToSocket if this socket is the current one for this user
       if (usernameToSocket.get(username) === socket.id) {
         usernameToSocket.delete(username);
       }
@@ -987,17 +732,7 @@ io.on('connection', (socket) => {
   socket.on('createRoom', (playerName) => {
     const username = authenticatedSockets.get(socket.id);
     const roomId = uuidv4().substring(0, 6).toUpperCase();
-    
-    // Get stored trophies for this user in this room (if any - unlikely for new room but handles edge cases)
-    let storedTrophies = 0;
-    if (username) {
-      const roomTrophyMap = roomTrophies.get(roomId);
-      if (roomTrophyMap && roomTrophyMap.has(username)) {
-        storedTrophies = roomTrophyMap.get(username);
-      }
-    }
-    
-    const room = new GameRoom(roomId, socket.id, playerName, username, storedTrophies);
+    const room = new GameRoom(roomId, socket.id, playerName, username);
     rooms.set(roomId, room);
     players.set(socket.id, roomId);
     
@@ -1038,7 +773,7 @@ io.on('connection', (socket) => {
       p => p.name.toLowerCase() === playerName.toLowerCase()
     );
     if (existingName) {
-      socket.emit('error', { message: 'A player with that name is already in this room! Choose a different name.' });
+      socket.emit('error', { message: 'A player with that name is already in this room!' });
       return;
     }
     
@@ -1054,10 +789,10 @@ io.on('connection', (socket) => {
     room.addPlayer(socket.id, playerName, username, storedTrophies);
     players.set(socket.id, normalizedRoomId);
     
-    socket.join(normalizedRoomId);
-    socket.emit('roomJoined', { roomId: normalizedRoomId, players: room.getPlayerList() });
-    socket.to(normalizedRoomId).emit('playerJoined', { players: room.getPlayerList() });
-    console.log(`👤 ${playerName}${username ? ` (@${username})` : ''} joined room ${roomId}${storedTrophies > 0 ? ` (restored ${storedTrophies} trophies)` : ''}`);
+    socket.join(roomId.toUpperCase());
+    socket.emit('roomJoined', { roomId: roomId.toUpperCase(), players: room.getPlayerList() });
+    socket.to(roomId.toUpperCase()).emit('playerJoined', { players: room.getPlayerList() });
+    console.log(`👤 ${playerName}${username ? ` (@${username})` : ''} joined room ${roomId}`);
   });
 
   // Chat message
@@ -1073,347 +808,10 @@ io.on('connection', (socket) => {
       playerName: player.name,
       playerColor: player.color,  // Include player color
       message: message,
-      timestamp: Date.now(),
-      type: 'chat'  // Regular chat message
+      timestamp: Date.now()
     };
     room.chat.push(chatMsg);
     io.to(roomId).emit('chatMessage', chatMsg);
-  });
-
-  // ============================================
-  // NESTED MATCHES SYSTEM (Rooms within Rooms)
-  // ============================================
-  
-  // Challenge another player to a 2-player game
-  socket.on('challengePlayer', ({ targetPlayerId, gameType, options }) => {
-    const roomId = players.get(socket.id);
-    const room = rooms.get(roomId);
-    if (!room) return;
-    
-    // Verify it's a 2-player game
-    if (!TWO_PLAYER_GAMES.includes(gameType)) {
-      socket.emit('error', { message: 'This game mode is for everyone! Use the voting system instead.' });
-      return;
-    }
-    
-    const challenger = room.players.get(socket.id);
-    const challenged = room.players.get(targetPlayerId);
-    
-    if (!challenger || !challenged) {
-      socket.emit('error', { message: 'Player not found' });
-      return;
-    }
-    
-    // Check if challenger is already in a match
-    if (challenger.currentMatchId) {
-      socket.emit('error', { message: 'You are already in a game!' });
-      return;
-    }
-    
-    // Check if target is already in a match
-    if (challenged.currentMatchId) {
-      socket.emit('error', { message: `${challenged.name} is already playing a game. You can spectate their match instead!` });
-      return;
-    }
-    
-    // Create challenge
-    const challengeId = uuidv4().substring(0, 8);
-    room.pendingChallenges.set(challengeId, {
-      challengerId: socket.id,
-      challengerName: challenger.name,
-      challengedId: targetPlayerId,
-      challengedName: challenged.name,
-      gameType,
-      options: options || {},
-      createdAt: Date.now()
-    });
-    
-    // Notify the challenged player
-    io.to(targetPlayerId).emit('challengeReceived', {
-      challengeId,
-      challengerId: socket.id,
-      challengerName: challenger.name,
-      gameType,
-      options: options || {}
-    });
-    
-    // Notify challenger that challenge was sent
-    socket.emit('challengeSent', {
-      challengeId,
-      targetPlayerId,
-      targetName: challenged.name,
-      gameType
-    });
-    
-    // Add system message to chat
-    const systemMsg = {
-      id: uuidv4(),
-      type: 'system',
-      message: `⚔️ ${challenger.name} challenged ${challenged.name} to ${getGameDisplayName(gameType)}!`,
-      timestamp: Date.now()
-    };
-    room.chat.push(systemMsg);
-    io.to(roomId).emit('chatMessage', systemMsg);
-    
-    console.log(`⚔️ ${challenger.name} challenged ${challenged.name} to ${gameType} in room ${roomId}`);
-  });
-  
-  // Accept a challenge
-  socket.on('acceptChallenge', ({ challengeId }) => {
-    const roomId = players.get(socket.id);
-    const room = rooms.get(roomId);
-    if (!room) return;
-    
-    const challenge = room.pendingChallenges.get(challengeId);
-    if (!challenge) {
-      socket.emit('error', { message: 'Challenge expired or not found' });
-      return;
-    }
-    
-    if (challenge.challengedId !== socket.id) {
-      socket.emit('error', { message: 'This challenge is not for you!' });
-      return;
-    }
-    
-    const challenger = room.players.get(challenge.challengerId);
-    const challenged = room.players.get(challenge.challengedId);
-    
-    if (!challenger || !challenged) {
-      socket.emit('error', { message: 'Player left the room' });
-      room.pendingChallenges.delete(challengeId);
-      return;
-    }
-    
-    // Check if either player is now in a match
-    if (challenger.currentMatchId || challenged.currentMatchId) {
-      socket.emit('error', { message: 'One of the players is already in a game' });
-      room.pendingChallenges.delete(challengeId);
-      return;
-    }
-    
-    // Remove the challenge
-    room.pendingChallenges.delete(challengeId);
-    
-    // Create the match
-    const match = room.createMatch(challenge.gameType, [challenge.challengerId, challenge.challengedId]);
-    match.gameState = initializeMatchGame(challenge.gameType, match, challenge.options, room);
-    
-    // Save options for restarts
-    if (challenge.gameType === 'connect4' && challenge.options.winCondition) {
-      match.winCondition = challenge.options.winCondition;
-    }
-    
-    // Add game start message to room chat
-    const gameStartMsg = {
-      id: uuidv4(),
-      type: 'gameStart',
-      matchId: match.id,
-      gameType: challenge.gameType,
-      players: [challenger.name, challenged.name],
-      message: `🎮 Match started: ${challenger.name} vs ${challenged.name} - ${getGameDisplayName(challenge.gameType)}`,
-      timestamp: Date.now()
-    };
-    room.chat.push(gameStartMsg);
-    io.to(roomId).emit('chatMessage', gameStartMsg);
-    
-    // Notify both players that match started
-    io.to(challenge.challengerId).emit('matchStarted', {
-      matchId: match.id,
-      gameType: challenge.gameType,
-      gameState: match.gameState,
-      players: [
-        { id: challenger.id, name: challenger.name, color: challenger.color },
-        { id: challenged.id, name: challenged.name, color: challenged.color }
-      ],
-      opponentId: challenge.challengedId,
-      opponentName: challenged.name
-    });
-    
-    io.to(challenge.challengedId).emit('matchStarted', {
-      matchId: match.id,
-      gameType: challenge.gameType,
-      gameState: match.gameState,
-      players: [
-        { id: challenger.id, name: challenger.name, color: challenger.color },
-        { id: challenged.id, name: challenged.name, color: challenged.color }
-      ],
-      opponentId: challenge.challengerId,
-      opponentName: challenger.name
-    });
-    
-    // Update all room members about player status changes
-    io.to(roomId).emit('playerStatusUpdate', {
-      players: room.getPlayerList(),
-      activeMatches: room.getActiveMatches().map(m => ({
-        id: m.id,
-        gameType: m.gameType,
-        playerIds: m.playerIds,
-        playerNames: m.playerIds.map(pid => room.players.get(pid)?.name || 'Unknown'),
-        spectatorCount: m.spectatorIds.length
-      }))
-    });
-    
-    console.log(`🎮 Match ${match.id} started: ${challenger.name} vs ${challenged.name} (${challenge.gameType})`);
-  });
-  
-  // Decline a challenge
-  socket.on('declineChallenge', ({ challengeId }) => {
-    const roomId = players.get(socket.id);
-    const room = rooms.get(roomId);
-    if (!room) return;
-    
-    const challenge = room.pendingChallenges.get(challengeId);
-    if (!challenge) return;
-    
-    if (challenge.challengedId !== socket.id) return;
-    
-    const challenger = room.players.get(challenge.challengerId);
-    const challenged = room.players.get(challenge.challengedId);
-    
-    room.pendingChallenges.delete(challengeId);
-    
-    // Notify challenger
-    io.to(challenge.challengerId).emit('challengeDeclined', {
-      challengeId,
-      declinedBy: challenged?.name || 'Player'
-    });
-    
-    // Add system message
-    if (challenger && challenged) {
-      const systemMsg = {
-        id: uuidv4(),
-        type: 'system',
-        message: `${challenged.name} declined ${challenger.name}'s challenge`,
-        timestamp: Date.now()
-      };
-      room.chat.push(systemMsg);
-      io.to(roomId).emit('chatMessage', systemMsg);
-    }
-  });
-  
-  // Spectate a match
-  socket.on('spectateMatch', ({ matchId }) => {
-    const roomId = players.get(socket.id);
-    const room = rooms.get(roomId);
-    if (!room) return;
-    
-    const match = room.getMatch(matchId);
-    if (!match || !match.active) {
-      socket.emit('error', { message: 'Match not found or already ended' });
-      return;
-    }
-    
-    const player = room.players.get(socket.id);
-    if (!player) return;
-    
-    // Can't spectate if already in a match
-    if (player.currentMatchId) {
-      socket.emit('error', { message: 'You are already in a game!' });
-      return;
-    }
-    
-    // Add as spectator
-    match.addSpectator(socket.id);
-    player.spectatingMatchId = matchId;
-    
-    // Get player info for the match
-    const matchPlayers = match.playerIds.map(pid => {
-      const p = room.players.get(pid);
-      return p ? { id: p.id, name: p.name, color: p.color } : null;
-    }).filter(Boolean);
-    
-    // Send match state to spectator
-    socket.emit('spectatingMatch', {
-      matchId: match.id,
-      gameType: match.gameType,
-      gameState: match.gameState,
-      players: matchPlayers,
-      spectatorCount: match.spectatorIds.length,
-      queuePosition: match.spectatorQueue.indexOf(socket.id) + 1
-    });
-    
-    // Notify match players about new spectator
-    match.playerIds.forEach(pid => {
-      io.to(pid).emit('spectatorJoined', {
-        matchId,
-        spectatorId: socket.id,
-        spectatorName: player.name,
-        spectatorCount: match.spectatorIds.length
-      });
-    });
-    
-    // Update room status
-    io.to(roomId).emit('playerStatusUpdate', {
-      players: room.getPlayerList(),
-      activeMatches: room.getActiveMatches().map(m => ({
-        id: m.id,
-        gameType: m.gameType,
-        playerIds: m.playerIds,
-        playerNames: m.playerIds.map(pid => room.players.get(pid)?.name || 'Unknown'),
-        spectatorCount: m.spectatorIds.length
-      }))
-    });
-    
-    console.log(`👁️ ${player.name} started spectating match ${matchId}`);
-  });
-  
-  // Stop spectating
-  socket.on('stopSpectating', () => {
-    const roomId = players.get(socket.id);
-    const room = rooms.get(roomId);
-    if (!room) return;
-    
-    const player = room.players.get(socket.id);
-    if (!player || !player.spectatingMatchId) return;
-    
-    const match = room.getMatch(player.spectatingMatchId);
-    if (match) {
-      match.removeSpectator(socket.id);
-      
-      // Notify match players
-      match.playerIds.forEach(pid => {
-        io.to(pid).emit('spectatorLeft', {
-          matchId: match.id,
-          spectatorId: socket.id,
-          spectatorName: player.name,
-          spectatorCount: match.spectatorIds.length
-        });
-      });
-    }
-    
-    player.spectatingMatchId = null;
-    
-    socket.emit('stoppedSpectating');
-    
-    // Update room status
-    io.to(roomId).emit('playerStatusUpdate', {
-      players: room.getPlayerList(),
-      activeMatches: room.getActiveMatches().map(m => ({
-        id: m.id,
-        gameType: m.gameType,
-        playerIds: m.playerIds,
-        playerNames: m.playerIds.map(pid => room.players.get(pid)?.name || 'Unknown'),
-        spectatorCount: m.spectatorIds.length
-      }))
-    });
-  });
-  
-  // Get active matches in room
-  socket.on('getActiveMatches', () => {
-    const roomId = players.get(socket.id);
-    const room = rooms.get(roomId);
-    if (!room) return;
-    
-    socket.emit('activeMatchesList', {
-      matches: room.getActiveMatches().map(m => ({
-        id: m.id,
-        gameType: m.gameType,
-        playerIds: m.playerIds,
-        playerNames: m.playerIds.map(pid => room.players.get(pid)?.name || 'Unknown'),
-        spectatorCount: m.spectatorIds.length,
-        createdAt: m.createdAt
-      }))
-    });
   });
 
   // ============================================
@@ -1813,7 +1211,7 @@ io.on('connection', (socket) => {
     }
   });
 
-  // Tic Tac Toe move (legacy - for room-wide games)
+  // Tic Tac Toe move
   socket.on('tttMove', (cellIndex) => {
     const roomId = players.get(socket.id);
     const room = rooms.get(roomId);
@@ -1855,582 +1253,6 @@ io.on('connection', (socket) => {
       });
     }
   });
-
-  // ============================================
-  // MATCH-SPECIFIC GAME MOVES (Nested Matches)
-  // ============================================
-  
-  // Tic Tac Toe move in a match
-  socket.on('matchTttMove', ({ matchId, cellIndex }) => {
-    const roomId = players.get(socket.id);
-    const room = rooms.get(roomId);
-    if (!room) return;
-    
-    const match = room.getMatch(matchId);
-    if (!match || !match.active || match.gameType !== 'tictactoe') return;
-    
-    const state = match.gameState;
-    if (state.currentPlayer !== socket.id) return;
-    if (state.board[cellIndex] !== null) return;
-    if (state.winner) return;
-
-    const playerSymbol = state.playerSymbols.get(socket.id);
-    state.board[cellIndex] = playerSymbol;
-
-    const winner = checkTTTWinner(state.board);
-    
-    // Emit to match players and spectators
-    const recipients = [...match.playerIds, ...match.spectatorIds];
-    
-    if (winner) {
-      state.winner = socket.id;
-      const loserId = match.playerIds.find(id => id !== socket.id);
-      const winnerPlayer = room.players.get(socket.id);
-      const loserPlayer = room.players.get(loserId);
-      
-      recipients.forEach(pid => {
-        io.to(pid).emit('matchTttUpdate', {
-          matchId,
-          board: state.board,
-          winner: socket.id,
-          winnerName: winnerPlayer?.name,
-          loserId,
-          loserName: loserPlayer?.name
-        });
-      });
-      
-      // Handle match end with auto-rotation
-      handleMatchEnd(room, roomId, match, socket.id, loserId);
-      
-    } else if (!state.board.includes(null)) {
-      // Draw
-      recipients.forEach(pid => {
-        io.to(pid).emit('matchTttUpdate', {
-          matchId,
-          board: state.board,
-          draw: true
-        });
-      });
-      
-      // Handle draw - no rotation, just end match
-      handleMatchEnd(room, roomId, match, null, null, true);
-      
-    } else {
-      // Next player
-      const playerIds = Array.from(state.playerSymbols.keys());
-      const currentIndex = playerIds.indexOf(state.currentPlayer);
-      state.currentPlayer = playerIds[(currentIndex + 1) % playerIds.length];
-
-      recipients.forEach(pid => {
-        io.to(pid).emit('matchTttUpdate', {
-          matchId,
-          board: state.board,
-          currentPlayer: state.currentPlayer
-        });
-      });
-    }
-  });
-  
-  // Chess move in a match
-  socket.on('matchChessMove', ({ matchId, from, to }) => {
-    const roomId = players.get(socket.id);
-    const room = rooms.get(roomId);
-    if (!room) return;
-    
-    const match = room.getMatch(matchId);
-    if (!match || !match.active || match.gameType !== 'chess') return;
-    
-    const state = match.gameState;
-    if (state.gameOver) return;
-    if (socket.id !== state.currentPlayer) return;
-
-    const isWhiteTurn = state.isWhiteTurn;
-    const piece = state.board[from[0]][from[1]];
-    
-    // Validate the move (with castling rights)
-    if (!isValidChessMove(state.board, from, to, isWhiteTurn, state.castlingRights)) {
-      socket.emit('invalidMove', { message: 'Invalid move' });
-      return;
-    }
-
-    // Make the move
-    const newBoard = makeMove(state.board, from, to);
-    
-    // Check if this move puts own king in check (illegal)
-    if (isInCheck(newBoard, isWhiteTurn)) {
-      socket.emit('invalidMove', { message: 'Cannot move into check' });
-      return;
-    }
-
-    // Update castling rights based on piece moved
-    if (piece) {
-      const pieceType = piece.toLowerCase();
-      if (pieceType === 'k') {
-        if (isWhiteTurn) {
-          state.castlingRights.whiteKingside = false;
-          state.castlingRights.whiteQueenside = false;
-        } else {
-          state.castlingRights.blackKingside = false;
-          state.castlingRights.blackQueenside = false;
-        }
-      } else if (pieceType === 'r') {
-        if (isWhiteTurn) {
-          if (from[0] === 7 && from[1] === 0) state.castlingRights.whiteQueenside = false;
-          if (from[0] === 7 && from[1] === 7) state.castlingRights.whiteKingside = false;
-        } else {
-          if (from[0] === 0 && from[1] === 0) state.castlingRights.blackQueenside = false;
-          if (from[0] === 0 && from[1] === 7) state.castlingRights.blackKingside = false;
-        }
-      }
-    }
-
-    // Update state
-    state.board = newBoard;
-    state.moveHistory.push({ from, to, piece: state.board[to[0]][to[1]] });
-    state.isWhiteTurn = !isWhiteTurn;
-    state.currentPlayer = isWhiteTurn ? state.blackPlayer : state.whitePlayer;
-    
-    // Check if opponent is in check
-    state.inCheck = isInCheck(state.board, !isWhiteTurn);
-    
-    // Check for checkmate or stalemate
-    const gameEndState = getGameEndState(state.board, !isWhiteTurn, state.castlingRights);
-    
-    const recipients = [...match.playerIds, ...match.spectatorIds];
-    
-    if (gameEndState === 'checkmate') {
-      state.gameOver = true;
-      state.isCheckmate = true;
-      state.winner = socket.id;
-      const loserId = match.playerIds.find(id => id !== socket.id);
-      const winnerPlayer = room.players.get(socket.id);
-      const loserPlayer = room.players.get(loserId);
-      
-      recipients.forEach(pid => {
-        io.to(pid).emit('matchChessUpdate', {
-          matchId,
-          board: state.board,
-          currentPlayer: state.currentPlayer,
-          isWhiteTurn: state.isWhiteTurn,
-          inCheck: state.inCheck,
-          gameOver: true,
-          winner: socket.id,
-          winnerName: winnerPlayer?.name,
-          isCheckmate: true,
-          lastMove: { from, to }
-        });
-      });
-      
-      handleMatchEnd(room, roomId, match, socket.id, loserId);
-      
-    } else if (gameEndState === 'stalemate') {
-      state.gameOver = true;
-      state.isStalemate = true;
-      
-      recipients.forEach(pid => {
-        io.to(pid).emit('matchChessUpdate', {
-          matchId,
-          board: state.board,
-          currentPlayer: state.currentPlayer,
-          isWhiteTurn: state.isWhiteTurn,
-          gameOver: true,
-          isStalemate: true,
-          lastMove: { from, to }
-        });
-      });
-      
-      handleMatchEnd(room, roomId, match, null, null, true);
-      
-    } else {
-      recipients.forEach(pid => {
-        io.to(pid).emit('matchChessUpdate', {
-          matchId,
-          board: state.board,
-          currentPlayer: state.currentPlayer,
-          isWhiteTurn: state.isWhiteTurn,
-          inCheck: state.inCheck,
-          gameOver: false,
-          lastMove: { from, to }
-        });
-      });
-    }
-  });
-  
-  // Connect 4 move in a match
-  socket.on('matchConnect4Move', ({ matchId, col }) => {
-    const roomId = players.get(socket.id);
-    const room = rooms.get(roomId);
-    if (!room) return;
-    
-    const match = room.getMatch(matchId);
-    if (!match || !match.active || match.gameType !== 'connect4') return;
-    
-    const state = match.gameState;
-    if (state.winner || state.currentPlayer !== socket.id) return;
-    
-    // Find the lowest empty row in the column
-    let row = -1;
-    for (let r = 5; r >= 0; r--) {
-      if (!state.board[r][col]) {
-        row = r;
-        break;
-      }
-    }
-    
-    if (row === -1) return; // Column is full
-    
-    // Place the piece
-    const piece = socket.id === state.player1 ? '🔴' : '🟡';
-    state.board[row][col] = piece;
-    
-    // Check for winner
-    const winCondition = state.winCondition || 4;
-    const winningCells = checkConnect4Winner(state.board, row, col, piece, winCondition);
-    
-    const recipients = [...match.playerIds, ...match.spectatorIds];
-    
-    if (winningCells) {
-      state.winner = socket.id;
-      state.winningCells = winningCells;
-      const loserId = match.playerIds.find(id => id !== socket.id);
-      const winnerPlayer = room.players.get(socket.id);
-      const loserPlayer = room.players.get(loserId);
-      
-      recipients.forEach(pid => {
-        io.to(pid).emit('matchConnect4Update', {
-          matchId,
-          board: state.board,
-          winner: socket.id,
-          winnerName: winnerPlayer?.name,
-          winningCells,
-          lastMove: { row, col }
-        });
-      });
-      
-      handleMatchEnd(room, roomId, match, socket.id, loserId);
-      return;
-    }
-    
-    // Check for draw
-    const isDraw = state.board[0].every(cell => cell !== null);
-    if (isDraw) {
-      recipients.forEach(pid => {
-        io.to(pid).emit('matchConnect4Update', {
-          matchId,
-          board: state.board,
-          isDraw: true,
-          lastMove: { row, col }
-        });
-      });
-      
-      handleMatchEnd(room, roomId, match, null, null, true);
-      return;
-    }
-    
-    // Switch turns
-    state.currentPlayer = state.currentPlayer === state.player1 ? state.player2 : state.player1;
-    
-    recipients.forEach(pid => {
-      io.to(pid).emit('matchConnect4Update', {
-        matchId,
-        board: state.board,
-        currentPlayer: state.currentPlayer,
-        lastMove: { row, col }
-      });
-    });
-  });
-  
-  // Leave a match (forfeit)
-  socket.on('leaveMatch', ({ matchId }) => {
-    const roomId = players.get(socket.id);
-    const room = rooms.get(roomId);
-    if (!room) return;
-    
-    const match = room.getMatch(matchId);
-    if (!match || !match.active) return;
-    
-    const player = room.players.get(socket.id);
-    if (!player) return;
-    
-    // Only players in the match can leave
-    if (!match.playerIds.includes(socket.id)) return;
-    
-    const loserId = socket.id;
-    const winnerId = match.playerIds.find(id => id !== socket.id);
-    const winnerPlayer = room.players.get(winnerId);
-    const loserPlayer = room.players.get(loserId);
-    
-    // Notify everyone
-    const recipients = [...match.playerIds, ...match.spectatorIds];
-    recipients.forEach(pid => {
-      io.to(pid).emit('matchForfeited', {
-        matchId,
-        forfeitedBy: socket.id,
-        forfeitedByName: loserPlayer?.name,
-        winner: winnerId,
-        winnerName: winnerPlayer?.name
-      });
-    });
-    
-    handleMatchEnd(room, roomId, match, winnerId, loserId);
-  });
-  
-  // Request rematch
-  socket.on('requestRematch', ({ matchId }) => {
-    const roomId = players.get(socket.id);
-    const room = rooms.get(roomId);
-    if (!room) return;
-    
-    const match = room.getMatch(matchId);
-    if (!match) return;
-    
-    const player = room.players.get(socket.id);
-    if (!player) return;
-    
-    // Get the opponent
-    const opponentId = match.playerIds.find(id => id !== socket.id);
-    if (!opponentId) return;
-    
-    const opponent = room.players.get(opponentId);
-    if (!opponent) return;
-    
-    // Check if both players are available (not in another match)
-    if (player.currentMatchId || opponent.currentMatchId) {
-      socket.emit('error', { message: 'Cannot rematch - one player is already in another game' });
-      return;
-    }
-    
-    // Create a new challenge automatically (like accepting)
-    const newMatch = room.createMatch(match.gameType, [socket.id, opponentId]);
-    newMatch.gameState = initializeMatchGame(match.gameType, newMatch, { winCondition: match.winCondition }, room);
-    
-    // Add rematch message to chat
-    const rematchMsg = {
-      id: uuidv4(),
-      type: 'gameStart',
-      matchId: newMatch.id,
-      gameType: match.gameType,
-      players: [player.name, opponent.name],
-      message: `🔄 Rematch: ${player.name} vs ${opponent.name} - ${getGameDisplayName(match.gameType)}`,
-      timestamp: Date.now()
-    };
-    room.chat.push(rematchMsg);
-    io.to(roomId).emit('chatMessage', rematchMsg);
-    
-    // Notify both players
-    [socket.id, opponentId].forEach(pid => {
-      const p = room.players.get(pid);
-      const oppId = pid === socket.id ? opponentId : socket.id;
-      const opp = room.players.get(oppId);
-      
-      io.to(pid).emit('matchStarted', {
-        matchId: newMatch.id,
-        gameType: newMatch.gameType,
-        gameState: newMatch.gameState,
-        players: [
-          { id: player.id, name: player.name, color: player.color },
-          { id: opponent.id, name: opponent.name, color: opponent.color }
-        ],
-        opponentId: oppId,
-        opponentName: opp?.name,
-        isRematch: true
-      });
-    });
-    
-    // Update room status
-    io.to(roomId).emit('playerStatusUpdate', {
-      players: room.getPlayerList(),
-      activeMatches: room.getActiveMatches().map(m => ({
-        id: m.id,
-        gameType: m.gameType,
-        playerIds: m.playerIds,
-        playerNames: m.playerIds.map(pid => room.players.get(pid)?.name || 'Unknown'),
-        spectatorCount: m.spectatorIds.length
-      }))
-    });
-    
-    console.log(`🔄 Rematch started: ${player.name} vs ${opponent.name} (${match.gameType})`);
-  });
-  
-  // Helper function to handle match end with auto-rotation
-  function handleMatchEnd(room, roomId, match, winnerId, loserId, isDraw = false) {
-    const winnerPlayer = winnerId ? room.players.get(winnerId) : null;
-    const loserPlayer = loserId ? room.players.get(loserId) : null;
-    
-    // Award trophy to winner (if not a draw)
-    if (winnerId && winnerPlayer) {
-      room.awardMatchTrophy(winnerId);
-    }
-    
-    // Add game end message to chat
-    let endMessage;
-    if (isDraw) {
-      const playerNames = match.playerIds.map(id => room.players.get(id)?.name || 'Unknown');
-      endMessage = `🤝 Draw! ${playerNames.join(' vs ')} - ${getGameDisplayName(match.gameType)}`;
-    } else {
-      endMessage = `🏆 ${winnerPlayer?.name || 'Unknown'} wins against ${loserPlayer?.name || 'Unknown'} - ${getGameDisplayName(match.gameType)}!`;
-    }
-    
-    const endMsg = {
-      id: uuidv4(),
-      type: 'gameEnd',
-      matchId: match.id,
-      gameType: match.gameType,
-      winnerId,
-      winnerName: winnerPlayer?.name,
-      loserId,
-      loserName: loserPlayer?.name,
-      isDraw,
-      message: endMessage,
-      timestamp: Date.now()
-    };
-    room.chat.push(endMsg);
-    io.to(roomId).emit('chatMessage', endMsg);
-    
-    // Check for auto-rotation: if there's a spectator in queue, replace the loser
-    const nextInQueue = match.getNextInQueue();
-    
-    if (nextInQueue && loserId && !isDraw) {
-      const nextPlayer = room.players.get(nextInQueue);
-      
-      if (nextPlayer && !nextPlayer.currentMatchId) {
-        // Auto-rotation! Create new match with winner and next in queue
-        setTimeout(() => {
-          // Verify both players are still available
-          const winner = room.players.get(winnerId);
-          const challenger = room.players.get(nextInQueue);
-          
-          if (winner && challenger && !winner.currentMatchId && !challenger.currentMatchId) {
-            const newMatch = room.createMatch(match.gameType, [winnerId, nextInQueue]);
-            newMatch.gameState = initializeMatchGame(match.gameType, newMatch, { winCondition: match.winCondition }, room);
-            
-            // Copy remaining queue
-            newMatch.spectatorQueue = [...match.spectatorQueue];
-            
-            // Add rotation message
-            const rotationMsg = {
-              id: uuidv4(),
-              type: 'autoRotation',
-              matchId: newMatch.id,
-              gameType: match.gameType,
-              message: `🔄 Auto-rotation: ${nextPlayer.name} takes ${loserPlayer?.name || 'Unknown'}'s spot!`,
-              timestamp: Date.now()
-            };
-            room.chat.push(rotationMsg);
-            io.to(roomId).emit('chatMessage', rotationMsg);
-            
-            // Notify new match players
-            [winnerId, nextInQueue].forEach(pid => {
-              const p = room.players.get(pid);
-              const oppId = pid === winnerId ? nextInQueue : winnerId;
-              const opp = room.players.get(oppId);
-              
-              io.to(pid).emit('matchStarted', {
-                matchId: newMatch.id,
-                gameType: newMatch.gameType,
-                gameState: newMatch.gameState,
-                players: newMatch.playerIds.map(id => {
-                  const player = room.players.get(id);
-                  return player ? { id: player.id, name: player.name, color: player.color } : null;
-                }).filter(Boolean),
-                opponentId: oppId,
-                opponentName: opp?.name,
-                isAutoRotation: true
-              });
-            });
-            
-            // Notify loser they've been rotated out
-            if (loserId) {
-              io.to(loserId).emit('rotatedOut', {
-                matchId: match.id,
-                replacedBy: nextInQueue,
-                replacedByName: nextPlayer.name
-              });
-            }
-            
-            // Update room status
-            io.to(roomId).emit('playerStatusUpdate', {
-              players: room.getPlayerList(),
-              activeMatches: room.getActiveMatches().map(m => ({
-                id: m.id,
-                gameType: m.gameType,
-                playerIds: m.playerIds,
-                playerNames: m.playerIds.map(pid => room.players.get(pid)?.name || 'Unknown'),
-                spectatorCount: m.spectatorIds.length
-              }))
-            });
-            
-            console.log(`🔄 Auto-rotation: ${nextPlayer.name} replaces ${loserPlayer?.name} against ${winner.name}`);
-          }
-        }, 3000); // 3 second delay for auto-rotation
-        
-        // End the current match but don't return players to lobby yet (winner stays)
-        match.active = false;
-        match.winner = winnerId;
-        match.loser = loserId;
-        
-        // Return loser to lobby
-        if (loserPlayer) {
-          loserPlayer.currentMatchId = null;
-        }
-        
-        // Return spectators to lobby (except the one about to play)
-        match.spectatorIds.forEach(sid => {
-          if (sid !== nextInQueue) {
-            const spec = room.players.get(sid);
-            if (spec) spec.spectatingMatchId = null;
-          }
-        });
-        
-        // Emit match ended with rotation pending
-        const recipients = [...match.playerIds, ...match.spectatorIds];
-        recipients.forEach(pid => {
-          io.to(pid).emit('matchEnded', {
-            matchId: match.id,
-            winnerId,
-            winnerName: winnerPlayer?.name,
-            loserId,
-            loserName: loserPlayer?.name,
-            isDraw: false,
-            autoRotation: true,
-            nextPlayerId: nextInQueue,
-            nextPlayerName: nextPlayer.name
-          });
-        });
-        
-        return;
-      }
-    }
-    
-    // No auto-rotation - end match normally
-    room.endMatch(match.id, winnerId, loserId);
-    
-    // Emit match ended
-    const recipients = [...match.playerIds, ...match.spectatorIds];
-    recipients.forEach(pid => {
-      io.to(pid).emit('matchEnded', {
-        matchId: match.id,
-        winnerId,
-        winnerName: winnerPlayer?.name,
-        loserId,
-        loserName: loserPlayer?.name,
-        isDraw,
-        autoRotation: false
-      });
-    });
-    
-    // Update room status
-    io.to(roomId).emit('playerStatusUpdate', {
-      players: room.getPlayerList(),
-      activeMatches: room.getActiveMatches().map(m => ({
-        id: m.id,
-        gameType: m.gameType,
-        playerIds: m.playerIds,
-        playerNames: m.playerIds.map(pid => room.players.get(pid)?.name || 'Unknown'),
-        spectatorCount: m.spectatorIds.length
-      }))
-    });
-  }
 
   // Leave room
   socket.on('leaveRoom', () => {
@@ -2901,36 +1723,6 @@ io.on('connection', (socket) => {
     handleDisconnect(socket);
     console.log(`👋 Player disconnected: ${socket.id}`);
   });
-
-  // Clean up function for forced disconnects (e.g., when kicked due to duplicate login)
-  function handleDisconnectCleanup(socketId) {
-    const roomId = players.get(socketId);
-    if (!roomId) return;
-
-    const room = rooms.get(roomId);
-    if (!room) return;
-
-    const playerName = room.players.get(socketId)?.name;
-    room.removePlayer(socketId);
-    players.delete(socketId);
-
-    if (room.players.size === 0) {
-      rooms.delete(roomId);
-      console.log(`🗑️ Room ${roomId} deleted (empty)`);
-    } else {
-      // Transfer host if needed
-      if (room.hostId === socketId) {
-        room.hostId = room.players.keys().next().value;
-      }
-      
-      io.to(roomId).emit('playerLeft', { 
-        playerId: socketId,
-        playerName,
-        players: room.getPlayerList(),
-        newHostId: room.hostId
-      });
-    }
-  }
 
   function handleDisconnect(socket) {
     // Clean up username tracking
