@@ -148,11 +148,13 @@ document.addEventListener('DOMContentLoaded', () => {
           loginBtn.textContent = '⏳ Logging in...';
           loginBtn.disabled = true;
         }
-        // Pre-fill the form
+        // Pre-fill the username only (not password for security)
         const loginUsername = document.getElementById('loginUsername');
         const loginPassword = document.getElementById('loginPassword');
         if (loginUsername) loginUsername.value = auth.username;
-        if (loginPassword) loginPassword.value = '••••••••';
+        // Don't pre-fill password with dots - it causes issues if auto-login fails
+        // The actual login uses saved credentials from localStorage
+        if (loginPassword) loginPassword.placeholder = 'Auto-logging in...';
         
         // Attempt auto-login
         socket.emit('login', auth);
@@ -340,6 +342,13 @@ socket.on('authError', (data) => {
   if (loginBtn) {
     loginBtn.innerHTML = '<span class="btn-icon">⚡</span> Enter the Archives';
     loginBtn.disabled = false;
+  }
+  
+  // Clear password field and reset placeholder
+  const loginPassword = document.getElementById('loginPassword');
+  if (loginPassword) {
+    loginPassword.value = '';
+    loginPassword.placeholder = 'Password';
   }
   
   // Clear invalid saved session
@@ -1270,6 +1279,7 @@ function startGame(gameType) {
 function endGame() {
   // Clean up any game-specific listeners
   document.removeEventListener('keydown', handleSudokuKeypress);
+  window.sudokuKeyboardListenerAdded = false;
   socket.emit('endGame');
 }
 
@@ -2326,6 +2336,10 @@ socket.on('returnToLobby', (data) => {
   state.players = data.players;
   state.votingActive = false;
   
+  // Clean up game-specific listeners
+  document.removeEventListener('keydown', handleSudokuKeypress);
+  window.sudokuKeyboardListenerAdded = false;
+  
   // Clear game content
   elements.gameContent.innerHTML = '';
   // Close any open modals
@@ -2640,28 +2654,44 @@ function renderSudokuBoard(gameState) {
     </div>
   `;
   
-  // Add cell click handlers - ALL cells can be clicked for highlighting guide
-  document.querySelectorAll('.sudoku-cell').forEach(cell => {
-    cell.addEventListener('click', () => {
-      const row = parseInt(cell.dataset.row);
-      const col = parseInt(cell.dataset.col);
-      selectSudokuCell(row, col);
-    });
-  });
-  
-  // Add numpad handlers
-  document.querySelectorAll('.numpad-btn:not(.completed)').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const num = parseInt(btn.dataset.num);
-      if (state.gameState.selectedCell) {
-        const [row, col] = state.gameState.selectedCell;
-        socket.emit('sudokuMove', { row, col, value: num });
+  // Use event delegation for cell clicks (prevents listener buildup)
+  const sudokuBoard = document.getElementById('sudokuBoard');
+  if (sudokuBoard && !sudokuBoard.hasAttribute('data-listeners-added')) {
+    sudokuBoard.setAttribute('data-listeners-added', 'true');
+    sudokuBoard.addEventListener('click', (e) => {
+      const cell = e.target.closest('.sudoku-cell');
+      if (cell) {
+        const row = parseInt(cell.dataset.row);
+        const col = parseInt(cell.dataset.col);
+        selectSudokuCell(row, col);
       }
     });
-  });
+  }
   
-  // Add keyboard support
-  document.addEventListener('keydown', handleSudokuKeypress);
+  // Use event delegation for numpad (prevents listener buildup)
+  const numpad = document.getElementById('sudokuNumpad');
+  if (numpad && !numpad.hasAttribute('data-listeners-added')) {
+    numpad.setAttribute('data-listeners-added', 'true');
+    numpad.addEventListener('click', (e) => {
+      const btn = e.target.closest('.numpad-btn:not(.completed)');
+      if (btn && state.gameState.selectedCell) {
+        const num = parseInt(btn.dataset.num);
+        const [row, col] = state.gameState.selectedCell;
+        // Only allow input on editable cells
+        const puzzle = state.gameState.puzzle || [];
+        const isOriginal = puzzle[row] && puzzle[row][col] !== 0;
+        if (!isOriginal) {
+          socket.emit('sudokuMove', { row, col, value: num });
+        }
+      }
+    });
+  }
+  
+  // Setup keyboard listener only once
+  if (!window.sudokuKeyboardListenerAdded) {
+    window.sudokuKeyboardListenerAdded = true;
+    document.addEventListener('keydown', handleSudokuKeypress);
+  }
 }
 
 function selectSudokuCell(row, col) {
