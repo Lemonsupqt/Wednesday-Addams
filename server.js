@@ -5,6 +5,7 @@ const { v4: uuidv4 } = require('uuid');
 const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
+const { MongoClient } = require('mongodb');
 
 const app = express();
 
@@ -59,9 +60,10 @@ app.get('/health', (req, res) => {
 // USER ACCOUNTS & LEADERBOARD (The Nevermore Archives)
 // ============================================
 
-// NOTE: For Railway/cloud deployment, file storage is ephemeral.
-// For persistent storage, consider using Railway's PostgreSQL or Redis.
-// For now, we use file storage with environment variable backup.
+// MongoDB connection for persistent storage
+let mongoClient = null;
+let usersCollection = null;
+let useMongoDb = false;
 
 const USERS_FILE = path.join(__dirname, 'nevermore_archives.json');
 
@@ -70,9 +72,55 @@ function hashPassword(password) {
   return crypto.createHash('sha256').update(password + 'upsidedown_salt_2024').digest('hex');
 }
 
-// Load users from file or environment variable
-function loadUsers() {
-  // Try loading from environment variable first (for Railway persistence)
+// Initialize MongoDB connection
+async function initMongoDB() {
+  const mongoUri = process.env.MONGODB_URI;
+  if (!mongoUri) {
+    console.log('📦 No MONGODB_URI found, using local file storage');
+    return false;
+  }
+  
+  try {
+    console.log('🔌 Connecting to MongoDB Atlas...');
+    mongoClient = new MongoClient(mongoUri);
+    await mongoClient.connect();
+    
+    const db = mongoClient.db('nevermore_games');
+    usersCollection = db.collection('users');
+    
+    // Create index on username for faster lookups
+    await usersCollection.createIndex({ username: 1 }, { unique: true });
+    
+    useMongoDb = true;
+    console.log('✅ Connected to MongoDB Atlas successfully!');
+    return true;
+  } catch (err) {
+    console.error('❌ MongoDB connection failed:', err.message);
+    console.log('📦 Falling back to local file storage');
+    return false;
+  }
+}
+
+// Load users from MongoDB or file
+async function loadUsersFromMongo() {
+  if (!useMongoDb || !usersCollection) return {};
+  
+  try {
+    const users = await usersCollection.find({}).toArray();
+    const userMap = {};
+    users.forEach(user => {
+      userMap[user.username] = user;
+    });
+    return userMap;
+  } catch (err) {
+    console.error('Error loading users from MongoDB:', err);
+    return {};
+  }
+}
+
+// Load users from file (fallback)
+function loadUsersFromFile() {
+  // Try loading from environment variable first
   if (process.env.USER_DATA) {
     try {
       console.log('📦 Loading user data from environment variable');
@@ -96,25 +144,75 @@ function loadUsers() {
   return {};
 }
 
-// Save users to file
-function saveUsers(users) {
+// Save user to MongoDB
+async function saveUserToMongo(user) {
+  if (!useMongoDb || !usersCollection) return false;
+  
   try {
-    fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2));
-    
-    // Log base64 encoded data for manual backup (can copy to Railway env var)
-    if (Object.keys(users).length > 0 && Object.keys(users).length <= 5) {
-      const encoded = Buffer.from(JSON.stringify(users)).toString('base64');
-      console.log('💾 User data backup (set as USER_DATA env var for persistence):');
-      console.log(encoded.substring(0, 100) + '...');
-    }
+    await usersCollection.updateOne(
+      { username: user.username },
+      { $set: user },
+      { upsert: true }
+    );
+    return true;
   } catch (err) {
-    console.error('Error saving users:', err);
+    console.error('Error saving user to MongoDB:', err);
+    return false;
   }
 }
 
-// User accounts storage
-let userAccounts = loadUsers();
-console.log(`👥 Loaded ${Object.keys(userAccounts).length} user accounts`);
+// Save users to file (fallback)
+function saveUsersToFile(users) {
+  try {
+    fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2));
+  } catch (err) {
+    console.error('Error saving users to file:', err);
+  }
+}
+
+// Combined save function
+async function saveUsers(users) {
+  if (useMongoDb) {
+    // Save each user to MongoDB
+    for (const username of Object.keys(users)) {
+      await saveUserToMongo(users[username]);
+    }
+  } else {
+    saveUsersToFile(users);
+  }
+}
+
+// Save single user
+async function saveUser(user) {
+  if (useMongoDb) {
+    await saveUserToMongo(user);
+  } else {
+    userAccounts[user.username] = user;
+    saveUsersToFile(userAccounts);
+  }
+}
+
+// User accounts storage (will be populated after MongoDB init)
+let userAccounts = {};
+
+// Initialize storage (called at startup)
+async function initStorage() {
+  const mongoConnected = await initMongoDB();
+  
+  if (mongoConnected) {
+    userAccounts = await loadUsersFromMongo();
+    console.log(`👥 Loaded ${Object.keys(userAccounts).length} user accounts from MongoDB`);
+  } else {
+    userAccounts = loadUsersFromFile();
+    console.log(`👥 Loaded ${Object.keys(userAccounts).length} user accounts from file`);
+  }
+}
+
+// Start storage initialization
+initStorage().catch(err => {
+  console.error('Storage initialization error:', err);
+  userAccounts = loadUsersFromFile();
+});
 
 // Get leaderboard data
 function getLeaderboard() {
@@ -150,7 +248,7 @@ function getUserTitle(trophies) {
 }
 
 // Update user stats after game
-function updateUserStats(username, won, earnedTrophy) {
+async function updateUserStats(username, won, earnedTrophy) {
   if (!userAccounts[username]) return;
   
   userAccounts[username].gamesPlayed = (userAccounts[username].gamesPlayed || 0) + 1;
@@ -162,7 +260,7 @@ function updateUserStats(username, won, earnedTrophy) {
   }
   userAccounts[username].lastPlayed = Date.now();
   
-  saveUsers(userAccounts);
+  await saveUser(userAccounts[username]);
 }
 
 // REST API for leaderboard
@@ -635,7 +733,7 @@ io.on('connection', (socket) => {
     }
     
     // Create new account
-    userAccounts[cleanUsername] = {
+    const newUser = {
       username: cleanUsername,
       displayName: displayName || username,
       passwordHash: hashPassword(password),
@@ -646,14 +744,21 @@ io.on('connection', (socket) => {
       lastPlayed: null
     };
     
-    saveUsers(userAccounts);
+    userAccounts[cleanUsername] = newUser;
+    
+    // Save to MongoDB or file
+    saveUser(newUser).then(() => {
+      console.log(`💾 User ${cleanUsername} saved to database`);
+    }).catch(err => {
+      console.error('Error saving user:', err);
+    });
     
     authenticatedSockets.set(socket.id, cleanUsername);
     usernameToSocket.set(cleanUsername, socket.id);
     
     socket.emit('authSuccess', { 
       username: cleanUsername,
-      displayName: userAccounts[cleanUsername].displayName,
+      displayName: newUser.displayName,
       trophies: 0,
       totalWins: 0,
       gamesPlayed: 0,
@@ -1948,6 +2053,7 @@ io.on('connection', (socket) => {
     const trophyWinner = room.awardTrophy();
     
     // Update all players' global stats (games played, wins)
+    const playersToUpdate = [];
     room.getPlayerList().forEach(player => {
       if (player.username && userAccounts[player.username]) {
         const won = player.sessionWins > 0;
@@ -1957,9 +2063,13 @@ io.on('connection', (socket) => {
           userAccounts[player.username].totalWins = (userAccounts[player.username].totalWins || 0) + player.sessionWins;
         }
         userAccounts[player.username].lastPlayed = Date.now();
+        playersToUpdate.push(userAccounts[player.username]);
       }
     });
-    saveUsers(userAccounts);
+    // Save all updated players
+    playersToUpdate.forEach(user => {
+      saveUser(user).catch(err => console.error('Error saving user stats:', err));
+    });
     
     // Reset session wins for next game
     room.resetSessionWins();
