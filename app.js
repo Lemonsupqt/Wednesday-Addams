@@ -97,8 +97,16 @@ let state = {
   players: [],
   currentGame: null,
   gameState: {},
-  votingActive: false
+  votingActive: false,
+  // Nested matches state
+  currentMatchId: null,
+  spectatingMatchId: null,
+  activeMatches: [],
+  pendingChallenge: null
 };
+
+// 2-player games that support nested matches
+const TWO_PLAYER_GAMES = ['tictactoe', 'chess', 'connect4'];
 
 // Chess state
 let chessState = {
@@ -960,15 +968,565 @@ function copyRoomCode() {
 
 function updatePlayersList(players) {
   state.players = players;
-  elements.playersList.innerHTML = players.map(p => `
-    <div class="player-item ${p.id === state.playerId ? 'is-me' : ''}">
-      <span class="player-color-indicator" style="background: ${p.color || '#e50914'}"></span>
-      <span class="player-name" style="color: ${p.color || '#e50914'}">${escapeHtml(p.name)}</span>
-      ${p.username ? `<span class="verified-badge" title="Registered">✓</span>` : ''}
-      <span class="score" title="Trophies this session">🏆 ${p.trophies || 0}</span>
+  
+  // Check if we're in the lobby (not in a match)
+  const inLobby = !state.currentMatchId && !state.spectatingMatchId;
+  
+  elements.playersList.innerHTML = players.map(p => {
+    const isMe = p.id === state.playerId;
+    const inMatch = p.currentMatchId;
+    const isSpectating = p.spectatingMatchId;
+    
+    // Determine player status
+    let statusBadge = '';
+    if (inMatch) {
+      const match = state.activeMatches.find(m => m.id === p.currentMatchId);
+      const gameIcon = match ? getGameIcon(match.gameType) : '🎮';
+      statusBadge = `<span class="status-badge playing" title="Playing ${match?.gameType || 'game'}">${gameIcon} Playing</span>`;
+    } else if (isSpectating) {
+      statusBadge = `<span class="status-badge spectating" title="Spectating">👁️ Watching</span>`;
+    }
+    
+    // Challenge button (only show for other players in lobby)
+    let challengeBtn = '';
+    if (!isMe && !inMatch && !isSpectating && inLobby && !state.currentMatchId) {
+      challengeBtn = `<button class="btn-challenge" data-player-id="${p.id}" data-player-name="${escapeHtml(p.name)}" title="Challenge to a duel">⚔️</button>`;
+    }
+    
+    return `
+      <div class="player-item ${isMe ? 'is-me' : ''} ${inMatch ? 'in-match' : ''} ${isSpectating ? 'spectating' : ''}">
+        <span class="player-color-indicator" style="background: ${p.color || '#e50914'}"></span>
+        <span class="player-name" style="color: ${p.color || '#e50914'}">${escapeHtml(p.name)}</span>
+        ${p.username ? `<span class="verified-badge" title="Registered">✓</span>` : ''}
+        ${statusBadge}
+        <span class="score" title="Trophies this session">🏆 ${p.trophies || 0}</span>
+        ${challengeBtn}
+      </div>
+    `;
+  }).join('');
+  
+  // Add click listeners to challenge buttons
+  document.querySelectorAll('.btn-challenge').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const playerId = btn.dataset.playerId;
+      const playerName = btn.dataset.playerName;
+      showChallengeModal(playerId, playerName);
+    });
+  });
+}
+
+// Get game icon for display
+function getGameIcon(gameType) {
+  const icons = {
+    'tictactoe': '⭕❌',
+    'chess': '♟️',
+    'connect4': '🔴',
+    'trivia': '🧠',
+    'memory': '🃏',
+    'psychic': '🔮',
+    'sudoku': '🔢',
+    'molewhack': '🔨',
+    'mathquiz': '➕',
+    'ludo': '🎲'
+  };
+  return icons[gameType] || '🎮';
+}
+
+// ============================================
+// NESTED MATCHES SYSTEM (Rooms within Rooms)
+// ============================================
+
+// Show challenge modal to select a game
+function showChallengeModal(targetPlayerId, targetPlayerName) {
+  const modal = document.getElementById('votingModal');
+  modal.innerHTML = `
+    <div class="modal-content challenge-modal">
+      <h2>⚔️ Challenge ${escapeHtml(targetPlayerName)}</h2>
+      <p class="modal-subtitle">Select a game for your duel:</p>
+      <div class="challenge-games-grid">
+        <button class="challenge-game-btn" data-game="tictactoe">
+          <span class="game-icon">⭕❌</span>
+          <span>Tic-Tac-Toe</span>
+        </button>
+        <button class="challenge-game-btn" data-game="chess">
+          <span class="game-icon">♟️</span>
+          <span>Chess</span>
+        </button>
+        <button class="challenge-game-btn" data-game="connect4">
+          <span class="game-icon">🔴🟡</span>
+          <span>Connect 4</span>
+        </button>
+      </div>
+      <button class="btn btn-secondary modal-close-btn" onclick="closeChallengeModal()">Cancel</button>
+    </div>
+  `;
+  modal.classList.add('active');
+  
+  // Add click listeners to game buttons
+  modal.querySelectorAll('.challenge-game-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const gameType = btn.dataset.game;
+      sendChallenge(targetPlayerId, gameType);
+      closeChallengeModal();
+    });
+  });
+}
+
+function closeChallengeModal() {
+  const modal = document.getElementById('votingModal');
+  modal.classList.remove('active');
+}
+
+// Send a challenge to another player
+function sendChallenge(targetPlayerId, gameType) {
+  socket.emit('challengePlayer', {
+    targetPlayerId,
+    gameType,
+    options: {}
+  });
+  showNotification(`Challenge sent! Waiting for response...`, 'info');
+}
+
+// Show incoming challenge notification
+function showIncomingChallenge(data) {
+  state.pendingChallenge = data;
+  
+  const modal = document.getElementById('votingModal');
+  modal.innerHTML = `
+    <div class="modal-content challenge-modal incoming">
+      <h2>⚔️ Challenge Received!</h2>
+      <p class="challenger-name">${escapeHtml(data.challengerName)} challenges you to:</p>
+      <div class="challenge-game-display">
+        <span class="game-icon">${getGameIcon(data.gameType)}</span>
+        <span class="game-name">${getGameDisplayName(data.gameType)}</span>
+      </div>
+      <div class="challenge-actions">
+        <button class="btn btn-primary" onclick="acceptChallenge('${data.challengeId}')">
+          <span class="btn-icon">✓</span> Accept
+        </button>
+        <button class="btn btn-danger" onclick="declineChallenge('${data.challengeId}')">
+          <span class="btn-icon">✕</span> Decline
+        </button>
+      </div>
+    </div>
+  `;
+  modal.classList.add('active');
+}
+
+function acceptChallenge(challengeId) {
+  socket.emit('acceptChallenge', { challengeId });
+  closeChallengeModal();
+  state.pendingChallenge = null;
+}
+
+function declineChallenge(challengeId) {
+  socket.emit('declineChallenge', { challengeId });
+  closeChallengeModal();
+  state.pendingChallenge = null;
+}
+
+// Get game display name
+function getGameDisplayName(gameType) {
+  const names = {
+    'tictactoe': 'Tic-Tac-Toe',
+    'chess': 'Chess',
+    'connect4': 'Connect 4',
+    'trivia': 'Trivia',
+    'memory': 'Memory Match',
+    'psychic': 'Psychic Showdown',
+    'sudoku': 'Sudoku',
+    'molewhack': 'Whack-a-Mole',
+    'mathquiz': 'Math Quiz',
+    'ludo': 'Ludo'
+  };
+  return names[gameType] || gameType;
+}
+
+// Show active matches panel in lobby
+function updateActiveMatchesDisplay() {
+  let matchesPanel = document.getElementById('activeMatchesPanel');
+  
+  if (!matchesPanel) {
+    // Create the panel if it doesn't exist
+    const lobbyContent = document.querySelector('.lobby-content');
+    if (lobbyContent) {
+      matchesPanel = document.createElement('div');
+      matchesPanel.id = 'activeMatchesPanel';
+      matchesPanel.className = 'active-matches-panel';
+      lobbyContent.insertBefore(matchesPanel, lobbyContent.firstChild);
+    }
+  }
+  
+  if (!matchesPanel) return;
+  
+  if (state.activeMatches.length === 0) {
+    matchesPanel.innerHTML = '';
+    matchesPanel.style.display = 'none';
+    return;
+  }
+  
+  matchesPanel.style.display = 'block';
+  matchesPanel.innerHTML = `
+    <h3>🎮 Active Matches</h3>
+    <div class="matches-list">
+      ${state.activeMatches.map(match => `
+        <div class="match-item">
+          <span class="match-icon">${getGameIcon(match.gameType)}</span>
+          <span class="match-players">${match.playerNames.join(' vs ')}</span>
+          <span class="match-spectators">👁️ ${match.spectatorCount}</span>
+          ${!state.currentMatchId && !state.spectatingMatchId ? `
+            <button class="btn-spectate" data-match-id="${match.id}">Watch</button>
+          ` : ''}
+        </div>
+      `).join('')}
+    </div>
+  `;
+  
+  // Add click listeners to spectate buttons
+  matchesPanel.querySelectorAll('.btn-spectate').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const matchId = btn.dataset.matchId;
+      spectateMatch(matchId);
+    });
+  });
+}
+
+function spectateMatch(matchId) {
+  socket.emit('spectateMatch', { matchId });
+}
+
+function stopSpectating() {
+  socket.emit('stopSpectating');
+}
+
+// Initialize match game (for nested 2-player games)
+function initMatchGame(matchId, gameType, gameState, matchPlayers, isSpectator = false) {
+  state.currentMatchId = matchId;
+  state.currentGame = gameType;
+  state.gameState = gameState;
+  
+  showScreen('gameScreen');
+  
+  // Set game title with spectator indicator
+  const titleSuffix = isSpectator ? ' (Spectating)' : '';
+  elements.gameTitle.textContent = getGameDisplayName(gameType) + titleSuffix;
+  
+  // Add back/leave button for matches
+  const backBtn = document.getElementById('backToLobbyBtn');
+  if (isSpectator) {
+    backBtn.textContent = '👁️ Stop Watching';
+    backBtn.onclick = () => {
+      stopSpectating();
+    };
+  } else {
+    backBtn.textContent = '🏳️ Forfeit';
+    backBtn.onclick = () => {
+      if (confirm('Are you sure you want to forfeit this match?')) {
+        socket.emit('leaveMatch', { matchId });
+      }
+    };
+  }
+  
+  // Initialize the game UI
+  switch (gameType) {
+    case 'tictactoe':
+      initMatchTicTacToe(gameState, matchPlayers, isSpectator);
+      break;
+    case 'chess':
+      initMatchChess(gameState, matchPlayers, isSpectator);
+      break;
+    case 'connect4':
+      initMatchConnect4(gameState, matchPlayers, isSpectator);
+      break;
+  }
+}
+
+// Match-specific game initializers
+function initMatchTicTacToe(gameState, players, isSpectator) {
+  state.gameState = gameState;
+  const symbols = gameState.playerSymbols;
+  const mySymbol = symbols instanceof Map ? symbols.get(state.playerId) : symbols[state.playerId];
+  const isMyTurn = gameState.currentPlayer === state.playerId && !isSpectator;
+  
+  elements.gameTitle.textContent = '☠️ Tic-Tac-Toe' + (isSpectator ? ' (Spectating)' : '');
+  updateMatchScoreBoard(players);
+  
+  let html = `<div class="ttt-game">`;
+  html += `<div class="turn-indicator">${isMyTurn ? "Your turn!" : (isSpectator ? "Watching..." : "Opponent's turn...")}</div>`;
+  html += `<div class="ttt-board">`;
+  
+  for (let i = 0; i < 9; i++) {
+    const cell = gameState.board[i];
+    const canClick = !cell && isMyTurn && !isSpectator;
+    html += `<div class="ttt-cell ${canClick ? 'clickable' : ''}" data-index="${i}">${cell || ''}</div>`;
+  }
+  
+  html += `</div>`;
+  if (mySymbol && !isSpectator) {
+    html += `<div class="my-symbol">You are: ${mySymbol}</div>`;
+  }
+  html += `</div>`;
+  
+  elements.gameContent.innerHTML = html;
+  
+  // Add click handlers
+  if (!isSpectator) {
+    document.querySelectorAll('.ttt-cell').forEach(cell => {
+      cell.addEventListener('click', () => {
+        const index = parseInt(cell.dataset.index);
+        if (!gameState.board[index] && gameState.currentPlayer === state.playerId) {
+          socket.emit('matchTttMove', { matchId: state.currentMatchId, cellIndex: index });
+        }
+      });
+    });
+  }
+}
+
+function initMatchChess(gameState, players, isSpectator) {
+  state.gameState = gameState;
+  chessState.myColor = gameState.whitePlayer === state.playerId ? 'white' : 'black';
+  chessState.isMyTurn = gameState.currentPlayer === state.playerId && !isSpectator;
+  chessState.selectedSquare = null;
+  
+  elements.gameTitle.textContent = '♟️ Chess' + (isSpectator ? ' (Spectating)' : '');
+  updateMatchScoreBoard(players);
+  renderMatchChessBoard(gameState, isSpectator);
+}
+
+function initMatchConnect4(gameState, players, isSpectator) {
+  state.gameState = gameState;
+  const isMyTurn = gameState.currentPlayer === state.playerId && !isSpectator;
+  const myPiece = gameState.player1 === state.playerId ? '🔴' : '🟡';
+  
+  elements.gameTitle.textContent = '🔴 Connect ' + (gameState.winCondition || 4) + (isSpectator ? ' (Spectating)' : '');
+  updateMatchScoreBoard(players);
+  
+  let html = `<div class="connect4-game">`;
+  html += `<div class="turn-indicator">${isMyTurn ? "Your turn!" : (isSpectator ? "Watching..." : "Opponent's turn...")}</div>`;
+  html += `<div class="connect4-board">`;
+  
+  for (let row = 0; row < 6; row++) {
+    for (let col = 0; col < 7; col++) {
+      const cell = gameState.board[row][col];
+      html += `<div class="connect4-cell" data-col="${col}">${cell || ''}</div>`;
+    }
+  }
+  
+  html += `</div>`;
+  if (!isSpectator) {
+    html += `<div class="my-piece">You are: ${myPiece}</div>`;
+  }
+  html += `</div>`;
+  
+  elements.gameContent.innerHTML = html;
+  
+  // Add click handlers
+  if (!isSpectator) {
+    document.querySelectorAll('.connect4-cell').forEach(cell => {
+      cell.addEventListener('click', () => {
+        if (gameState.currentPlayer === state.playerId && !gameState.winner) {
+          const col = parseInt(cell.dataset.col);
+          socket.emit('matchConnect4Move', { matchId: state.currentMatchId, col });
+        }
+      });
+    });
+  }
+}
+
+function renderMatchChessBoard(gameState, isSpectator = false) {
+  const board = gameState.board;
+  const isFlipped = chessState.myColor === 'black' && !isSpectator;
+  
+  let html = `<div class="chess-game">`;
+  html += `<div class="turn-indicator">${chessState.isMyTurn && !isSpectator ? "Your turn!" : (isSpectator ? "Watching..." : "Opponent's turn...")}</div>`;
+  
+  if (gameState.inCheck) {
+    html += `<div class="check-warning">⚠️ CHECK!</div>`;
+  }
+  
+  html += `<div class="chess-board ${isFlipped ? 'flipped' : ''}">`;
+  
+  for (let row = 0; row < 8; row++) {
+    for (let col = 0; col < 8; col++) {
+      const displayRow = isFlipped ? 7 - row : row;
+      const displayCol = isFlipped ? 7 - col : col;
+      const piece = board[displayRow][displayCol];
+      const isLight = (displayRow + displayCol) % 2 === 0;
+      const isSelected = chessState.selectedSquare && 
+                        chessState.selectedSquare[0] === displayRow && 
+                        chessState.selectedSquare[1] === displayCol;
+      const isLastMove = gameState.lastMove && 
+                        ((gameState.lastMove.from[0] === displayRow && gameState.lastMove.from[1] === displayCol) ||
+                         (gameState.lastMove.to[0] === displayRow && gameState.lastMove.to[1] === displayCol));
+      
+      html += `<div class="chess-square ${isLight ? 'light' : 'dark'} ${isSelected ? 'selected' : ''} ${isLastMove ? 'last-move' : ''}" 
+                   data-row="${displayRow}" data-col="${displayCol}">
+                ${piece ? getPieceSymbol(piece) : ''}
+              </div>`;
+    }
+  }
+  
+  html += `</div>`;
+  html += `<div class="chess-info">You play: ${chessState.myColor === 'white' ? '⬜ White' : '⬛ Black'}</div>`;
+  html += `</div>`;
+  
+  elements.gameContent.innerHTML = html;
+  
+  // Add click handlers for non-spectators
+  if (!isSpectator) {
+    document.querySelectorAll('.chess-square').forEach(square => {
+      square.addEventListener('click', () => {
+        const row = parseInt(square.dataset.row);
+        const col = parseInt(square.dataset.col);
+        handleMatchChessClick(row, col);
+      });
+    });
+  }
+}
+
+function handleMatchChessClick(row, col) {
+  if (!chessState.isMyTurn) return;
+  
+  const piece = state.gameState.board[row][col];
+  const isMyPiece = piece && (
+    (chessState.myColor === 'white' && piece === piece.toUpperCase()) ||
+    (chessState.myColor === 'black' && piece === piece.toLowerCase())
+  );
+  
+  if (chessState.selectedSquare) {
+    // Try to move
+    const [fromRow, fromCol] = chessState.selectedSquare;
+    if (fromRow === row && fromCol === col) {
+      // Deselect
+      chessState.selectedSquare = null;
+      renderMatchChessBoard(state.gameState);
+    } else {
+      // Attempt move
+      socket.emit('matchChessMove', {
+        matchId: state.currentMatchId,
+        from: [fromRow, fromCol],
+        to: [row, col]
+      });
+      chessState.selectedSquare = null;
+    }
+  } else if (isMyPiece) {
+    // Select piece
+    chessState.selectedSquare = [row, col];
+    renderMatchChessBoard(state.gameState);
+  }
+}
+
+function updateMatchScoreBoard(players) {
+  if (!players || players.length === 0) return;
+  
+  elements.scoreBoard.innerHTML = players.map(p => `
+    <div class="score-item ${p.id === state.playerId ? 'is-me' : ''}">
+      <span class="player-dot" style="background: ${p.color || '#e50914'}"></span>
+      <span class="player-name">${escapeHtml(p.name)}</span>
     </div>
   `).join('');
+}
+
+// Update match game state handlers
+function handleMatchTttUpdate(data) {
+  if (data.matchId !== state.currentMatchId) return;
   
+  state.gameState.board = data.board;
+  state.gameState.currentPlayer = data.currentPlayer;
+  
+  if (data.winner) {
+    state.gameState.winner = data.winner;
+    const isWinner = data.winner === state.playerId;
+    showMatchResult(isWinner ? 'You Win! 🎉' : `${data.winnerName} Wins!`, data);
+  } else if (data.draw) {
+    showMatchResult("It's a Draw! 🤝", data);
+  } else {
+    // Refresh board
+    const isSpectator = state.spectatingMatchId === data.matchId;
+    initMatchTicTacToe(state.gameState, state.players, isSpectator);
+  }
+}
+
+function handleMatchChessUpdate(data) {
+  if (data.matchId !== state.currentMatchId) return;
+  
+  state.gameState = { ...state.gameState, ...data };
+  chessState.isMyTurn = data.currentPlayer === state.playerId;
+  
+  if (data.gameOver) {
+    if (data.isCheckmate) {
+      const isWinner = data.winner === state.playerId;
+      showMatchResult(isWinner ? 'Checkmate! You Win! 🎉' : `Checkmate! ${data.winnerName} Wins!`, data);
+    } else if (data.isStalemate) {
+      showMatchResult("Stalemate! It's a Draw! 🤝", data);
+    }
+  } else {
+    const isSpectator = state.spectatingMatchId === data.matchId;
+    renderMatchChessBoard(state.gameState, isSpectator);
+  }
+}
+
+function handleMatchConnect4Update(data) {
+  if (data.matchId !== state.currentMatchId) return;
+  
+  state.gameState.board = data.board;
+  state.gameState.currentPlayer = data.currentPlayer;
+  
+  if (data.winner) {
+    state.gameState.winner = data.winner;
+    state.gameState.winningCells = data.winningCells;
+    const isWinner = data.winner === state.playerId;
+    showMatchResult(isWinner ? 'You Win! 🎉' : `${data.winnerName} Wins!`, data);
+  } else if (data.isDraw) {
+    showMatchResult("It's a Draw! 🤝", data);
+  } else {
+    const isSpectator = state.spectatingMatchId === data.matchId;
+    initMatchConnect4(state.gameState, state.players, isSpectator);
+  }
+}
+
+function showMatchResult(title, data) {
+  const modal = document.getElementById('resultsModal');
+  document.getElementById('resultsTitle').textContent = title;
+  
+  let content = '';
+  if (data.winner) {
+    content = `<p class="winner-announcement">${data.winnerName} is victorious!</p>`;
+  }
+  
+  content += `
+    <div class="match-result-actions">
+      <button class="btn btn-primary" onclick="requestRematch()">
+        <span class="btn-icon">🔄</span> Rematch
+      </button>
+      <button class="btn btn-secondary" onclick="returnToLobbyFromMatch()">
+        <span class="btn-icon">🚪</span> Back to Lobby
+      </button>
+    </div>
+  `;
+  
+  document.getElementById('resultsContent').innerHTML = content;
+  modal.classList.add('active');
+}
+
+function requestRematch() {
+  if (state.currentMatchId) {
+    socket.emit('requestRematch', { matchId: state.currentMatchId });
+  }
+  document.getElementById('resultsModal').classList.remove('active');
+}
+
+function returnToLobbyFromMatch() {
+  state.currentMatchId = null;
+  state.spectatingMatchId = null;
+  state.currentGame = null;
+  state.gameState = {};
+  document.getElementById('resultsModal').classList.remove('active');
+  showScreen('lobby');
+}
+
+// Update game selection to show 2-player games section
+function updateGameSelection() {
   // Show game selection for everyone (voting-based)
   elements.gameSelection.style.display = 'block';
   elements.gameSelection.innerHTML = `
@@ -1246,9 +1804,17 @@ function sendGameChat() {
 
 function addChatMessage(msg, container = elements.chatMessages) {
   const div = document.createElement('div');
-  div.className = 'chat-message' + (msg.isGuess ? ' guess' : '') + (msg.system ? ' system' : '');
   
-  if (msg.system) {
+  // Determine message type class
+  let typeClass = '';
+  if (msg.type === 'gameStart') typeClass = ' game-start';
+  else if (msg.type === 'gameEnd') typeClass = ' game-end';
+  else if (msg.type === 'autoRotation') typeClass = ' auto-rotation';
+  else if (msg.type === 'system' || msg.system) typeClass = ' system';
+  
+  div.className = 'chat-message' + (msg.isGuess ? ' guess' : '') + typeClass;
+  
+  if (msg.system || msg.type === 'system' || msg.type === 'gameStart' || msg.type === 'gameEnd' || msg.type === 'autoRotation') {
     div.innerHTML = `<span class="message">${escapeHtml(msg.message)}</span>`;
   } else {
     // Use player color if available, fallback to default
@@ -2275,6 +2841,117 @@ socket.on('chatMessage', (msg) => {
 
 socket.on('error', (data) => {
   showError(data.message);
+});
+
+// ============================================
+// NESTED MATCHES SOCKET HANDLERS
+// ============================================
+
+// Challenge received
+socket.on('challengeReceived', (data) => {
+  console.log('⚔️ Challenge received:', data);
+  showIncomingChallenge(data);
+});
+
+// Challenge sent confirmation
+socket.on('challengeSent', (data) => {
+  console.log('📤 Challenge sent to:', data.targetName);
+});
+
+// Challenge declined
+socket.on('challengeDeclined', (data) => {
+  showNotification(`${data.declinedBy} declined your challenge`, 'info');
+});
+
+// Match started (as player)
+socket.on('matchStarted', (data) => {
+  console.log('🎮 Match started:', data);
+  state.currentMatchId = data.matchId;
+  state.spectatingMatchId = null;
+  initMatchGame(data.matchId, data.gameType, data.gameState, data.players, false);
+  
+  if (data.isRematch) {
+    showNotification('Rematch started!', 'success');
+  } else if (data.isAutoRotation) {
+    showNotification('Auto-rotation: Your turn to play!', 'success');
+  }
+});
+
+// Spectating a match
+socket.on('spectatingMatch', (data) => {
+  console.log('👁️ Spectating match:', data);
+  state.spectatingMatchId = data.matchId;
+  state.currentMatchId = null;
+  initMatchGame(data.matchId, data.gameType, data.gameState, data.players, true);
+  
+  if (data.queuePosition > 0) {
+    showNotification(`You're #${data.queuePosition} in the spectator queue`, 'info');
+  }
+});
+
+// Stopped spectating
+socket.on('stoppedSpectating', () => {
+  state.spectatingMatchId = null;
+  state.currentGame = null;
+  showScreen('lobby');
+});
+
+// Match updates
+socket.on('matchTttUpdate', handleMatchTttUpdate);
+socket.on('matchChessUpdate', handleMatchChessUpdate);
+socket.on('matchConnect4Update', handleMatchConnect4Update);
+
+// Match ended
+socket.on('matchEnded', (data) => {
+  console.log('🏁 Match ended:', data);
+  
+  if (data.autoRotation && data.nextPlayerId === state.playerId) {
+    showNotification(`Get ready! You're playing next against the winner!`, 'success');
+  }
+});
+
+// Match forfeited
+socket.on('matchForfeited', (data) => {
+  console.log('🏳️ Match forfeited:', data);
+  const isWinner = data.winner === state.playerId;
+  showMatchResult(
+    isWinner ? 'Opponent Forfeited! You Win! 🎉' : `${data.winnerName} wins by forfeit`,
+    data
+  );
+});
+
+// Rotated out (loser replaced by spectator)
+socket.on('rotatedOut', (data) => {
+  showNotification(`${data.replacedByName} has taken your spot. Better luck next time!`, 'info');
+  state.currentMatchId = null;
+  state.currentGame = null;
+  showScreen('lobby');
+});
+
+// Player status updates (who's in matches, spectating, etc.)
+socket.on('playerStatusUpdate', (data) => {
+  state.players = data.players;
+  state.activeMatches = data.activeMatches || [];
+  updatePlayersList(data.players);
+  updateActiveMatchesDisplay();
+});
+
+// Spectator joined/left notifications
+socket.on('spectatorJoined', (data) => {
+  showNotification(`👁️ ${data.spectatorName} is now watching`, 'info');
+});
+
+socket.on('spectatorLeft', (data) => {
+  // Optional: notify when spectator leaves
+});
+
+// Forced logout (duplicate login)
+socket.on('forcedLogout', (data) => {
+  showError(data.message);
+  state.isAuthenticated = false;
+  state.username = null;
+  localStorage.removeItem('authSession');
+  showScreen('authScreen');
 });
 
 // Game events

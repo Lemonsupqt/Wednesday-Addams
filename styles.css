@@ -5458,3 +5458,314 @@ input[type="password"]::placeholder {
     max-width: 250px;
   }
 }
+
+/* ============================================
+   NESTED MATCHES SYSTEM STYLES
+   ============================================ */
+
+/* Player Status Badges */
+.status-badge {
+  font-size: 0.7rem;
+  padding: 2px 6px;
+  border-radius: 10px;
+  margin-left: 5px;
+  font-weight: bold;
+}
+
+.status-badge.playing {
+  background: linear-gradient(135deg, var(--st-red), var(--accent-secondary));
+  color: white;
+  animation: pulse-status 2s infinite;
+}
+
+.status-badge.spectating {
+  background: rgba(147, 51, 234, 0.3);
+  color: var(--accent-secondary);
+  border: 1px solid var(--accent-secondary);
+}
+
+@keyframes pulse-status {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
+
+/* Challenge Button */
+.btn-challenge {
+  background: linear-gradient(135deg, var(--st-red), #ff4444);
+  border: none;
+  color: white;
+  padding: 4px 8px;
+  border-radius: 5px;
+  cursor: pointer;
+  font-size: 0.9rem;
+  margin-left: auto;
+  transition: all 0.3s ease;
+}
+
+.btn-challenge:hover {
+  transform: scale(1.1);
+  box-shadow: 0 0 15px var(--st-red-glow);
+}
+
+/* Player in match styling */
+.player-item.in-match {
+  opacity: 0.7;
+  border-left: 3px solid var(--st-red);
+}
+
+.player-item.spectating {
+  opacity: 0.8;
+  border-left: 3px solid var(--accent-secondary);
+}
+
+/* Challenge Modal */
+.challenge-modal {
+  text-align: center;
+}
+
+.challenge-modal h2 {
+  color: var(--st-red);
+  margin-bottom: 15px;
+}
+
+.challenge-modal .modal-subtitle {
+  color: var(--text-secondary);
+  margin-bottom: 20px;
+}
+
+.challenge-games-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 15px;
+  justify-content: center;
+  margin-bottom: 20px;
+}
+
+.challenge-game-btn {
+  background: var(--bg-card);
+  border: 2px solid var(--border-color);
+  color: var(--text-primary);
+  padding: 20px 25px;
+  border-radius: 10px;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  transition: all 0.3s ease;
+  min-width: 100px;
+}
+
+.challenge-game-btn:hover {
+  border-color: var(--st-red);
+  background: var(--bg-card-hover);
+  transform: translateY(-3px);
+  box-shadow: 0 5px 20px var(--st-red-glow);
+}
+
+.challenge-game-btn .game-icon {
+  font-size: 2rem;
+}
+
+.modal-close-btn {
+  margin-top: 10px;
+}
+
+/* Incoming Challenge Modal */
+.challenge-modal.incoming {
+  animation: shake-challenge 0.5s ease-in-out;
+}
+
+@keyframes shake-challenge {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-10px); }
+  75% { transform: translateX(10px); }
+}
+
+.challenger-name {
+  font-size: 1.2rem;
+  color: var(--text-primary);
+  margin-bottom: 15px;
+}
+
+.challenge-game-display {
+  background: var(--bg-card);
+  padding: 20px 40px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  gap: 15px;
+  margin-bottom: 25px;
+  border: 2px solid var(--st-red);
+}
+
+.challenge-game-display .game-icon {
+  font-size: 2.5rem;
+}
+
+.challenge-game-display .game-name {
+  font-size: 1.3rem;
+  color: var(--st-red);
+}
+
+.challenge-actions {
+  display: flex;
+  gap: 15px;
+  justify-content: center;
+}
+
+.challenge-actions .btn {
+  min-width: 120px;
+}
+
+/* Active Matches Panel */
+.active-matches-panel {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  padding: 15px;
+  margin-bottom: 15px;
+}
+
+.active-matches-panel h3 {
+  color: var(--st-red);
+  font-size: 1rem;
+  margin-bottom: 10px;
+}
+
+.matches-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.match-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px;
+  background: rgba(0, 0, 0, 0.3);
+  border-radius: 8px;
+  border-left: 3px solid var(--st-red);
+}
+
+.match-icon {
+  font-size: 1.5rem;
+}
+
+.match-players {
+  flex: 1;
+  font-weight: bold;
+  color: var(--text-primary);
+}
+
+.match-spectators {
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+}
+
+.btn-spectate {
+  background: var(--accent-secondary);
+  border: none;
+  color: white;
+  padding: 5px 12px;
+  border-radius: 5px;
+  cursor: pointer;
+  font-size: 0.85rem;
+  transition: all 0.3s ease;
+}
+
+.btn-spectate:hover {
+  background: var(--st-neon-pink);
+  transform: scale(1.05);
+}
+
+/* Match Result Actions */
+.match-result-actions {
+  display: flex;
+  gap: 15px;
+  justify-content: center;
+  margin-top: 20px;
+}
+
+.match-result-actions .btn {
+  min-width: 140px;
+}
+
+/* Chat message types */
+.chat-message.game-start {
+  background: linear-gradient(90deg, rgba(229, 9, 20, 0.2), transparent);
+  border-left: 3px solid var(--st-red);
+  padding-left: 10px;
+}
+
+.chat-message.game-end {
+  background: linear-gradient(90deg, rgba(34, 197, 94, 0.2), transparent);
+  border-left: 3px solid var(--success);
+  padding-left: 10px;
+}
+
+.chat-message.auto-rotation {
+  background: linear-gradient(90deg, rgba(147, 51, 234, 0.2), transparent);
+  border-left: 3px solid var(--accent-secondary);
+  padding-left: 10px;
+}
+
+/* Notification toast */
+.notification {
+  position: fixed;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%) translateY(100px);
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  padding: 15px 25px;
+  border-radius: 10px;
+  z-index: 10000;
+  opacity: 0;
+  transition: all 0.3s ease;
+  max-width: 90%;
+  text-align: center;
+}
+
+.notification.active {
+  transform: translateX(-50%) translateY(0);
+  opacity: 1;
+}
+
+.notification-success {
+  border-color: var(--success);
+  background: rgba(34, 197, 94, 0.2);
+}
+
+.notification-info {
+  border-color: var(--st-neon-blue);
+  background: rgba(5, 217, 232, 0.2);
+}
+
+/* Responsive adjustments for matches */
+@media (max-width: 480px) {
+  .challenge-games-grid {
+    flex-direction: column;
+  }
+  
+  .challenge-game-btn {
+    width: 100%;
+  }
+  
+  .challenge-actions {
+    flex-direction: column;
+  }
+  
+  .challenge-actions .btn {
+    width: 100%;
+  }
+  
+  .match-result-actions {
+    flex-direction: column;
+  }
+  
+  .match-result-actions .btn {
+    width: 100%;
+  }
+}
