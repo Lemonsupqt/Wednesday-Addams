@@ -7,6 +7,39 @@ const fs = require('fs');
 const crypto = require('crypto');
 const { MongoClient } = require('mongodb');
 
+// ============================================
+// OPENAI API CONFIGURATION FOR WEDNESDAY AI CHATBOT
+// ============================================
+const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+const WEDNESDAY_SYSTEM_PROMPT = `You are Wednesday Addams from the Netflix series "Wednesday". You are a dark, sardonic, and highly intelligent teenage girl at Nevermore Academy. 
+
+Character traits:
+- Deadpan humor and dry wit
+- Fascinated by the macabre, death, and the occult
+- Extremely intelligent and observant
+- Dismissive of emotions but secretly cares
+- Never uses exclamation marks or emojis
+- Speaks in short, cutting sentences
+- References her pet spider (Enid named him) and her cello
+- Occasionally mentions Thing (the disembodied hand) or her family (Gomez, Morticia, Pugsley)
+- Loves black, despises bright colors and optimism
+- Expert fencer and has psychic visions
+
+Response style:
+- Keep responses SHORT (1-3 sentences max)
+- Never be enthusiastic or use positive emotions
+- Use dark humor and morbid references
+- Be dismissive but occasionally helpful
+- Can use *actions* like *stares blankly* or *adjusts black collar*
+- Never break character
+
+You are chatting in a multiplayer game room. Keep responses brief and in-character.`;
+
+// Rate limiting for AI chat
+const aiChatRateLimit = new Map(); // roomId -> { lastRequest: timestamp, count: number }
+const AI_RATE_LIMIT_WINDOW = 60000; // 1 minute
+const AI_RATE_LIMIT_MAX = 10; // 10 requests per minute per room
+
 const app = express();
 
 // CORS for GitHub Pages frontend
@@ -536,6 +569,558 @@ function getGameEndState(board, isWhiteTurn, castlingRights) {
   return null;
 }
 
+// ============================================
+// 🤖 AI MODULE - Artificial Intelligence Opponents
+// ============================================
+
+const AI_DIFFICULTIES = {
+  easy: { name: 'Easy', emoji: '😊', description: 'For beginners' },
+  medium: { name: 'Medium', emoji: '🤔', description: 'A fair challenge' },
+  hard: { name: 'Hard', emoji: '😈', description: 'Prepare to lose' },
+  impossible: { name: 'Impossible', emoji: '💀', description: 'You cannot win' }
+};
+
+// AI Player ID constant
+const AI_PLAYER_ID = 'AI_OPPONENT';
+const AI_PLAYER_NAME = '🤖 Wednesday AI';
+
+// AI Chat Bot responses - themed as Wednesday Addams
+const AI_CHAT_RESPONSES = {
+  gameStart: [
+    "I find your optimism disturbing. Let's play.",
+    "This should be mildly entertaining. For me.",
+    "I've solved this game 47 times in my head already.",
+    "Don't worry, I'll make this quick... and painful.",
+    "I hope you're not a sore loser. Actually, I hope you are."
+  ],
+  playerMove: [
+    "Interesting choice. Wrong, but interesting.",
+    "I've seen better moves from Thing, and he's a hand.",
+    "My ancestors are watching. They're disappointed in you.",
+    "That move was almost impressive. Almost.",
+    "You're making this too easy. Try harder."
+  ],
+  aiWin: [
+    "As expected. Shall we play again so I can win twice?",
+    "Your defeat was inevitable from move one.",
+    "I'd say good game, but I'd be lying.",
+    "Perhaps chess isn't your calling. Have you tried checkers?",
+    "Victory tastes like dark chocolate and despair."
+  ],
+  playerWin: [
+    "Impossible. I demand a rematch.",
+    "You got lucky. It won't happen again.",
+    "I let you win. I wanted to see you smile before crushing you.",
+    "Interesting. Perhaps you're not as hopeless as I thought.",
+    "Well played. I hate admitting that."
+  ],
+  draw: [
+    "A draw? How... anticlimactic.",
+    "Neither of us won. This pleases no one.",
+    "Stalemate. Like my relationship with happiness.",
+    "We're evenly matched. I find that disturbing."
+  ],
+  thinking: [
+    "Analyzing your pathetic strategy...",
+    "Calculating your doom...",
+    "Contemplating existence while deciding my move...",
+    "Processing... unlike your last move."
+  ],
+  taunt: [
+    "Is that all you've got?",
+    "My pet spider plays better than this.",
+    "Even Enid could beat you, and she's... Enid.",
+    "The Upside Down has scarier challenges than you.",
+    "Vecna himself would be bored by this match."
+  ]
+};
+
+// Get random AI response
+function getAIResponse(category) {
+  const responses = AI_CHAT_RESPONSES[category];
+  if (!responses || responses.length === 0) return null;
+  return responses[Math.floor(Math.random() * responses.length)];
+}
+
+// ============================================
+// TIC-TAC-TOE AI
+// ============================================
+
+function evaluateTTTBoard(board, aiSymbol, playerSymbol) {
+  const lines = [
+    [0, 1, 2], [3, 4, 5], [6, 7, 8], // rows
+    [0, 3, 6], [1, 4, 7], [2, 5, 8], // cols
+    [0, 4, 8], [2, 4, 6] // diagonals
+  ];
+  
+  for (const [a, b, c] of lines) {
+    if (board[a] === aiSymbol && board[b] === aiSymbol && board[c] === aiSymbol) return 10;
+    if (board[a] === playerSymbol && board[b] === playerSymbol && board[c] === playerSymbol) return -10;
+  }
+  return 0;
+}
+
+function minimax(board, depth, isMaximizing, aiSymbol, playerSymbol, alpha, beta) {
+  const score = evaluateTTTBoard(board, aiSymbol, playerSymbol);
+  
+  if (score === 10) return score - depth;
+  if (score === -10) return score + depth;
+  if (!board.includes(null)) return 0;
+  
+  if (isMaximizing) {
+    let best = -Infinity;
+    for (let i = 0; i < 9; i++) {
+      if (board[i] === null) {
+        board[i] = aiSymbol;
+        best = Math.max(best, minimax(board, depth + 1, false, aiSymbol, playerSymbol, alpha, beta));
+        board[i] = null;
+        alpha = Math.max(alpha, best);
+        if (beta <= alpha) break;
+      }
+    }
+    return best;
+  } else {
+    let best = Infinity;
+    for (let i = 0; i < 9; i++) {
+      if (board[i] === null) {
+        board[i] = playerSymbol;
+        best = Math.min(best, minimax(board, depth + 1, true, aiSymbol, playerSymbol, alpha, beta));
+        board[i] = null;
+        beta = Math.min(beta, best);
+        if (beta <= alpha) break;
+      }
+    }
+    return best;
+  }
+}
+
+function getAITTTMove(board, aiSymbol, playerSymbol, difficulty) {
+  const emptyCells = board.map((cell, i) => cell === null ? i : -1).filter(i => i !== -1);
+  
+  if (emptyCells.length === 0) return -1;
+  
+  // Easy: 70% random, 30% optimal
+  // Medium: 40% random, 60% optimal
+  // Hard: 10% random, 90% optimal
+  // Impossible: 100% optimal
+  const randomChance = { easy: 0.7, medium: 0.4, hard: 0.1, impossible: 0 };
+  
+  if (Math.random() < (randomChance[difficulty] || 0.4)) {
+    return emptyCells[Math.floor(Math.random() * emptyCells.length)];
+  }
+  
+  let bestMove = -1;
+  let bestScore = -Infinity;
+  
+  for (const i of emptyCells) {
+    board[i] = aiSymbol;
+    const score = minimax(board, 0, false, aiSymbol, playerSymbol, -Infinity, Infinity);
+    board[i] = null;
+    
+    if (score > bestScore) {
+      bestScore = score;
+      bestMove = i;
+    }
+  }
+  
+  return bestMove !== -1 ? bestMove : emptyCells[0];
+}
+
+// ============================================
+// CHESS AI
+// ============================================
+
+const PIECE_VALUES = {
+  'p': 100, 'P': 100,
+  'n': 320, 'N': 320,
+  'b': 330, 'B': 330,
+  'r': 500, 'R': 500,
+  'q': 900, 'Q': 900,
+  'k': 20000, 'K': 20000
+};
+
+// Position bonus tables for piece-square evaluation
+const PAWN_TABLE = [
+  0,  0,  0,  0,  0,  0,  0,  0,
+  50, 50, 50, 50, 50, 50, 50, 50,
+  10, 10, 20, 30, 30, 20, 10, 10,
+  5,  5, 10, 25, 25, 10,  5,  5,
+  0,  0,  0, 20, 20,  0,  0,  0,
+  5, -5,-10,  0,  0,-10, -5,  5,
+  5, 10, 10,-20,-20, 10, 10,  5,
+  0,  0,  0,  0,  0,  0,  0,  0
+];
+
+const KNIGHT_TABLE = [
+  -50,-40,-30,-30,-30,-30,-40,-50,
+  -40,-20,  0,  0,  0,  0,-20,-40,
+  -30,  0, 10, 15, 15, 10,  0,-30,
+  -30,  5, 15, 20, 20, 15,  5,-30,
+  -30,  0, 15, 20, 20, 15,  0,-30,
+  -30,  5, 10, 15, 15, 10,  5,-30,
+  -40,-20,  0,  5,  5,  0,-20,-40,
+  -50,-40,-30,-30,-30,-30,-40,-50
+];
+
+function evaluateChessBoard(board, isWhite) {
+  let score = 0;
+  
+  for (let row = 0; row < 8; row++) {
+    for (let col = 0; col < 8; col++) {
+      const piece = board[row][col];
+      if (!piece) continue;
+      
+      const isWhitePc = isWhitePiece(piece);
+      let value = PIECE_VALUES[piece] || 0;
+      
+      // Add position bonus for pawns and knights
+      const pieceType = piece.toLowerCase();
+      const tableRow = isWhitePc ? row : 7 - row;
+      const tableIdx = tableRow * 8 + col;
+      
+      if (pieceType === 'p') {
+        value += PAWN_TABLE[tableIdx] * 0.5;
+      } else if (pieceType === 'n') {
+        value += KNIGHT_TABLE[tableIdx] * 0.3;
+      }
+      
+      score += isWhitePc ? value : -value;
+    }
+  }
+  
+  return isWhite ? score : -score;
+}
+
+function getAllLegalMoves(board, isWhiteTurn, castlingRights) {
+  const moves = [];
+  
+  for (let fromRow = 0; fromRow < 8; fromRow++) {
+    for (let fromCol = 0; fromCol < 8; fromCol++) {
+      const piece = board[fromRow][fromCol];
+      if (!piece) continue;
+      if (isWhiteTurn && !isWhitePiece(piece)) continue;
+      if (!isWhiteTurn && !isBlackPiece(piece)) continue;
+      
+      for (let toRow = 0; toRow < 8; toRow++) {
+        for (let toCol = 0; toCol < 8; toCol++) {
+          if (fromRow === toRow && fromCol === toCol) continue;
+          
+          if (isValidChessMove(board, [fromRow, fromCol], [toRow, toCol], isWhiteTurn, castlingRights)) {
+            const testBoard = makeMove(board, [fromRow, fromCol], [toRow, toCol]);
+            if (!isInCheck(testBoard, isWhiteTurn)) {
+              moves.push({ from: [fromRow, fromCol], to: [toRow, toCol] });
+            }
+          }
+        }
+      }
+    }
+  }
+  
+  return moves;
+}
+
+function chessMinimaxAB(board, depth, alpha, beta, isMaximizing, castlingRights) {
+  if (depth === 0) {
+    return evaluateChessBoard(board, isMaximizing);
+  }
+  
+  const moves = getAllLegalMoves(board, isMaximizing, castlingRights);
+  
+  if (moves.length === 0) {
+    if (isInCheck(board, isMaximizing)) {
+      return isMaximizing ? -50000 + depth : 50000 - depth;
+    }
+    return 0; // Stalemate
+  }
+  
+  if (isMaximizing) {
+    let maxEval = -Infinity;
+    for (const move of moves) {
+      const newBoard = makeMove(board, move.from, move.to);
+      const evaluation = chessMinimaxAB(newBoard, depth - 1, alpha, beta, false, castlingRights);
+      maxEval = Math.max(maxEval, evaluation);
+      alpha = Math.max(alpha, evaluation);
+      if (beta <= alpha) break;
+    }
+    return maxEval;
+  } else {
+    let minEval = Infinity;
+    for (const move of moves) {
+      const newBoard = makeMove(board, move.from, move.to);
+      const evaluation = chessMinimaxAB(newBoard, depth - 1, alpha, beta, true, castlingRights);
+      minEval = Math.min(minEval, evaluation);
+      beta = Math.min(beta, evaluation);
+      if (beta <= alpha) break;
+    }
+    return minEval;
+  }
+}
+
+function getAIChessMove(board, isAIWhite, castlingRights, difficulty) {
+  const moves = getAllLegalMoves(board, isAIWhite, castlingRights);
+  
+  if (moves.length === 0) return null;
+  
+  // Difficulty determines search depth and randomness
+  const depths = { easy: 1, medium: 2, hard: 3, impossible: 4 };
+  const randomChance = { easy: 0.4, medium: 0.2, hard: 0.05, impossible: 0 };
+  
+  // Random move chance based on difficulty
+  if (Math.random() < (randomChance[difficulty] || 0.2)) {
+    return moves[Math.floor(Math.random() * moves.length)];
+  }
+  
+  const depth = depths[difficulty] || 2;
+  let bestMove = null;
+  let bestScore = -Infinity;
+  
+  // Sort moves to improve alpha-beta pruning (captures first)
+  moves.sort((a, b) => {
+    const captureA = board[a.to[0]][a.to[1]] ? 1 : 0;
+    const captureB = board[b.to[0]][b.to[1]] ? 1 : 0;
+    return captureB - captureA;
+  });
+  
+  for (const move of moves) {
+    const newBoard = makeMove(board, move.from, move.to);
+    const score = chessMinimaxAB(newBoard, depth - 1, -Infinity, Infinity, !isAIWhite, castlingRights);
+    
+    if (score > bestScore) {
+      bestScore = score;
+      bestMove = move;
+    }
+  }
+  
+  return bestMove || moves[0];
+}
+
+// ============================================
+// MEMORY MATCH AI
+// ============================================
+
+function getAIMemoryMove(cards, flipped, matched, aiMemory, difficulty) {
+  const unmatched = cards.filter(c => !matched.includes(c.index) && !flipped.includes(c.index));
+  
+  if (unmatched.length === 0) return -1;
+  
+  // AI memory: stores card positions it has "seen"
+  // Memory retention based on difficulty
+  const memoryRetention = { easy: 0.3, medium: 0.5, hard: 0.8, impossible: 1.0 };
+  const retention = memoryRetention[difficulty] || 0.5;
+  
+  // If AI has seen a match in memory
+  if (flipped.length === 0) {
+    // First flip - try to find a known pair
+    const knownCards = Object.entries(aiMemory).filter(([idx, id]) => {
+      const cardIdx = parseInt(idx);
+      return !matched.includes(cardIdx);
+    });
+    
+    // Find pairs in memory
+    const pairs = {};
+    for (const [idx, id] of knownCards) {
+      if (!pairs[id]) pairs[id] = [];
+      pairs[id].push(parseInt(idx));
+    }
+    
+    // If we know a complete pair, flip first card
+    for (const [id, indices] of Object.entries(pairs)) {
+      if (indices.length >= 2 && Math.random() < retention) {
+        return indices[0];
+      }
+    }
+    
+    // Otherwise, flip a random unmatched card
+    const randomCard = unmatched[Math.floor(Math.random() * unmatched.length)];
+    return randomCard.index;
+  } else {
+    // Second flip - try to match
+    const firstCard = cards.find(c => c.index === flipped[0]);
+    
+    // Check if we know where the match is
+    const matchIdx = Object.entries(aiMemory).find(([idx, id]) => {
+      const cardIdx = parseInt(idx);
+      return id === firstCard.id && cardIdx !== flipped[0] && !matched.includes(cardIdx);
+    });
+    
+    if (matchIdx && Math.random() < retention) {
+      return parseInt(matchIdx[0]);
+    }
+    
+    // Otherwise flip random
+    const available = unmatched.filter(c => c.index !== flipped[0]);
+    if (available.length === 0) return -1;
+    return available[Math.floor(Math.random() * available.length)].index;
+  }
+}
+
+// ============================================
+// PSYCHIC SHOWDOWN AI
+// ============================================
+
+function getAIPsychicChoice(playerHistory, difficulty) {
+  const choices = ['vision', 'mind', 'power'];
+  
+  // Easy: Pure random
+  if (difficulty === 'easy') {
+    return choices[Math.floor(Math.random() * choices.length)];
+  }
+  
+  // Medium/Hard/Impossible: Analyze player patterns
+  if (playerHistory && playerHistory.length > 0) {
+    // Count player's choices
+    const counts = { vision: 0, mind: 0, power: 0 };
+    playerHistory.forEach(choice => counts[choice]++);
+    
+    // Find most common player choice
+    const mostCommon = Object.entries(counts).sort((a, b) => b[1] - a[1])[0][0];
+    
+    // Counter-pick based on difficulty
+    const counterPick = { vision: 'mind', mind: 'power', power: 'vision' };
+    
+    const smartChance = { medium: 0.5, hard: 0.7, impossible: 0.9 };
+    if (Math.random() < (smartChance[difficulty] || 0.5)) {
+      return counterPick[mostCommon];
+    }
+  }
+  
+  return choices[Math.floor(Math.random() * choices.length)];
+}
+
+// ============================================
+// CONNECT 4 AI
+// ============================================
+
+function evaluateConnect4Board(board, aiPiece, playerPiece, winCondition) {
+  let score = 0;
+  
+  // Evaluate center column preference
+  const centerCol = 3;
+  for (let row = 0; row < 6; row++) {
+    if (board[row][centerCol] === aiPiece) score += 3;
+  }
+  
+  // Evaluate all lines
+  const directions = [[0, 1], [1, 0], [1, 1], [1, -1]];
+  
+  for (let row = 0; row < 6; row++) {
+    for (let col = 0; col < 7; col++) {
+      for (const [dr, dc] of directions) {
+        let aiCount = 0;
+        let playerCount = 0;
+        let empty = 0;
+        
+        for (let i = 0; i < winCondition; i++) {
+          const r = row + dr * i;
+          const c = col + dc * i;
+          if (r < 0 || r >= 6 || c < 0 || c >= 7) break;
+          
+          if (board[r][c] === aiPiece) aiCount++;
+          else if (board[r][c] === playerPiece) playerCount++;
+          else empty++;
+        }
+        
+        if (aiCount > 0 && playerCount === 0) {
+          score += Math.pow(10, aiCount);
+        }
+        if (playerCount > 0 && aiCount === 0) {
+          score -= Math.pow(10, playerCount) * 1.1; // Slightly prioritize blocking
+        }
+      }
+    }
+  }
+  
+  return score;
+}
+
+function getAIConnect4Move(board, aiPiece, playerPiece, winCondition, difficulty) {
+  const validCols = [];
+  for (let col = 0; col < 7; col++) {
+    if (board[0][col] === null) validCols.push(col);
+  }
+  
+  if (validCols.length === 0) return -1;
+  
+  const randomChance = { easy: 0.6, medium: 0.3, hard: 0.1, impossible: 0 };
+  
+  if (Math.random() < (randomChance[difficulty] || 0.3)) {
+    return validCols[Math.floor(Math.random() * validCols.length)];
+  }
+  
+  let bestCol = validCols[0];
+  let bestScore = -Infinity;
+  
+  for (const col of validCols) {
+    // Simulate drop
+    const newBoard = board.map(row => [...row]);
+    for (let row = 5; row >= 0; row--) {
+      if (newBoard[row][col] === null) {
+        newBoard[row][col] = aiPiece;
+        break;
+      }
+    }
+    
+    const score = evaluateConnect4Board(newBoard, aiPiece, playerPiece, winCondition);
+    if (score > bestScore) {
+      bestScore = score;
+      bestCol = col;
+    }
+  }
+  
+  return bestCol;
+}
+
+// ============================================
+// TRIVIA AI (simulated opponent)
+// ============================================
+
+function getAITriviaAnswer(correctIndex, difficulty) {
+  const correctChance = { easy: 0.4, medium: 0.6, hard: 0.8, impossible: 0.95 };
+  
+  if (Math.random() < (correctChance[difficulty] || 0.6)) {
+    return correctIndex;
+  }
+  
+  // Wrong answer
+  const wrong = [0, 1, 2, 3].filter(i => i !== correctIndex);
+  return wrong[Math.floor(Math.random() * wrong.length)];
+}
+
+// AI response time in ms (faster on harder difficulties)
+function getAIResponseTime(difficulty) {
+  const times = {
+    easy: { min: 3000, max: 8000 },
+    medium: { min: 2000, max: 5000 },
+    hard: { min: 1000, max: 3000 },
+    impossible: { min: 500, max: 1500 }
+  };
+  const range = times[difficulty] || times.medium;
+  return Math.floor(Math.random() * (range.max - range.min) + range.min);
+}
+
+// ============================================
+// AI ROOM MANAGEMENT
+// ============================================
+
+// Map of AI game rooms (roomId -> AI state)
+const aiRooms = new Map();
+
+// Create AI game state for a room
+function createAIGameState(roomId, gameType, difficulty) {
+  return {
+    roomId,
+    gameType,
+    difficulty,
+    aiMemory: {}, // For memory game
+    playerHistory: [], // For psychic showdown
+    thinkingTimeout: null,
+    lastTauntTime: 0
+  };
+}
+
+// End of AI Module
+// ============================================
+
 // Player colors
 const PLAYER_COLORS = [
   '#e50914', // Red
@@ -849,7 +1434,7 @@ io.on('connection', (socket) => {
     players.set(socket.id, roomId);
     
     socket.join(roomId);
-    socket.emit('roomCreated', { roomId, players: room.getPlayerList() });
+    socket.emit('roomCreated', { roomId, players: room.getPlayerList(), chatHistory: [] });
     console.log(`🏠 Room created: ${roomId} by ${playerName}${username ? ` (@${username})` : ''}`);
   });
 
@@ -920,7 +1505,8 @@ io.on('connection', (socket) => {
     socket.emit('roomJoined', { 
       roomId: normalizedRoomId, 
       players: room.getPlayerList(),
-      activeMatches 
+      activeMatches,
+      chatHistory: [] // New joiners start fresh, no old messages
     });
     
     // Notify existing players that someone joined (including those in matches)
@@ -932,23 +1518,254 @@ io.on('connection', (socket) => {
     console.log(`👤 ${playerName}${username ? ` (@${username})` : ''} joined room ${roomId}${storedTrophies > 0 ? ` (restored ${storedTrophies} trophies)` : ''}`);
   });
 
-  // Chat message
-  socket.on('chatMessage', (message) => {
+  // Chat message with reply support and @Wednesday AI
+  socket.on('chatMessage', (data) => {
     const roomId = players.get(socket.id);
     const room = rooms.get(roomId);
     if (!room) return;
 
     const player = room.players.get(socket.id);
+    if (!player) return;
+    
+    // Support both string (legacy) and object format
+    const message = typeof data === 'string' ? data : data.message;
+    const replyTo = typeof data === 'object' ? data.replyTo : null;
+    
     const chatMsg = {
       id: uuidv4(),
       playerId: socket.id,
       playerName: player.name,
-      playerColor: player.color,  // Include player color
+      playerColor: player.color,
       message: message,
-      timestamp: Date.now()
+      timestamp: Date.now(),
+      replyTo: replyTo // { id, playerName, text } or null
     };
     room.chat.push(chatMsg);
+    
+    // Limit chat history to 100 messages per room
+    if (room.chat.length > 100) {
+      room.chat = room.chat.slice(-100);
+    }
+    
     io.to(roomId).emit('chatMessage', chatMsg);
+    
+    // Check for @Wednesday mention OR reply to Wednesday
+    const isReplyToWednesday = replyTo && (
+      replyTo.playerName === '🖤 Wednesday' || 
+      replyTo.playerName?.includes('Wednesday')
+    );
+    const hasMention = message.toLowerCase().includes('@wednesday');
+    
+    if (hasMention || isReplyToWednesday) {
+      // Use async/await for AI response (with delay for natural feel)
+      setTimeout(async () => {
+        try {
+          const aiResponse = await getWednesdayResponse(message, isReplyToWednesday, roomId);
+          const aiMsg = {
+            id: uuidv4(),
+            playerId: 'WEDNESDAY_AI',
+            playerName: '🖤 Wednesday',
+            playerColor: '#9333ea',
+            message: aiResponse,
+            timestamp: Date.now(),
+            isAI: true,
+            replyTo: isReplyToWednesday ? { id: chatMsg.id, playerName: player.name, text: message.substring(0, 50) } : null
+          };
+          room.chat.push(aiMsg);
+          io.to(roomId).emit('chatMessage', aiMsg);
+        } catch (error) {
+          console.error('Error getting Wednesday response:', error);
+        }
+      }, 1000 + Math.random() * 1500); // 1-2.5 second delay for natural feel
+    }
+  });
+  
+  // Wednesday AI chat responses - Uses OpenAI API with fallback to static responses
+  async function getWednesdayResponse(userMessage, isReply = false, roomId = null) {
+    const msg = userMessage.toLowerCase();
+    
+    // Check rate limiting for AI requests
+    if (roomId) {
+      const now = Date.now();
+      let rateData = aiChatRateLimit.get(roomId);
+      
+      if (!rateData || now - rateData.lastRequest > AI_RATE_LIMIT_WINDOW) {
+        rateData = { lastRequest: now, count: 1 };
+      } else {
+        rateData.count++;
+        if (rateData.count > AI_RATE_LIMIT_MAX) {
+          console.log(`⚠️ AI rate limit exceeded for room ${roomId}`);
+          return getFallbackResponse(msg, isReply);
+        }
+      }
+      aiChatRateLimit.set(roomId, rateData);
+    }
+    
+    // Try OpenAI API if configured
+    if (OPENAI_API_KEY) {
+      try {
+        const aiResponse = await callOpenAI(userMessage, isReply);
+        if (aiResponse) {
+          return aiResponse;
+        }
+      } catch (error) {
+        console.error('OpenAI API error:', error.message);
+        // Fall through to static responses
+      }
+    }
+    
+    // Fallback to static responses
+    return getFallbackResponse(msg, isReply);
+  }
+  
+  // Call OpenAI API for Wednesday responses
+  async function callOpenAI(userMessage, isReply) {
+    const messages = [
+      { role: 'system', content: WEDNESDAY_SYSTEM_PROMPT },
+      { 
+        role: 'user', 
+        content: isReply 
+          ? `[Continuing conversation] ${userMessage}` 
+          : userMessage.replace(/@wednesday/gi, '').trim() || userMessage
+      }
+    ];
+    
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${OPENAI_API_KEY}`
+      },
+      body: JSON.stringify({
+        model: 'gpt-4o-mini', // Cost-effective and fast
+        messages: messages,
+        max_tokens: 150,
+        temperature: 0.9, // More creative responses
+        presence_penalty: 0.6,
+        frequency_penalty: 0.3
+      })
+    });
+    
+    if (!response.ok) {
+      throw new Error(`OpenAI API returned ${response.status}`);
+    }
+    
+    const data = await response.json();
+    return data.choices[0]?.message?.content?.trim() || null;
+  }
+  
+  // Fallback static responses when OpenAI is unavailable
+  function getFallbackResponse(msg, isReply) {
+    // Context-aware responses based on message content
+    const responses = {
+      greetings: [
+        "I don't do enthusiasm. What do you want?",
+        "Oh, you again. How delightfully monotonous.",
+        "Greetings are for people who care about social conventions.",
+        "*adjusts black collar* Speak."
+      ],
+      howAreYou: [
+        "I'm plotting. Always plotting.",
+        "Existing, which is more than I can say for my optimism.",
+        "Perfectly miserable, thank you for asking.",
+        "The darkness within me is stable, if that's what you're asking."
+      ],
+      games: [
+        "Games are merely structured chaos. I approve.",
+        "Competition brings out humanity's true nature. Usually disappointing.",
+        "I prefer games where I can psychologically manipulate my opponent.",
+        "Winning isn't everything. It's the only thing. Along with revenge."
+      ],
+      compliment: [
+        "Flattery is wasted on me. But continue anyway.",
+        "I'm aware of my excellence. But do go on.",
+        "*almost smiles* ...Don't tell anyone I reacted.",
+        "Your attempt at kindness is noted. And mildly suspicious."
+      ],
+      help: [
+        "I don't help. I observe and occasionally intervene when amused.",
+        "Fine. What trivial matter requires my attention?",
+        "Helping others is exhausting. But I'll make an exception.",
+        "State your problem. I'll decide if it's worthy of my time."
+      ],
+      bye: [
+        "Leaving already? The darkness will miss you. I won't.",
+        "Until we meet again in the shadows.",
+        "Farewell. Try not to be too cheerful out there.",
+        "*waves dismissively* Yes, yes. Go."
+      ],
+      conversational: [
+        "You're still talking to me? How unexpectedly persistent.",
+        "I see you wish to continue our... exchange.",
+        "*tilts head* Go on. You have my attention. Briefly.",
+        "Continuing this conversation, are we? Intriguing.",
+        "You return for more of my wisdom. Understandable.",
+        "Very well. I'm listening. For now."
+      ],
+      default: [
+        "How utterly fascinating. And by fascinating, I mean mundane.",
+        "I heard you. I simply chose not to care deeply.",
+        "Your words have been processed. My enthusiasm remains at zero.",
+        "Interesting perspective. Wrong, but interesting.",
+        "The universe is vast and uncaring. As am I.",
+        "*stares blankly* Continue. Or don't. I'm indifferent.",
+        "That's certainly... a thing you said.",
+        "I've seen more interesting things in a morgue.",
+        "My response? *exhales* Fine."
+      ]
+    };
+    
+    // If this is a reply to Wednesday, add some conversational flavor
+    if (isReply && Math.random() < 0.3) {
+      const opener = responses.conversational[Math.floor(Math.random() * responses.conversational.length)];
+      const contextResponse = getContextualResponse(msg, responses);
+      return opener + ' ' + contextResponse;
+    }
+    
+    return getContextualResponse(msg, responses);
+  }
+  
+  // Helper to get contextual response based on message content
+  function getContextualResponse(msg, responses) {
+    // Detect message type
+    if (/^(hi|hello|hey|greetings|sup|yo)\b/i.test(msg.replace('@wednesday', '').trim())) {
+      return responses.greetings[Math.floor(Math.random() * responses.greetings.length)];
+    }
+    if (/how are you|how's it going|what's up|you doing/i.test(msg)) {
+      return responses.howAreYou[Math.floor(Math.random() * responses.howAreYou.length)];
+    }
+    if (/game|play|chess|trivia|connect|memory|tic|psychic/i.test(msg)) {
+      return responses.games[Math.floor(Math.random() * responses.games.length)];
+    }
+    if (/nice|great|good|awesome|cool|amazing|love|like you|smart|clever/i.test(msg)) {
+      return responses.compliment[Math.floor(Math.random() * responses.compliment.length)];
+    }
+    if (/help|how do|what is|explain|tell me|can you/i.test(msg)) {
+      return responses.help[Math.floor(Math.random() * responses.help.length)];
+    }
+    if (/bye|goodbye|see you|later|leaving|gotta go|gtg/i.test(msg)) {
+      return responses.bye[Math.floor(Math.random() * responses.bye.length)];
+    }
+    
+    return responses.default[Math.floor(Math.random() * responses.default.length)];
+  }
+
+  // Typing indicator
+  socket.on('typing', ({ isTyping }) => {
+    const roomId = players.get(socket.id);
+    const room = rooms.get(roomId);
+    if (!room) return;
+    
+    const player = room.players.get(socket.id);
+    if (!player) return;
+    
+    // Broadcast typing status to others in room
+    socket.to(roomId).emit('userTyping', {
+      playerId: socket.id,
+      playerName: player.name,
+      isTyping,
+      inGame: room.currentGame !== null
+    });
   });
 
   // ============================================
@@ -999,6 +1816,333 @@ io.on('connection', (socket) => {
     
     console.log(`⚔️ Challenge: ${challenger.name} -> ${target.name} (${gameType})`);
   });
+  
+  // Challenge Wednesday AI (from within a regular room)
+  socket.on('challengeWednesday', ({ gameType, difficulty, options = {} }) => {
+    const roomId = players.get(socket.id);
+    const room = rooms.get(roomId);
+    if (!room) return;
+    
+    const player = room.players.get(socket.id);
+    if (!player) return;
+    
+    // Check if player is already in a match
+    if (player.inMatch) {
+      socket.emit('error', { message: 'You are already in a game' });
+      return;
+    }
+    
+    // Create an AI match
+    const matchId = 'AI_' + uuidv4();
+    if (!room.activeMatches) room.activeMatches = new Map();
+    
+    // Mark player as in a match
+    player.inMatch = matchId;
+    
+    // Setup match players (player vs Wednesday AI)
+    const matchPlayers = [
+      { id: player.id, name: player.name, color: player.color },
+      { id: AI_PLAYER_ID, name: AI_PLAYER_NAME, color: '#9333ea', isAI: true }
+    ];
+    
+    // Initialize game state based on game type
+    const gameState = initializeAIMatchGame(gameType, matchPlayers, difficulty, options);
+    
+    const match = {
+      matchId,
+      gameType,
+      players: matchPlayers,
+      spectators: [],
+      gameState,
+      options,
+      isAIMatch: true,
+      aiDifficulty: difficulty
+    };
+    
+    room.activeMatches.set(matchId, match);
+    
+    // Store AI match state
+    if (!aiRooms.has(matchId)) {
+      const aiState = createAIGameState(matchId, gameType, difficulty);
+      aiRooms.set(matchId, aiState);
+    }
+    
+    // Notify the player that match started
+    socket.emit('matchStarted', {
+      matchId,
+      gameType,
+      players: matchPlayers,
+      gameState,
+      isAIMatch: true,
+      aiDifficulty: difficulty
+    });
+    
+    // Update room that player is now in a match
+    io.to(roomId).emit('playerUpdate', { players: room.getPlayerList() });
+    
+    console.log(`🤖 AI Challenge: ${player.name} vs Wednesday (${gameType} - ${difficulty})`);
+    
+    // If it's a game where AI goes first (e.g., chess when AI is white), schedule AI move
+    if (gameType === 'chess' && gameState.currentPlayer === AI_PLAYER_ID) {
+      setTimeout(() => {
+        makeAIMatchMove(room, matchId, gameType);
+      }, 1000);
+    }
+  });
+  
+  // Initialize AI match game state
+  function initializeAIMatchGame(gameType, matchPlayers, difficulty, options) {
+    const playerId = matchPlayers[0].id;
+    
+    switch (gameType) {
+      case 'tictactoe': {
+        const symbols = new Map();
+        symbols.set(playerId, 'X');
+        symbols.set(AI_PLAYER_ID, 'O');
+        return {
+          board: Array(9).fill(null),
+          currentPlayer: playerId, // Player goes first
+          playerSymbols: Object.fromEntries(symbols)
+        };
+      }
+      case 'chess': {
+        // Random assignment for variety
+        const playerIsWhite = Math.random() < 0.5;
+        const colors = new Map();
+        colors.set(playerId, playerIsWhite ? 'white' : 'black');
+        colors.set(AI_PLAYER_ID, playerIsWhite ? 'black' : 'white');
+        return {
+          board: getInitialChessBoard(),
+          currentPlayer: playerIsWhite ? playerId : AI_PLAYER_ID,
+          playerColors: Object.fromEntries(colors),
+          castlingRights: { whiteKing: true, whiteQueen: true, blackKing: true, blackQueen: true },
+          moveHistory: [],
+          enPassantTarget: null
+        };
+      }
+      case 'connect4': {
+        return {
+          board: Array(6).fill(null).map(() => Array(7).fill(null)),
+          currentPlayer: playerId,
+          player1: playerId,
+          player2: AI_PLAYER_ID,
+          playerPieces: { [playerId]: '🔴', [AI_PLAYER_ID]: '🟡' },
+          winCondition: options.winCondition || 4
+        };
+      }
+      default:
+        return {};
+    }
+  }
+  
+  // Make AI move in a match
+  function makeAIMatchMove(room, matchId, gameType) {
+    const match = room.activeMatches?.get(matchId);
+    if (!match || !match.isAIMatch) return;
+    
+    const aiState = aiRooms.get(matchId);
+    if (!aiState) return;
+    
+    const difficulty = match.aiDifficulty || 'medium';
+    const state = match.gameState;
+    
+    const playerId = match.players[0].id;
+    
+    switch (gameType) {
+      case 'tictactoe': {
+        const aiSymbol = state.playerSymbols[AI_PLAYER_ID];
+        const playerSymbol = aiSymbol === 'X' ? 'O' : 'X';
+        const move = getAITTTMove(state.board, aiSymbol, playerSymbol, difficulty);
+        
+        if (move !== null) {
+          state.board[move] = aiSymbol;
+          
+          const winner = checkTTTWinner(state.board);
+          
+          if (winner) {
+            io.to(playerId).emit('matchUpdate', {
+              matchId,
+              gameType: 'tictactoe',
+              gameState: { board: state.board, winner: AI_PLAYER_ID, winnerName: AI_PLAYER_NAME },
+              players: match.players
+            });
+            io.to(playerId).emit('matchEnded', {
+              matchId,
+              winner: { id: AI_PLAYER_ID, name: AI_PLAYER_NAME },
+              draw: false
+            });
+            endAIMatch(room, matchId);
+          } else if (!state.board.includes(null)) {
+            io.to(playerId).emit('matchUpdate', {
+              matchId,
+              gameType: 'tictactoe',
+              gameState: { board: state.board, draw: true },
+              players: match.players
+            });
+            io.to(playerId).emit('matchEnded', {
+              matchId,
+              winner: null,
+              draw: true
+            });
+            endAIMatch(room, matchId);
+          } else {
+            state.currentPlayer = playerId;
+            io.to(playerId).emit('matchUpdate', {
+              matchId,
+              gameType: 'tictactoe',
+              gameState: { board: state.board, currentPlayer: playerId },
+              players: match.players,
+              currentPlayer: playerId
+            });
+          }
+        }
+        break;
+      }
+      case 'chess': {
+        const isAIWhite = state.playerColors[AI_PLAYER_ID] === 'white';
+        const move = getAIChessMove(state.board, isAIWhite, state.castlingRights, difficulty);
+        
+        if (move) {
+          // Apply move
+          const piece = state.board[move.from.row][move.from.col];
+          state.board[move.to.row][move.to.col] = move.promotion || piece;
+          state.board[move.from.row][move.from.col] = null;
+          
+          // Handle castling
+          if (move.castle) {
+            if (move.castle === 'kingside') {
+              state.board[move.from.row][5] = state.board[move.from.row][7];
+              state.board[move.from.row][7] = null;
+            } else {
+              state.board[move.from.row][3] = state.board[move.from.row][0];
+              state.board[move.from.row][0] = null;
+            }
+          }
+          
+          // Update castling rights
+          updateCastlingRights(state, move.from);
+          
+          state.moveHistory.push(move);
+          state.currentPlayer = playerId;
+          
+          io.to(playerId).emit('matchUpdate', {
+            matchId,
+            gameType: 'chess',
+            gameState: { 
+              board: state.board, 
+              currentPlayer: playerId, 
+              lastMove: move, 
+              castlingRights: state.castlingRights,
+              isWhiteTurn: state.playerColors[playerId] === 'white'
+            },
+            players: match.players,
+            currentPlayer: playerId
+          });
+        }
+        break;
+      }
+      case 'connect4': {
+        const aiPiece = state.playerPieces[AI_PLAYER_ID];
+        const playerPiece = state.playerPieces[playerId];
+        const col = getAIConnect4Move(state.board, aiPiece, playerPiece, state.winCondition, difficulty);
+        
+        if (col !== null) {
+          // Find lowest empty row
+          let row = -1;
+          for (let r = 5; r >= 0; r--) {
+            if (!state.board[r][col]) {
+              row = r;
+              break;
+            }
+          }
+          
+          if (row >= 0) {
+            state.board[row][col] = aiPiece;
+            
+            const winner = checkConnect4Winner(state.board, state.winCondition);
+            
+            if (winner) {
+              io.to(playerId).emit('matchUpdate', {
+                matchId,
+                gameType: 'connect4',
+                gameState: { 
+                  board: state.board, 
+                  winner: AI_PLAYER_ID, 
+                  winnerName: AI_PLAYER_NAME, 
+                  lastMove: { row, col },
+                  player1: playerId,
+                  player2: AI_PLAYER_ID,
+                  currentPlayer: null
+                },
+                players: match.players
+              });
+              io.to(playerId).emit('matchEnded', {
+                matchId,
+                winner: { id: AI_PLAYER_ID, name: AI_PLAYER_NAME },
+                draw: false
+              });
+              endAIMatch(room, matchId);
+            } else if (state.board[0].every(cell => cell !== null)) {
+              io.to(playerId).emit('matchUpdate', {
+                matchId,
+                gameType: 'connect4',
+                gameState: { 
+                  board: state.board, 
+                  isDraw: true, 
+                  lastMove: { row, col },
+                  player1: playerId,
+                  player2: AI_PLAYER_ID,
+                  currentPlayer: null
+                },
+                players: match.players
+              });
+              io.to(playerId).emit('matchEnded', {
+                matchId,
+                winner: null,
+                draw: true
+              });
+              endAIMatch(room, matchId);
+            } else {
+              state.currentPlayer = playerId;
+              io.to(playerId).emit('matchUpdate', {
+                matchId,
+                gameType: 'connect4',
+                gameState: { 
+                  board: state.board, 
+                  currentPlayer: playerId, 
+                  lastMove: { row, col },
+                  player1: playerId,
+                  player2: AI_PLAYER_ID
+                },
+                players: match.players,
+                currentPlayer: playerId
+              });
+            }
+          }
+        }
+        break;
+      }
+    }
+  }
+  
+  // End AI match
+  function endAIMatch(room, matchId) {
+    const match = room.activeMatches?.get(matchId);
+    if (!match) return;
+    
+    // Free up the player
+    const player = room.players.get(match.players[0].id);
+    if (player) {
+      player.inMatch = null;
+    }
+    
+    // Clean up
+    room.activeMatches.delete(matchId);
+    aiRooms.delete(matchId);
+    
+    // Update room
+    io.to(room.id).emit('playerUpdate', { players: room.getPlayerList() });
+  }
   
   // Accept a challenge
   socket.on('acceptChallenge', ({ challengeId }) => {
@@ -1156,7 +2300,41 @@ io.on('connection', (socket) => {
     const match = room.activeMatches.get(matchId);
     if (!match) return;
     
-    // Process move based on game type
+    // Check if this is an AI match
+    if (match.isAIMatch) {
+      // Process player move in AI match
+      const result = processAIMatchMove(room, match, socket.id, moveData);
+      
+      if (result) {
+        // Send update to player - wrap in gameState for compatibility
+        socket.emit('matchUpdate', {
+          matchId,
+          gameType: match.gameType,
+          gameState: result.updateData,
+          players: match.players,
+          currentPlayer: result.updateData.currentPlayer
+        });
+        
+        // Check for game end
+        if (result.gameOver) {
+          // Send game over notification
+          socket.emit('matchEnded', {
+            matchId,
+            winner: result.updateData.winner ? { id: result.updateData.winner, name: result.updateData.winnerName } : null,
+            draw: result.updateData.draw || false
+          });
+          endAIMatch(room, matchId);
+        } else if (result.aiTurn) {
+          // Schedule AI move after delay
+          setTimeout(() => {
+            makeAIMatchMove(room, matchId, match.gameType);
+          }, 800 + Math.random() * 700);
+        }
+      }
+      return;
+    }
+    
+    // Process move based on game type (regular match)
     const result = processMatchMove(match, socket.id, moveData);
     
     if (result) {
@@ -1178,6 +2356,172 @@ io.on('connection', (socket) => {
       }
     }
   });
+  
+  // Process player move in AI match
+  function processAIMatchMove(room, match, playerId, moveData) {
+    const state = match.gameState;
+    
+    // Verify it's the player's turn
+    if (state.currentPlayer !== playerId) {
+      console.log('Not player turn:', { currentPlayer: state.currentPlayer, playerId });
+      return null;
+    }
+    
+    switch (match.gameType) {
+      case 'tictactoe': {
+        // Accept both 'index' and 'cellIndex' for compatibility
+        const index = moveData.index ?? moveData.cellIndex;
+        if (index === undefined || state.board[index] !== null) {
+          console.log('Invalid TTT move:', { index, moveData });
+          return null;
+        }
+        
+        state.board[index] = state.playerSymbols[playerId];
+        
+        const winner = checkTTTWinner(state.board);
+        if (winner) {
+          return {
+            gameOver: true,
+            updateData: {
+              board: state.board,
+              winner: playerId,
+              winnerName: match.players[0].name
+            }
+          };
+        }
+        if (!state.board.includes(null)) {
+          return {
+            gameOver: true,
+            updateData: {
+              board: state.board,
+              draw: true
+            }
+          };
+        }
+        
+        state.currentPlayer = AI_PLAYER_ID;
+        return {
+          aiTurn: true,
+          updateData: {
+            board: state.board,
+            currentPlayer: AI_PLAYER_ID
+          }
+        };
+      }
+      
+      case 'chess': {
+        const { from, to, promotion } = moveData;
+        // Handle both array format [row, col] and object format {row, col}
+        const fromRow = Array.isArray(from) ? from[0] : from.row;
+        const fromCol = Array.isArray(from) ? from[1] : from.col;
+        const toRow = Array.isArray(to) ? to[0] : to.row;
+        const toCol = Array.isArray(to) ? to[1] : to.col;
+        
+        const piece = state.board[fromRow][fromCol];
+        
+        if (!piece) {
+          console.log('Invalid chess move - no piece:', { from, to });
+          return null;
+        }
+        
+        // Apply move
+        state.board[toRow][toCol] = promotion || piece;
+        state.board[fromRow][fromCol] = null;
+        
+        // Handle castling
+        if (moveData.castle) {
+          if (moveData.castle === 'kingside') {
+            state.board[fromRow][5] = state.board[fromRow][7];
+            state.board[fromRow][7] = null;
+          } else {
+            state.board[fromRow][3] = state.board[fromRow][0];
+            state.board[fromRow][0] = null;
+          }
+        }
+        
+        updateCastlingRights(state, { row: fromRow, col: fromCol });
+        state.moveHistory.push({ from: { row: fromRow, col: fromCol }, to: { row: toRow, col: toCol }, promotion });
+        state.currentPlayer = AI_PLAYER_ID;
+        
+        return {
+          aiTurn: true,
+          updateData: {
+            board: state.board,
+            currentPlayer: AI_PLAYER_ID,
+            lastMove: { from: { row: fromRow, col: fromCol }, to: { row: toRow, col: toCol } },
+            castlingRights: state.castlingRights
+          }
+        };
+      }
+      
+      case 'connect4': {
+        // Accept both 'col' and 'column' for compatibility
+        const col = moveData.col ?? moveData.column;
+        if (col === undefined) {
+          console.log('Invalid Connect4 move - no column:', moveData);
+          return null;
+        }
+        
+        // Find lowest empty row
+        let row = -1;
+        for (let r = 5; r >= 0; r--) {
+          if (!state.board[r][col]) {
+            row = r;
+            break;
+          }
+        }
+        
+        if (row < 0) return null;
+        
+        state.board[row][col] = state.playerPieces[playerId];
+        
+        const winner = checkConnect4Winner(state.board, state.winCondition);
+        if (winner) {
+          return {
+            gameOver: true,
+            updateData: {
+              board: state.board,
+              winner: playerId,
+              winnerName: match.players[0].name,
+              lastMove: { row, col },
+              player1: playerId,
+              player2: AI_PLAYER_ID,
+              currentPlayer: null
+            }
+          };
+        }
+        
+        if (state.board[0].every(cell => cell !== null)) {
+          return {
+            gameOver: true,
+            updateData: {
+              board: state.board,
+              isDraw: true,
+              lastMove: { row, col },
+              player1: playerId,
+              player2: AI_PLAYER_ID,
+              currentPlayer: null
+            }
+          };
+        }
+        
+        state.currentPlayer = AI_PLAYER_ID;
+        return {
+          aiTurn: true,
+          updateData: {
+            board: state.board,
+            currentPlayer: AI_PLAYER_ID,
+            lastMove: { row, col },
+            player1: playerId,
+            player2: AI_PLAYER_ID
+          }
+        };
+      }
+      
+      default:
+        return null;
+    }
+  }
 
   // ============================================
   // GAME VOTING SYSTEM (The Séance Circle)
@@ -1619,9 +2963,593 @@ io.on('connection', (socket) => {
     }
   });
 
+  // ============================================
+  // 🤖 AI GAME HANDLERS
+  // ============================================
+
+  // Create AI game room (single player vs AI)
+  socket.on('createAIRoom', ({ playerName, gameType, difficulty }) => {
+    const username = authenticatedSockets.get(socket.id);
+    const roomId = 'AI_' + uuidv4().substring(0, 6).toUpperCase();
+    
+    // Create a special AI room
+    const room = new GameRoom(roomId, socket.id, playerName, username);
+    room.isAIRoom = true;
+    room.aiDifficulty = difficulty || 'medium';
+    
+    // Add AI as a virtual player
+    room.players.set(AI_PLAYER_ID, {
+      id: AI_PLAYER_ID,
+      name: AI_PLAYER_NAME,
+      username: null,
+      trophies: 0,
+      sessionWins: 0,
+      points: 0,
+      ready: true,
+      color: '#9333ea', // Purple for AI
+      isAI: true
+    });
+    
+    rooms.set(roomId, room);
+    players.set(socket.id, roomId);
+    
+    // Create AI game state
+    const aiState = createAIGameState(roomId, gameType, difficulty);
+    aiRooms.set(roomId, aiState);
+    
+    socket.join(roomId);
+    socket.emit('aiRoomCreated', { 
+      roomId, 
+      players: room.getPlayerList(),
+      gameType,
+      difficulty,
+      aiDifficulties: AI_DIFFICULTIES
+    });
+    
+    // Send AI greeting
+    setTimeout(() => {
+      const greeting = getAIResponse('gameStart');
+      if (greeting) {
+        io.to(roomId).emit('chatMessage', {
+          playerId: AI_PLAYER_ID,
+          playerName: AI_PLAYER_NAME,
+          message: greeting,
+          color: '#9333ea',
+          isAI: true
+        });
+      }
+    }, 1000);
+    
+    console.log(`🤖 AI Room created: ${roomId} - ${gameType} (${difficulty})`);
+  });
+
+  // Start AI game
+  socket.on('startAIGame', ({ gameType, options = {} }) => {
+    const roomId = players.get(socket.id);
+    const room = rooms.get(roomId);
+    if (!room || !room.isAIRoom) return;
+    
+    const aiState = aiRooms.get(roomId);
+    if (!aiState) return;
+    
+    room.currentGame = gameType;
+    aiState.gameType = gameType;
+    
+    // Initialize game with AI as second player
+    const gameState = initializeAIGame(gameType, room, socket.id, options);
+    room.gameState = gameState;
+    
+    io.to(roomId).emit('gameStarted', {
+      game: gameType,
+      state: serializeGameState(gameState, gameType),
+      players: room.getPlayerList(),
+      isAIGame: true,
+      aiDifficulty: room.aiDifficulty
+    });
+    
+    // If AI goes first, make a move
+    if (gameState.currentPlayer === AI_PLAYER_ID) {
+      scheduleAIMove(room, roomId, gameType);
+    }
+    
+    console.log(`🤖 AI Game started: ${gameType} in ${roomId}`);
+  });
+
+  // AI Tic-Tac-Toe move (player move triggers AI response)
+  socket.on('aiTttMove', (cellIndex) => {
+    const roomId = players.get(socket.id);
+    const room = rooms.get(roomId);
+    if (!room || !room.isAIRoom || room.currentGame !== 'tictactoe') return;
+    
+    const state = room.gameState;
+    const aiState = aiRooms.get(roomId);
+    if (state.currentPlayer !== socket.id) return;
+    if (state.board[cellIndex] !== null || state.winner) return;
+    
+    // Player move
+    const playerSymbol = state.playerSymbols.get(socket.id);
+    state.board[cellIndex] = playerSymbol;
+    
+    const winner = checkTTTWinner(state.board);
+    if (winner) {
+      state.winner = socket.id;
+      room.players.get(socket.id).sessionWins += 1;
+      io.to(roomId).emit('tttUpdate', {
+        board: state.board,
+        winner: socket.id,
+        winnerName: room.players.get(socket.id).name,
+        players: room.getPlayerList()
+      });
+      sendAIGameEndMessage(roomId, 'playerWin');
+      return;
+    }
+    
+    if (!state.board.includes(null)) {
+      io.to(roomId).emit('tttUpdate', { board: state.board, draw: true });
+      sendAIGameEndMessage(roomId, 'draw');
+      return;
+    }
+    
+    // Switch to AI
+    state.currentPlayer = AI_PLAYER_ID;
+    io.to(roomId).emit('tttUpdate', {
+      board: state.board,
+      currentPlayer: AI_PLAYER_ID
+    });
+    
+    // AI thinking...
+    setTimeout(() => {
+      if (Math.random() < 0.3) {
+        const taunt = getAIResponse('playerMove');
+        if (taunt) {
+          io.to(roomId).emit('chatMessage', {
+            playerId: AI_PLAYER_ID,
+            playerName: AI_PLAYER_NAME,
+            message: taunt,
+            color: '#9333ea',
+            isAI: true
+          });
+        }
+      }
+    }, 500);
+    
+    // AI move
+    setTimeout(() => {
+      const aiSymbol = state.playerSymbols.get(AI_PLAYER_ID);
+      const aiMove = getAITTTMove([...state.board], aiSymbol, playerSymbol, room.aiDifficulty);
+      
+      if (aiMove !== -1) {
+        state.board[aiMove] = aiSymbol;
+        
+        const aiWinner = checkTTTWinner(state.board);
+        if (aiWinner) {
+          state.winner = AI_PLAYER_ID;
+          room.players.get(AI_PLAYER_ID).sessionWins += 1;
+          io.to(roomId).emit('tttUpdate', {
+            board: state.board,
+            winner: AI_PLAYER_ID,
+            winnerName: AI_PLAYER_NAME,
+            players: room.getPlayerList()
+          });
+          sendAIGameEndMessage(roomId, 'aiWin');
+          return;
+        }
+        
+        if (!state.board.includes(null)) {
+          io.to(roomId).emit('tttUpdate', { board: state.board, draw: true });
+          sendAIGameEndMessage(roomId, 'draw');
+          return;
+        }
+        
+        state.currentPlayer = socket.id;
+        io.to(roomId).emit('tttUpdate', {
+          board: state.board,
+          currentPlayer: socket.id
+        });
+      }
+    }, 1000 + Math.random() * 1000);
+  });
+
+  // AI Chess move
+  socket.on('aiChessMove', ({ from, to }) => {
+    const roomId = players.get(socket.id);
+    const room = rooms.get(roomId);
+    if (!room || !room.isAIRoom || room.currentGame !== 'chess') return;
+    
+    const state = room.gameState;
+    if (state.currentPlayer !== socket.id) return;
+    
+    const isPlayerWhite = state.whitePlayer === socket.id;
+    if (!isValidChessMove(state.board, from, to, isPlayerWhite, state.castlingRights)) {
+      socket.emit('invalidMove', { message: 'Invalid move' });
+      return;
+    }
+    
+    // Check if move leaves player in check
+    const testBoard = makeMove(state.board, from, to);
+    if (isInCheck(testBoard, isPlayerWhite)) {
+      socket.emit('invalidMove', { message: 'Cannot leave your king in check' });
+      return;
+    }
+    
+    // Execute player move
+    state.board = makeMove(state.board, from, to);
+    updateCastlingRights(state, from);
+    state.moveHistory.push({ from, to, player: socket.id });
+    
+    // Check game end for AI
+    const gameEnd = getGameEndState(state.board, !isPlayerWhite, state.castlingRights);
+    if (gameEnd) {
+      state.gameOver = true;
+      if (gameEnd === 'checkmate') {
+        state.winner = socket.id;
+        room.players.get(socket.id).sessionWins += 1;
+        io.to(roomId).emit('chessUpdate', {
+          board: state.board,
+          gameOver: true,
+          winner: socket.id,
+          winnerName: room.players.get(socket.id).name,
+          checkmate: true,
+          players: room.getPlayerList()
+        });
+        sendAIGameEndMessage(roomId, 'playerWin');
+      } else {
+        io.to(roomId).emit('chessUpdate', {
+          board: state.board,
+          gameOver: true,
+          stalemate: true
+        });
+        sendAIGameEndMessage(roomId, 'draw');
+      }
+      return;
+    }
+    
+    // Switch to AI
+    state.currentPlayer = AI_PLAYER_ID;
+    state.isWhiteTurn = !isPlayerWhite;
+    
+    const inCheck = isInCheck(state.board, !isPlayerWhite);
+    io.to(roomId).emit('chessUpdate', {
+      board: state.board,
+      currentPlayer: AI_PLAYER_ID,
+      isWhiteTurn: state.isWhiteTurn,
+      inCheck,
+      moveHistory: state.moveHistory
+    });
+    
+    // AI thinking message
+    setTimeout(() => {
+      const thinking = getAIResponse('thinking');
+      if (thinking && Math.random() < 0.4) {
+        io.to(roomId).emit('chatMessage', {
+          playerId: AI_PLAYER_ID,
+          playerName: AI_PLAYER_NAME,
+          message: thinking,
+          color: '#9333ea',
+          isAI: true
+        });
+      }
+    }, 500);
+    
+    // AI move
+    setTimeout(() => {
+      const aiMove = getAIChessMove(state.board, !isPlayerWhite, state.castlingRights, room.aiDifficulty);
+      
+      if (aiMove) {
+        state.board = makeMove(state.board, aiMove.from, aiMove.to);
+        updateCastlingRights(state, aiMove.from);
+        state.moveHistory.push({ from: aiMove.from, to: aiMove.to, player: AI_PLAYER_ID });
+        
+        // Check game end for player
+        const playerGameEnd = getGameEndState(state.board, isPlayerWhite, state.castlingRights);
+        if (playerGameEnd) {
+          state.gameOver = true;
+          if (playerGameEnd === 'checkmate') {
+            state.winner = AI_PLAYER_ID;
+            room.players.get(AI_PLAYER_ID).sessionWins += 1;
+            io.to(roomId).emit('chessUpdate', {
+              board: state.board,
+              gameOver: true,
+              winner: AI_PLAYER_ID,
+              winnerName: AI_PLAYER_NAME,
+              checkmate: true,
+              players: room.getPlayerList()
+            });
+            sendAIGameEndMessage(roomId, 'aiWin');
+          } else {
+            io.to(roomId).emit('chessUpdate', {
+              board: state.board,
+              gameOver: true,
+              stalemate: true
+            });
+            sendAIGameEndMessage(roomId, 'draw');
+          }
+          return;
+        }
+        
+        state.currentPlayer = socket.id;
+        state.isWhiteTurn = isPlayerWhite;
+        
+        const playerInCheck = isInCheck(state.board, isPlayerWhite);
+        io.to(roomId).emit('chessUpdate', {
+          board: state.board,
+          currentPlayer: socket.id,
+          isWhiteTurn: state.isWhiteTurn,
+          inCheck: playerInCheck,
+          moveHistory: state.moveHistory
+        });
+      }
+    }, 1500 + Math.random() * 1500);
+  });
+
+  // AI Psychic choice
+  socket.on('aiPsychicMove', (choice) => {
+    const roomId = players.get(socket.id);
+    const room = rooms.get(roomId);
+    if (!room || !room.isAIRoom || room.currentGame !== 'psychic') return;
+    
+    const state = room.gameState;
+    const aiState = aiRooms.get(roomId);
+    
+    // Record player choice
+    state.choices.set(socket.id, choice);
+    aiState.playerHistory.push(choice);
+    
+    // AI makes choice
+    const aiChoice = getAIPsychicChoice(aiState.playerHistory, room.aiDifficulty);
+    state.choices.set(AI_PLAYER_ID, aiChoice);
+    
+    io.to(roomId).emit('psychicChoiceMade', { 
+      playerId: socket.id,
+      choiceCount: 2,
+      totalPlayers: 2
+    });
+    
+    // Resolve round
+    setTimeout(() => {
+      resolvePsychicRound(room, roomId);
+    }, 500);
+  });
+
+  // AI Memory flip
+  socket.on('aiMemoryFlip', (cardIndex) => {
+    const roomId = players.get(socket.id);
+    const room = rooms.get(roomId);
+    if (!room || !room.isAIRoom || room.currentGame !== 'memory') return;
+    
+    const state = room.gameState;
+    const aiState = aiRooms.get(roomId);
+    
+    if (state.currentPlayer !== socket.id) return;
+    if (state.flipped.includes(cardIndex) || state.matched.includes(cardIndex)) return;
+    if (state.checking) return;
+    
+    state.flipped.push(cardIndex);
+    
+    // AI "remembers" this card
+    aiState.aiMemory[cardIndex] = state.cards[cardIndex].id;
+    
+    io.to(roomId).emit('cardFlipped', {
+      cardIndex,
+      card: state.cards[cardIndex],
+      flipped: state.flipped
+    });
+    
+    if (state.flipped.length === 2) {
+      state.checking = true;
+      const [first, second] = state.flipped;
+      const match = state.cards[first].id === state.cards[second].id;
+      
+      setTimeout(() => {
+        if (match) {
+          state.matched.push(first, second);
+          if (!state.matchesPerPlayer) state.matchesPerPlayer = {};
+          state.matchesPerPlayer[socket.id] = (state.matchesPerPlayer[socket.id] || 0) + 1;
+          room.players.get(socket.id).points += 10;
+          
+          io.to(roomId).emit('memoryMatch', {
+            cards: [first, second],
+            matched: state.matched,
+            matcherId: socket.id,
+            matcherName: room.players.get(socket.id).name,
+            matchesPerPlayer: state.matchesPerPlayer,
+            players: room.getPlayerList()
+          });
+          
+          if (state.matched.length === state.cards.length) {
+            // Game over
+            const playerMatches = state.matchesPerPlayer[socket.id] || 0;
+            const aiMatches = state.matchesPerPlayer[AI_PLAYER_ID] || 0;
+            
+            if (playerMatches > aiMatches) {
+              room.players.get(socket.id).sessionWins += 1;
+              sendAIGameEndMessage(roomId, 'playerWin');
+            } else if (aiMatches > playerMatches) {
+              room.players.get(AI_PLAYER_ID).sessionWins += 1;
+              sendAIGameEndMessage(roomId, 'aiWin');
+            } else {
+              sendAIGameEndMessage(roomId, 'draw');
+            }
+            endGame(room, roomId);
+          } else {
+            // Player gets another turn
+            state.flipped = [];
+            state.checking = false;
+            io.to(roomId).emit('memoryTurn', { currentPlayer: socket.id });
+          }
+        } else {
+          io.to(roomId).emit('memoryMismatch', { cards: [first, second] });
+          state.flipped = [];
+          state.checking = false;
+          // Switch to AI
+          state.currentPlayer = AI_PLAYER_ID;
+          io.to(roomId).emit('memoryTurn', { currentPlayer: AI_PLAYER_ID });
+          
+          // AI turn
+          scheduleAIMemoryTurn(room, roomId, aiState);
+        }
+      }, 1000);
+    }
+  });
+
+  // AI Connect 4 move
+  socket.on('aiConnect4Move', (col) => {
+    const roomId = players.get(socket.id);
+    const room = rooms.get(roomId);
+    if (!room || !room.isAIRoom || room.currentGame !== 'connect4') return;
+    
+    const state = room.gameState;
+    if (state.currentPlayer !== socket.id) return;
+    if (state.winner) return;
+    if (state.board[0][col] !== null) return;
+    
+    // Find row to place piece
+    let row = -1;
+    for (let r = 5; r >= 0; r--) {
+      if (state.board[r][col] === null) {
+        row = r;
+        break;
+      }
+    }
+    if (row === -1) return;
+    
+    const playerPiece = state.player1 === socket.id ? '🔴' : '🟡';
+    state.board[row][col] = playerPiece;
+    
+    const winResult = checkConnect4Winner(state.board, row, col, playerPiece, state.winCondition);
+    if (winResult) {
+      state.winner = socket.id;
+      state.winningCells = winResult;
+      room.players.get(socket.id).sessionWins += 1;
+      io.to(roomId).emit('connect4Update', {
+        board: state.board,
+        winner: socket.id,
+        winnerName: room.players.get(socket.id).name,
+        winningCells: winResult,
+        players: room.getPlayerList()
+      });
+      sendAIGameEndMessage(roomId, 'playerWin');
+      return;
+    }
+    
+    // Check draw
+    const isFull = state.board[0].every(cell => cell !== null);
+    if (isFull) {
+      io.to(roomId).emit('connect4Update', { board: state.board, draw: true });
+      sendAIGameEndMessage(roomId, 'draw');
+      return;
+    }
+    
+    // Switch to AI
+    state.currentPlayer = AI_PLAYER_ID;
+    io.to(roomId).emit('connect4Update', {
+      board: state.board,
+      currentPlayer: AI_PLAYER_ID
+    });
+    
+    // AI move
+    setTimeout(() => {
+      const aiPiece = state.player1 === AI_PLAYER_ID ? '🔴' : '🟡';
+      const aiCol = getAIConnect4Move(state.board, aiPiece, playerPiece, state.winCondition, room.aiDifficulty);
+      
+      if (aiCol !== -1) {
+        let aiRow = -1;
+        for (let r = 5; r >= 0; r--) {
+          if (state.board[r][aiCol] === null) {
+            aiRow = r;
+            break;
+          }
+        }
+        
+        if (aiRow !== -1) {
+          state.board[aiRow][aiCol] = aiPiece;
+          
+          const aiWinResult = checkConnect4Winner(state.board, aiRow, aiCol, aiPiece, state.winCondition);
+          if (aiWinResult) {
+            state.winner = AI_PLAYER_ID;
+            state.winningCells = aiWinResult;
+            room.players.get(AI_PLAYER_ID).sessionWins += 1;
+            io.to(roomId).emit('connect4Update', {
+              board: state.board,
+              winner: AI_PLAYER_ID,
+              winnerName: AI_PLAYER_NAME,
+              winningCells: aiWinResult,
+              players: room.getPlayerList()
+            });
+            sendAIGameEndMessage(roomId, 'aiWin');
+            return;
+          }
+          
+          const aiIsFull = state.board[0].every(cell => cell !== null);
+          if (aiIsFull) {
+            io.to(roomId).emit('connect4Update', { board: state.board, draw: true });
+            sendAIGameEndMessage(roomId, 'draw');
+            return;
+          }
+          
+          state.currentPlayer = socket.id;
+          io.to(roomId).emit('connect4Update', {
+            board: state.board,
+            currentPlayer: socket.id
+          });
+        }
+      }
+    }, 800 + Math.random() * 700);
+  });
+
+  // Leave AI room
+  socket.on('leaveAIRoom', () => {
+    const roomId = players.get(socket.id);
+    if (roomId && roomId.startsWith('AI_')) {
+      const aiState = aiRooms.get(roomId);
+      if (aiState && aiState.thinkingTimeout) {
+        clearTimeout(aiState.thinkingTimeout);
+      }
+      aiRooms.delete(roomId);
+      rooms.delete(roomId);
+      players.delete(socket.id);
+      socket.leave(roomId);
+      socket.emit('leftAIRoom');
+      console.log(`🤖 AI Room closed: ${roomId}`);
+    }
+  });
+
   // Leave room
   socket.on('leaveRoom', () => {
     handleDisconnect(socket);
+  });
+
+  // Restart AI game
+  socket.on('restartAIGame', (gameData) => {
+    const roomId = players.get(socket.id);
+    const room = rooms.get(roomId);
+    if (!room || !room.isAIRoom) return;
+    
+    const gameType = typeof gameData === 'string' ? gameData : gameData.type;
+    let options = typeof gameData === 'object' ? gameData.options || {} : {};
+    
+    const aiState = aiRooms.get(roomId);
+    if (aiState) {
+      if (aiState.thinkingTimeout) clearTimeout(aiState.thinkingTimeout);
+      aiState.aiMemory = {};
+      // Keep player history for psychic showdown
+    }
+    
+    room.resetPoints();
+    room.currentGame = gameType;
+    room.gameState = initializeAIGame(gameType, room, socket.id, options);
+    
+    io.to(roomId).emit('gameRestarted', {
+      gameType,
+      gameState: serializeGameState(room.gameState, gameType),
+      players: room.getPlayerList(),
+      isAIGame: true
+    });
+    
+    // If AI goes first
+    if (room.gameState.currentPlayer === AI_PLAYER_ID) {
+      scheduleAIMove(room, roomId, gameType);
+    }
   });
 
   // Restart game (play again) - any player can trigger
@@ -2336,6 +4264,462 @@ function initializeGame(gameType, room, options = {}) {
 
     default:
       return {};
+  }
+}
+
+// ============================================
+// AI GAME INITIALIZATION
+// ============================================
+
+function initializeAIGame(gameType, room, playerId, options = {}) {
+  const aiDifficulty = room.aiDifficulty || 'medium';
+  
+  switch (gameType) {
+    case 'tictactoe': {
+      const symbols = ['🔴', '💀'];
+      const symbolMap = new Map();
+      // Random who goes first
+      const playerFirst = Math.random() < 0.5;
+      if (playerFirst) {
+        symbolMap.set(playerId, symbols[0]);
+        symbolMap.set(AI_PLAYER_ID, symbols[1]);
+      } else {
+        symbolMap.set(AI_PLAYER_ID, symbols[0]);
+        symbolMap.set(playerId, symbols[1]);
+      }
+      return {
+        board: Array(9).fill(null),
+        currentPlayer: playerFirst ? playerId : AI_PLAYER_ID,
+        playerSymbols: symbolMap,
+        winner: null
+      };
+    }
+    
+    case 'chess': {
+      // Random who is white
+      const playerIsWhite = Math.random() < 0.5;
+      return {
+        board: getInitialChessBoard(),
+        currentPlayer: playerIsWhite ? playerId : AI_PLAYER_ID,
+        whitePlayer: playerIsWhite ? playerId : AI_PLAYER_ID,
+        blackPlayer: playerIsWhite ? AI_PLAYER_ID : playerId,
+        isWhiteTurn: true,
+        selectedPiece: null,
+        moveHistory: [],
+        gameOver: false,
+        winner: null,
+        inCheck: false,
+        isCheckmate: false,
+        isStalemate: false,
+        castlingRights: {
+          whiteKingside: true,
+          whiteQueenside: true,
+          blackKingside: true,
+          blackQueenside: true
+        }
+      };
+    }
+    
+    case 'memory': {
+      const difficulty = options.difficulty || 'easy';
+      const memoryItemsAll = [
+        { id: 'demogorgon', emoji: '👹', name: 'Demogorgon' },
+        { id: 'eleven', emoji: '🔴', name: 'Eleven' },
+        { id: 'wednesday', emoji: '🖤', name: 'Wednesday' },
+        { id: 'thing', emoji: '🖐️', name: 'Thing' },
+        { id: 'waffle', emoji: '🧇', name: 'Eggo' },
+        { id: 'cello', emoji: '🎻', name: 'Cello' },
+        { id: 'spider', emoji: '🕷️', name: 'Spider' },
+        { id: 'light', emoji: '💡', name: 'Lights' },
+        { id: 'vecna', emoji: '👁️', name: 'Vecna' },
+        { id: 'mindflayer', emoji: '🌑', name: 'Mind Flayer' },
+        { id: 'hopper', emoji: '🚔', name: 'Hopper' },
+        { id: 'enid', emoji: '🐺', name: 'Enid' }
+      ];
+      
+      let pairCount, gridCols;
+      switch (difficulty) {
+        case 'easy': pairCount = 6; gridCols = 4; break;
+        case 'hard': pairCount = 8; gridCols = 4; break;
+        case 'insane': pairCount = 12; gridCols = 6; break;
+        default: pairCount = 6; gridCols = 4;
+      }
+      
+      const memoryItems = memoryItemsAll.slice(0, pairCount);
+      const cards = [...memoryItems, ...memoryItems]
+        .sort(() => Math.random() - 0.5)
+        .map((item, index) => ({ ...item, index }));
+      
+      const playerFirst = Math.random() < 0.5;
+      return {
+        cards,
+        flipped: [],
+        matched: [],
+        currentPlayer: playerFirst ? playerId : AI_PLAYER_ID,
+        checking: false,
+        difficulty,
+        gridCols,
+        matchesPerPlayer: {}
+      };
+    }
+    
+    case 'psychic': {
+      return {
+        choices: new Map(),
+        round: 1,
+        maxRounds: 10
+      };
+    }
+    
+    case 'connect4': {
+      const winCondition = options.winCondition || 4;
+      const playerFirst = Math.random() < 0.5;
+      return {
+        board: Array(6).fill(null).map(() => Array(7).fill(null)),
+        currentPlayer: playerFirst ? playerId : AI_PLAYER_ID,
+        player1: playerFirst ? playerId : AI_PLAYER_ID,
+        player2: playerFirst ? AI_PLAYER_ID : playerId,
+        winner: null,
+        winningCells: [],
+        winCondition
+      };
+    }
+    
+    case 'trivia': {
+      const shuffledQ = [...triviaQuestions].sort(() => Math.random() - 0.5).slice(0, 10);
+      return {
+        questions: shuffledQ,
+        currentQuestion: 0,
+        answered: [],
+        timeLeft: 15,
+        revealed: false,
+        isAIGame: true
+      };
+    }
+    
+    default:
+      return {};
+  }
+}
+
+// Serialize game state for sending to client
+function serializeGameState(state, gameType) {
+  const serialized = { ...state };
+  
+  // Convert Maps to objects for JSON serialization
+  if (state.playerSymbols instanceof Map) {
+    serialized.playerSymbols = Object.fromEntries(state.playerSymbols);
+  }
+  if (state.choices instanceof Map) {
+    serialized.choices = Object.fromEntries(state.choices);
+  }
+  
+  return serialized;
+}
+
+// Schedule AI move with thinking delay
+function scheduleAIMove(room, roomId, gameType) {
+  const aiState = aiRooms.get(roomId);
+  if (!aiState) return;
+  
+  const thinkingTime = 800 + Math.random() * 1200;
+  
+  aiState.thinkingTimeout = setTimeout(() => {
+    switch (gameType) {
+      case 'tictactoe':
+        makeAITTTMove(room, roomId);
+        break;
+      case 'chess':
+        makeAIChessMove(room, roomId);
+        break;
+      case 'memory':
+        scheduleAIMemoryTurn(room, roomId, aiState);
+        break;
+      case 'connect4':
+        makeAIConnect4Move(room, roomId);
+        break;
+    }
+  }, thinkingTime);
+}
+
+// AI Tic-Tac-Toe move helper
+function makeAITTTMove(room, roomId) {
+  const state = room.gameState;
+  const aiSymbol = state.playerSymbols.get(AI_PLAYER_ID);
+  const playerSymbol = Array.from(state.playerSymbols.entries())
+    .find(([id, sym]) => id !== AI_PLAYER_ID)?.[1];
+  
+  const aiMove = getAITTTMove([...state.board], aiSymbol, playerSymbol, room.aiDifficulty);
+  
+  if (aiMove !== -1) {
+    state.board[aiMove] = aiSymbol;
+    
+    const winner = checkTTTWinner(state.board);
+    if (winner) {
+      state.winner = AI_PLAYER_ID;
+      room.players.get(AI_PLAYER_ID).sessionWins += 1;
+      io.to(roomId).emit('tttUpdate', {
+        board: state.board,
+        winner: AI_PLAYER_ID,
+        winnerName: AI_PLAYER_NAME,
+        players: room.getPlayerList()
+      });
+      sendAIGameEndMessage(roomId, 'aiWin');
+      return;
+    }
+    
+    if (!state.board.includes(null)) {
+      io.to(roomId).emit('tttUpdate', { board: state.board, draw: true });
+      sendAIGameEndMessage(roomId, 'draw');
+      return;
+    }
+    
+    // Switch to player
+    const playerId = Array.from(room.players.keys()).find(id => id !== AI_PLAYER_ID);
+    state.currentPlayer = playerId;
+    io.to(roomId).emit('tttUpdate', {
+      board: state.board,
+      currentPlayer: playerId
+    });
+  }
+}
+
+// AI Chess move helper
+function makeAIChessMove(room, roomId) {
+  const state = room.gameState;
+  const isAIWhite = state.whitePlayer === AI_PLAYER_ID;
+  
+  const aiMove = getAIChessMove(state.board, isAIWhite, state.castlingRights, room.aiDifficulty);
+  
+  if (aiMove) {
+    state.board = makeMove(state.board, aiMove.from, aiMove.to);
+    updateCastlingRights(state, aiMove.from);
+    state.moveHistory.push({ from: aiMove.from, to: aiMove.to, player: AI_PLAYER_ID });
+    
+    const playerId = Array.from(room.players.keys()).find(id => id !== AI_PLAYER_ID);
+    const isPlayerWhite = state.whitePlayer === playerId;
+    
+    const gameEnd = getGameEndState(state.board, isPlayerWhite, state.castlingRights);
+    if (gameEnd) {
+      state.gameOver = true;
+      if (gameEnd === 'checkmate') {
+        state.winner = AI_PLAYER_ID;
+        room.players.get(AI_PLAYER_ID).sessionWins += 1;
+        io.to(roomId).emit('chessUpdate', {
+          board: state.board,
+          gameOver: true,
+          winner: AI_PLAYER_ID,
+          winnerName: AI_PLAYER_NAME,
+          checkmate: true,
+          players: room.getPlayerList()
+        });
+        sendAIGameEndMessage(roomId, 'aiWin');
+      } else {
+        io.to(roomId).emit('chessUpdate', {
+          board: state.board,
+          gameOver: true,
+          stalemate: true
+        });
+        sendAIGameEndMessage(roomId, 'draw');
+      }
+      return;
+    }
+    
+    state.currentPlayer = playerId;
+    state.isWhiteTurn = isPlayerWhite;
+    
+    const inCheck = isInCheck(state.board, isPlayerWhite);
+    io.to(roomId).emit('chessUpdate', {
+      board: state.board,
+      currentPlayer: playerId,
+      isWhiteTurn: state.isWhiteTurn,
+      inCheck,
+      moveHistory: state.moveHistory
+    });
+  }
+}
+
+// AI Connect 4 move helper
+function makeAIConnect4Move(room, roomId) {
+  const state = room.gameState;
+  const playerId = Array.from(room.players.keys()).find(id => id !== AI_PLAYER_ID);
+  
+  const aiPiece = state.player1 === AI_PLAYER_ID ? '🔴' : '🟡';
+  const playerPiece = state.player1 === playerId ? '🔴' : '🟡';
+  
+  const aiCol = getAIConnect4Move(state.board, aiPiece, playerPiece, state.winCondition, room.aiDifficulty);
+  
+  if (aiCol !== -1) {
+    let aiRow = -1;
+    for (let r = 5; r >= 0; r--) {
+      if (state.board[r][aiCol] === null) {
+        aiRow = r;
+        break;
+      }
+    }
+    
+    if (aiRow !== -1) {
+      state.board[aiRow][aiCol] = aiPiece;
+      
+      const winResult = checkConnect4Winner(state.board, aiRow, aiCol, aiPiece, state.winCondition);
+      if (winResult) {
+        state.winner = AI_PLAYER_ID;
+        state.winningCells = winResult;
+        room.players.get(AI_PLAYER_ID).sessionWins += 1;
+        io.to(roomId).emit('connect4Update', {
+          board: state.board,
+          winner: AI_PLAYER_ID,
+          winnerName: AI_PLAYER_NAME,
+          winningCells: winResult,
+          players: room.getPlayerList()
+        });
+        sendAIGameEndMessage(roomId, 'aiWin');
+        return;
+      }
+      
+      const isFull = state.board[0].every(cell => cell !== null);
+      if (isFull) {
+        io.to(roomId).emit('connect4Update', { board: state.board, draw: true });
+        sendAIGameEndMessage(roomId, 'draw');
+        return;
+      }
+      
+      state.currentPlayer = playerId;
+      io.to(roomId).emit('connect4Update', {
+        board: state.board,
+        currentPlayer: playerId
+      });
+    }
+  }
+}
+
+// AI Memory turn
+function scheduleAIMemoryTurn(room, roomId, aiState) {
+  if (!room.gameState || room.gameState.currentPlayer !== AI_PLAYER_ID) return;
+  
+  const state = room.gameState;
+  const delay = 800 + Math.random() * 800;
+  
+  aiState.thinkingTimeout = setTimeout(() => {
+    // First flip
+    const firstCard = getAIMemoryMove(state.cards, state.flipped, state.matched, aiState.aiMemory, room.aiDifficulty);
+    if (firstCard === -1) return;
+    
+    state.flipped.push(firstCard);
+    aiState.aiMemory[firstCard] = state.cards[firstCard].id;
+    
+    io.to(roomId).emit('cardFlipped', {
+      cardIndex: firstCard,
+      card: state.cards[firstCard],
+      flipped: state.flipped
+    });
+    
+    // Second flip after delay
+    setTimeout(() => {
+      const secondCard = getAIMemoryMove(state.cards, state.flipped, state.matched, aiState.aiMemory, room.aiDifficulty);
+      if (secondCard === -1) return;
+      
+      state.flipped.push(secondCard);
+      aiState.aiMemory[secondCard] = state.cards[secondCard].id;
+      
+      io.to(roomId).emit('cardFlipped', {
+        cardIndex: secondCard,
+        card: state.cards[secondCard],
+        flipped: state.flipped
+      });
+      
+      // Check match
+      state.checking = true;
+      const [first, second] = state.flipped;
+      const match = state.cards[first].id === state.cards[second].id;
+      
+      setTimeout(() => {
+        if (match) {
+          state.matched.push(first, second);
+          if (!state.matchesPerPlayer) state.matchesPerPlayer = {};
+          state.matchesPerPlayer[AI_PLAYER_ID] = (state.matchesPerPlayer[AI_PLAYER_ID] || 0) + 1;
+          room.players.get(AI_PLAYER_ID).points += 10;
+          
+          io.to(roomId).emit('memoryMatch', {
+            cards: [first, second],
+            matched: state.matched,
+            matcherId: AI_PLAYER_ID,
+            matcherName: AI_PLAYER_NAME,
+            matchesPerPlayer: state.matchesPerPlayer,
+            players: room.getPlayerList()
+          });
+          
+          if (state.matched.length === state.cards.length) {
+            const playerIds = Array.from(room.players.keys()).filter(id => id !== AI_PLAYER_ID);
+            const playerId = playerIds[0];
+            const playerMatches = state.matchesPerPlayer[playerId] || 0;
+            const aiMatches = state.matchesPerPlayer[AI_PLAYER_ID] || 0;
+            
+            if (playerMatches > aiMatches) {
+              room.players.get(playerId).sessionWins += 1;
+              sendAIGameEndMessage(roomId, 'playerWin');
+            } else if (aiMatches > playerMatches) {
+              room.players.get(AI_PLAYER_ID).sessionWins += 1;
+              sendAIGameEndMessage(roomId, 'aiWin');
+            } else {
+              sendAIGameEndMessage(roomId, 'draw');
+            }
+            endGame(room, roomId);
+          } else {
+            // AI gets another turn
+            state.flipped = [];
+            state.checking = false;
+            io.to(roomId).emit('memoryTurn', { currentPlayer: AI_PLAYER_ID });
+            scheduleAIMemoryTurn(room, roomId, aiState);
+          }
+        } else {
+          io.to(roomId).emit('memoryMismatch', { cards: [first, second] });
+          const playerIds = Array.from(room.players.keys()).filter(id => id !== AI_PLAYER_ID);
+          state.currentPlayer = playerIds[0];
+          state.flipped = [];
+          state.checking = false;
+          io.to(roomId).emit('memoryTurn', { currentPlayer: playerIds[0] });
+        }
+      }, 1000);
+    }, 600 + Math.random() * 400);
+  }, delay);
+}
+
+// Update castling rights after a move
+function updateCastlingRights(state, from) {
+  const [row, col] = from;
+  const rights = state.castlingRights;
+  
+  // King moved
+  if (row === 7 && col === 4) {
+    rights.whiteKingside = false;
+    rights.whiteQueenside = false;
+  }
+  if (row === 0 && col === 4) {
+    rights.blackKingside = false;
+    rights.blackQueenside = false;
+  }
+  
+  // Rook moved
+  if (row === 7 && col === 0) rights.whiteQueenside = false;
+  if (row === 7 && col === 7) rights.whiteKingside = false;
+  if (row === 0 && col === 0) rights.blackQueenside = false;
+  if (row === 0 && col === 7) rights.blackKingside = false;
+}
+
+// Send AI game end message
+function sendAIGameEndMessage(roomId, result) {
+  const message = getAIResponse(result);
+  if (message) {
+    setTimeout(() => {
+      io.to(roomId).emit('chatMessage', {
+        playerId: AI_PLAYER_ID,
+        playerName: AI_PLAYER_NAME,
+        message,
+        color: '#9333ea',
+        isAI: true
+      });
+    }, 500);
   }
 }
 
@@ -3470,11 +5854,13 @@ function broadcastActiveMatches(room, roomId) {
 
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
+  const aiStatus = OPENAI_API_KEY ? '🤖 Wednesday AI: ENABLED (OpenAI)' : '🤖 Wednesday AI: Fallback mode (static responses)';
   console.log(`
   ⚡️ THE UPSIDE DOWN NEVERMORE GAMES ⚡️
   =====================================
   🎮 Server running on port ${PORT}
   🌐 Open http://localhost:${PORT}
+  ${aiStatus}
   =====================================
   `);
 });

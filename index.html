@@ -101,6 +101,12 @@
         <button id="joinRoomBtn" class="btn btn-secondary">
           <span class="btn-icon">🔮</span> Join Room
         </button>
+        <div class="divider">
+          <span>solo mode</span>
+        </div>
+        <button id="playAIBtn" class="btn btn-ai">
+          <span class="btn-icon">🤖</span> Play vs AI
+        </button>
         
         <div class="menu-extras">
           <button id="leaderboardBtn" class="btn btn-ghost">
@@ -159,12 +165,30 @@
         </div>
 
         <div class="chat-section">
-          <h3>💬 The Séance Circle</h3>
-          <div id="chatMessages" class="chat-messages"></div>
+          <div class="chat-header">
+            <h3>💬 The Séance Circle</h3>
+            <div class="chat-header-actions">
+              <span id="typingIndicator" class="typing-indicator"></span>
+              <button id="chatSoundToggle" class="chat-sound-btn" title="Toggle Sound">🔔</button>
+            </div>
+          </div>
+          <div class="chat-messages-wrapper">
+            <div id="chatMessages" class="chat-messages"></div>
+            <button id="scrollToBottomBtn" class="scroll-to-bottom-btn" style="display: none;">
+              <span>↓</span> New messages
+            </button>
+          </div>
+          <div id="replyPreview" class="reply-preview" style="display: none;">
+            <span class="reply-to">↩ <strong id="replyToName"></strong>:</span>
+            <span class="reply-text" id="replyToText"></span>
+            <button id="cancelReplyBtn" class="cancel-reply-btn">✕</button>
+          </div>
           <div class="chat-input-container">
-            <input type="text" id="chatInput" placeholder="Whisper into the void..." maxlength="200">
+            <button id="wednesdayBtn" class="wednesday-btn" title="Talk to Wednesday">🖤</button>
+            <input type="text" id="chatInput" placeholder="Type a message..." maxlength="200">
             <button id="sendChatBtn" class="btn-small">📨</button>
           </div>
+          <div class="chat-hint">💡 Click message to reply • Replying to Wednesday continues the chat</div>
         </div>
       </div>
 
@@ -209,9 +233,21 @@
       </div>
 
       <div class="game-chat">
-        <div id="gameChatMessages" class="chat-messages small"></div>
+        <div class="game-chat-header">
+          <span id="gameTypingIndicator" class="typing-indicator"></span>
+        </div>
+        <div class="game-chat-wrapper">
+          <div id="gameChatMessages" class="chat-messages small"></div>
+          <button id="gameScrollToBottomBtn" class="scroll-to-bottom-btn small" style="display: none;">↓</button>
+        </div>
+        <div id="gameReplyPreview" class="reply-preview small" style="display: none;">
+          <span class="reply-to">↩ <strong id="gameReplyToName"></strong>:</span>
+          <span class="reply-text" id="gameReplyToText"></span>
+          <button id="gameCancelReplyBtn" class="cancel-reply-btn">✕</button>
+        </div>
         <div class="chat-input-container">
-          <input type="text" id="gameChatInput" placeholder="Chat or guess..." maxlength="200">
+          <button id="gameWednesdayBtn" class="wednesday-btn small" title="Talk to Wednesday">🖤</button>
+          <input type="text" id="gameChatInput" placeholder="Chat..." maxlength="200">
           <button id="sendGameChatBtn" class="btn-small">📨</button>
         </div>
       </div>
@@ -247,8 +283,17 @@
       <span>💬 Game Chat</span>
       <button class="chat-close-btn" id="closeChatOverlay">✕</button>
     </div>
-    <div id="mobileChatMessages" class="chat-messages"></div>
+    <div class="mobile-chat-wrapper">
+      <div id="mobileChatMessages" class="chat-messages"></div>
+      <button id="mobileScrollToBottomBtn" class="scroll-to-bottom-btn" style="display: none;">↓ New</button>
+    </div>
+    <div id="mobileReplyPreview" class="reply-preview" style="display: none;">
+      <span class="reply-to">↩ <strong id="mobileReplyToName"></strong>:</span>
+      <span class="reply-text" id="mobileReplyToText"></span>
+      <button id="mobileCancelReplyBtn" class="cancel-reply-btn">✕</button>
+    </div>
     <div class="chat-input-area">
+      <button id="mobileWednesdayBtn" class="wednesday-btn" title="Talk to Wednesday">🖤</button>
       <input type="text" id="mobileChatInput" placeholder="Type a message..." maxlength="200">
       <button id="sendMobileChatBtn" class="btn-small btn-primary">Send</button>
     </div>

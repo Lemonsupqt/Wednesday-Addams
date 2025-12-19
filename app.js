@@ -101,8 +101,16 @@ let state = {
   // Challenge/match system state
   matchId: null,
   isSpectator: false,
-  activeMatches: []
+  activeMatches: [],
+  // AI Mode state
+  isAIGame: false,
+  aiDifficulty: 'medium',
+  aiDifficulties: null
 };
+
+// AI Player constants (match server)
+const AI_PLAYER_ID = 'AI_OPPONENT';
+const AI_PLAYER_NAME = '🤖 Wednesday AI';
 
 // Chess state
 let chessState = {
@@ -123,6 +131,7 @@ document.addEventListener('DOMContentLoaded', () => {
   setupFullscreenToggle();
   setupMobileChatOverlay();
   setupScoreToggle();
+  initAdvancedChat();
   
   // Restore saved player name for both guests and registered users
   const savedPlayerName = localStorage.getItem('playerName');
@@ -507,24 +516,57 @@ function setupMobileChatOverlay() {
     chatOverlay.classList.remove('active');
   });
   
-  // Send message from mobile chat
-  function sendMobileChat() {
-    const message = mobileChatInput.value.trim();
-    if (!message) return;
-    
-    socket.emit('chatMessage', message);
-    mobileChatInput.value = '';
-  }
-  
-  sendMobileChatBtn?.addEventListener('click', sendMobileChat);
+  // Send message from mobile chat - use global sendMobileChat function
+  sendMobileChatBtn?.addEventListener('click', () => {
+    if (typeof window.sendMobileChat === 'function') {
+      window.sendMobileChat();
+    } else {
+      // Fallback
+      const message = mobileChatInput.value.trim();
+      if (!message) return;
+      socket.emit('chatMessage', { message });
+      mobileChatInput.value = '';
+    }
+  });
   mobileChatInput?.addEventListener('keypress', (e) => {
-    if (e.key === 'Enter') sendMobileChat();
+    if (e.key === 'Enter') {
+      if (typeof window.sendMobileChat === 'function') {
+        window.sendMobileChat();
+      } else {
+        const message = mobileChatInput.value.trim();
+        if (!message) return;
+        socket.emit('chatMessage', { message });
+        mobileChatInput.value = '';
+      }
+    }
   });
   
-  // Sync mobile chat with main chat
+  // Sync mobile chat with main chat - properly clone messages with click handlers
   window.syncMobileChat = function() {
     if (!mobileChatMessages || !elements.gameChatMessages) return;
-    mobileChatMessages.innerHTML = elements.gameChatMessages.innerHTML;
+    
+    // Clone all messages from game chat to mobile chat
+    mobileChatMessages.innerHTML = '';
+    
+    const gameMessages = elements.gameChatMessages.querySelectorAll('.chat-message');
+    gameMessages.forEach(msg => {
+      const clone = msg.cloneNode(true);
+      // Update the chat type for mobile
+      clone.dataset.chatType = 'mobile';
+      
+      // Re-add click handler if this is a clickable message
+      if (clone.dataset.msgId && !clone.classList.contains('system')) {
+        clone.style.cursor = 'pointer';
+        clone.title = 'Click to reply';
+        clone.addEventListener('click', (e) => {
+          e.stopPropagation();
+          setReplyToByType('mobile', clone.dataset.msgId, clone.dataset.msgPlayerName, clone.dataset.msgText);
+        });
+      }
+      
+      mobileChatMessages.appendChild(clone);
+    });
+    
     mobileChatMessages.scrollTop = mobileChatMessages.scrollHeight;
   };
   
@@ -588,6 +630,9 @@ function setupEventListeners() {
   elements.roomCode.addEventListener('keypress', (e) => {
     if (e.key === 'Enter') joinRoom();
   });
+  
+  // AI Mode button
+  document.getElementById('playAIBtn')?.addEventListener('click', showAIGameSelection);
   
   // Lobby
   elements.copyCodeBtn.addEventListener('click', copyRoomCode);
@@ -811,6 +856,256 @@ function updateVoteDisplay(voteCounts) {
     voteIndicator.style.display = count > 0 ? 'block' : 'none';
   });
 }
+
+// ============================================
+// 🤖 AI MODE (Play vs Wednesday AI)
+// ============================================
+
+const AI_GAMES = ['tictactoe', 'chess', 'memory', 'psychic', 'connect4'];
+
+function showAIGameSelection() {
+  const name = elements.playerName.value.trim();
+  if (!name) {
+    showError('Enter your name first, mortal.');
+    elements.playerName.focus();
+    return;
+  }
+  
+  const modal = document.getElementById('votingModal');
+  if (!modal) return;
+  
+  modal.innerHTML = `
+    <div class="voting-modal-content ai-selection-modal">
+      <h3>🤖 Challenge Wednesday AI</h3>
+      <p class="modal-subtitle">Select your doom:</p>
+      <div class="ai-games-grid">
+        <button class="game-card ai-game-card" data-game="tictactoe">
+          <span class="game-icon">⭕❌</span>
+          <span class="game-name">Tic-Tac-Toe</span>
+        </button>
+        <button class="game-card ai-game-card" data-game="chess">
+          <span class="game-icon">♟️👑</span>
+          <span class="game-name">Chess</span>
+        </button>
+        <button class="game-card ai-game-card" data-game="memory">
+          <span class="game-icon">🃏</span>
+          <span class="game-name">Memory Match</span>
+        </button>
+        <button class="game-card ai-game-card" data-game="psychic">
+          <span class="game-icon">🔮⚡</span>
+          <span class="game-name">Psychic Showdown</span>
+        </button>
+        <button class="game-card ai-game-card" data-game="connect4">
+          <span class="game-icon">🔴🟡</span>
+          <span class="game-name">Connect 4</span>
+        </button>
+      </div>
+      <button class="btn btn-secondary" id="cancelAISelection" style="margin-top: 20px;">Cancel</button>
+    </div>
+  `;
+  modal.classList.add('active');
+  
+  // Game selection
+  modal.querySelectorAll('.ai-game-card').forEach(card => {
+    card.addEventListener('click', () => {
+      const gameType = card.dataset.game;
+      modal.classList.remove('active');
+      showAIDifficultySelection(gameType);
+    });
+  });
+  
+  document.getElementById('cancelAISelection')?.addEventListener('click', () => {
+    modal.classList.remove('active');
+  });
+}
+
+function showAIDifficultySelection(gameType) {
+  const modal = document.getElementById('votingModal');
+  if (!modal) return;
+  
+  const gameNames = {
+    tictactoe: '⭕❌ Tic-Tac-Toe',
+    chess: '♟️ Chess',
+    memory: '🃏 Memory Match',
+    psychic: '🔮 Psychic Showdown',
+    connect4: '🔴 Connect 4'
+  };
+  
+  modal.innerHTML = `
+    <div class="voting-modal-content ai-difficulty-modal">
+      <h3>${gameNames[gameType] || gameType}</h3>
+      <p class="modal-subtitle">Choose AI difficulty:</p>
+      <div class="difficulty-options ai-difficulty-options">
+        <button class="difficulty-btn ai-diff-btn" data-difficulty="easy">
+          <span class="diff-icon">😊</span>
+          <div>
+            <span class="diff-name">Easy</span>
+            <span class="diff-desc">For beginners</span>
+          </div>
+        </button>
+        <button class="difficulty-btn ai-diff-btn" data-difficulty="medium">
+          <span class="diff-icon">🤔</span>
+          <div>
+            <span class="diff-name">Medium</span>
+            <span class="diff-desc">A fair challenge</span>
+          </div>
+        </button>
+        <button class="difficulty-btn ai-diff-btn" data-difficulty="hard">
+          <span class="diff-icon">😈</span>
+          <div>
+            <span class="diff-name">Hard</span>
+            <span class="diff-desc">Prepare to lose</span>
+          </div>
+        </button>
+        <button class="difficulty-btn ai-diff-btn impossible" data-difficulty="impossible">
+          <span class="diff-icon">💀</span>
+          <div>
+            <span class="diff-name">Impossible</span>
+            <span class="diff-desc">You cannot win</span>
+          </div>
+        </button>
+      </div>
+      <button class="btn btn-secondary" id="backToAIGames" style="margin-top: 20px;">← Back</button>
+    </div>
+  `;
+  modal.classList.add('active');
+  
+  modal.querySelectorAll('.ai-diff-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const difficulty = btn.dataset.difficulty;
+      modal.classList.remove('active');
+      
+      // For memory game, ask for grid size
+      if (gameType === 'memory') {
+        showAIMemoryOptions(difficulty);
+      } else if (gameType === 'connect4') {
+        showAIConnect4Options(difficulty);
+      } else {
+        createAIRoom(gameType, difficulty);
+      }
+    });
+  });
+  
+  document.getElementById('backToAIGames')?.addEventListener('click', () => {
+    showAIGameSelection();
+  });
+}
+
+function showAIMemoryOptions(difficulty) {
+  const modal = document.getElementById('votingModal');
+  modal.innerHTML = `
+    <div class="voting-modal-content">
+      <h3>🃏 Memory Grid Size</h3>
+      <div class="difficulty-options">
+        <button class="difficulty-btn" data-size="easy">
+          <span class="diff-icon">😊</span>
+          <div>
+            <span class="diff-name">Easy</span>
+            <span class="diff-desc">4×3 (6 pairs)</span>
+          </div>
+        </button>
+        <button class="difficulty-btn" data-size="hard">
+          <span class="diff-icon">😈</span>
+          <div>
+            <span class="diff-name">Hard</span>
+            <span class="diff-desc">4×4 (8 pairs)</span>
+          </div>
+        </button>
+        <button class="difficulty-btn" data-size="insane">
+          <span class="diff-icon">💀</span>
+          <div>
+            <span class="diff-name">Insane</span>
+            <span class="diff-desc">6×4 (12 pairs)</span>
+          </div>
+        </button>
+      </div>
+    </div>
+  `;
+  modal.classList.add('active');
+  
+  modal.querySelectorAll('.difficulty-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      modal.classList.remove('active');
+      createAIRoom('memory', difficulty, { difficulty: btn.dataset.size });
+    });
+  });
+}
+
+function showAIConnect4Options(difficulty) {
+  const modal = document.getElementById('votingModal');
+  modal.innerHTML = `
+    <div class="voting-modal-content">
+      <h3>🔴🟡 Connect Mode</h3>
+      <div class="difficulty-options">
+        <button class="difficulty-btn" data-win="4">
+          <span class="diff-icon">4️⃣</span>
+          <div>
+            <span class="diff-name">Connect 4</span>
+            <span class="diff-desc">Classic</span>
+          </div>
+        </button>
+        <button class="difficulty-btn" data-win="5">
+          <span class="diff-icon">5️⃣</span>
+          <div>
+            <span class="diff-name">Connect 5</span>
+            <span class="diff-desc">Harder</span>
+          </div>
+        </button>
+      </div>
+    </div>
+  `;
+  modal.classList.add('active');
+  
+  modal.querySelectorAll('.difficulty-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      modal.classList.remove('active');
+      createAIRoom('connect4', difficulty, { winCondition: parseInt(btn.dataset.win) });
+    });
+  });
+}
+
+function createAIRoom(gameType, difficulty, options = {}) {
+  const name = elements.playerName.value.trim();
+  state.playerName = name;
+  state.isAIGame = true;
+  state.aiDifficulty = difficulty;
+  
+  localStorage.setItem('playerName', name);
+  
+  socket.emit('createAIRoom', { 
+    playerName: name, 
+    gameType, 
+    difficulty 
+  });
+  
+  // Store options for game start
+  state.pendingAIOptions = options;
+  state.pendingAIGame = gameType;
+}
+
+// AI Socket Events
+socket.on('aiRoomCreated', (data) => {
+  state.roomId = data.roomId;
+  state.players = data.players;
+  state.aiDifficulties = data.aiDifficulties;
+  state.isAIGame = true;
+  
+  // Start the game immediately
+  const options = state.pendingAIOptions || {};
+  socket.emit('startAIGame', { 
+    gameType: data.gameType || state.pendingAIGame, 
+    options 
+  });
+  
+  showNotification(`🤖 Entering the AI realm...`, 'info');
+});
+
+socket.on('leftAIRoom', () => {
+  state.isAIGame = false;
+  state.roomId = null;
+  state.currentGame = null;
+  showScreen('mainMenu');
+});
 
 // ============================================
 // SCREEN MANAGEMENT
@@ -1096,23 +1391,31 @@ function showPlayerSelectionModal(gameType) {
     'connect4': '🔴🟡 Connect 4'
   };
   
-  if (availablePlayers.length === 0) {
-    showError('No players available to challenge!');
-    return;
-  }
+  // Build player list HTML
+  const playerListHtml = availablePlayers.map(p => `
+    <button class="player-select-btn" data-player-id="${p.id}">
+      <span class="player-color-dot" style="background: ${p.color || '#e50914'}"></span>
+      <span class="player-select-name">${escapeHtml(p.name)}</span>
+      ${p.username ? '<span class="verified-small">✓</span>' : ''}
+    </button>
+  `).join('');
+  
+  // Always add Wednesday as an option
+  const wednesdayOption = `
+    <button class="player-select-btn wednesday-select" data-player-id="WEDNESDAY_AI">
+      <span class="player-color-dot wednesday-dot">🖤</span>
+      <span class="player-select-name">Wednesday AI</span>
+      <span class="ai-badge">🤖</span>
+    </button>
+  `;
   
   modal.innerHTML = `
     <div class="voting-modal-content player-select-modal">
       <h3>${gameNames[gameType] || gameType}</h3>
       <p class="modal-subtitle">Choose your opponent:</p>
       <div class="player-select-list">
-        ${availablePlayers.map(p => `
-          <button class="player-select-btn" data-player-id="${p.id}">
-            <span class="player-color-dot" style="background: ${p.color || '#e50914'}"></span>
-            <span class="player-select-name">${escapeHtml(p.name)}</span>
-            ${p.username ? '<span class="verified-small">✓</span>' : ''}
-          </button>
-        `).join('')}
+        ${playerListHtml}
+        ${wednesdayOption}
       </div>
       <button class="btn btn-secondary" style="margin-top: 15px;" id="cancelPlayerSelect">Cancel</button>
     </div>
@@ -1125,16 +1428,126 @@ function showPlayerSelectionModal(gameType) {
       const targetId = btn.dataset.playerId;
       modal.classList.remove('active');
       
-      // For connect4, ask for win condition first
-      if (gameType === 'connect4') {
-        showConnect4OptionsAndChallenge(targetId);
+      // Check if challenging Wednesday AI
+      if (targetId === 'WEDNESDAY_AI') {
+        // For connect4, ask for win condition first
+        if (gameType === 'connect4') {
+          showConnect4AIOptions(gameType);
+        } else {
+          // Show difficulty selection for AI game
+          showAIDifficultyForChallenge(gameType);
+        }
       } else {
-        sendChallenge(targetId, gameType, {});
+        // Regular player challenge
+        if (gameType === 'connect4') {
+          showConnect4OptionsAndChallenge(targetId);
+        } else {
+          sendChallenge(targetId, gameType, {});
+        }
       }
     });
   });
   
   document.getElementById('cancelPlayerSelect')?.addEventListener('click', () => {
+    modal.classList.remove('active');
+  });
+}
+
+// Show AI difficulty selection for challenge from lobby
+function showAIDifficultyForChallenge(gameType, options = {}) {
+  const modal = document.getElementById('votingModal');
+  if (!modal) return;
+  
+  modal.innerHTML = `
+    <div class="voting-modal-content">
+      <h3>🤖 Challenge Wednesday</h3>
+      <p class="modal-subtitle">Select difficulty:</p>
+      <div class="difficulty-options">
+        <button class="difficulty-btn ai-diff" data-diff="easy">
+          <span class="diff-icon">😊</span>
+          <div>
+            <strong>Easy</strong>
+            <small>For beginners</small>
+          </div>
+        </button>
+        <button class="difficulty-btn ai-diff" data-diff="medium">
+          <span class="diff-icon">🤔</span>
+          <div>
+            <strong>Medium</strong>
+            <small>A fair challenge</small>
+          </div>
+        </button>
+        <button class="difficulty-btn ai-diff" data-diff="hard">
+          <span class="diff-icon">😈</span>
+          <div>
+            <strong>Hard</strong>
+            <small>Good luck</small>
+          </div>
+        </button>
+        <button class="difficulty-btn ai-diff impossible" data-diff="impossible">
+          <span class="diff-icon">💀</span>
+          <div>
+            <strong>Impossible</strong>
+            <small>Wednesday's wrath</small>
+          </div>
+        </button>
+      </div>
+      <button class="btn btn-secondary" style="margin-top: 15px;" id="cancelAIDiff">Cancel</button>
+    </div>
+  `;
+  modal.classList.add('active');
+  
+  modal.querySelectorAll('.ai-diff').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const difficulty = btn.dataset.diff;
+      modal.classList.remove('active');
+      // Start AI game from within the room
+      socket.emit('challengeWednesday', { gameType, difficulty, options });
+    });
+  });
+  
+  document.getElementById('cancelAIDiff')?.addEventListener('click', () => {
+    modal.classList.remove('active');
+  });
+}
+
+// Show Connect4 options for AI game
+function showConnect4AIOptions(gameType) {
+  const modal = document.getElementById('votingModal');
+  modal.innerHTML = `
+    <div class="voting-modal-content">
+      <h3>🔴🟡 Choose Mode vs Wednesday</h3>
+      <div class="difficulty-options">
+        <button class="difficulty-btn" data-win="4">
+          <span class="diff-icon">4️⃣</span>
+          <div>
+            <strong>Connect 4</strong>
+            <small>Classic mode</small>
+          </div>
+        </button>
+        <button class="difficulty-btn" data-win="5">
+          <span class="diff-icon">5️⃣</span>
+          <div>
+            <strong>Connect 5</strong>
+            <small>Extended challenge</small>
+          </div>
+        </button>
+      </div>
+      <button class="btn btn-secondary" style="margin-top: 15px;" id="cancelC4AI">Cancel</button>
+    </div>
+  `;
+  modal.classList.add('active');
+  
+  modal.querySelectorAll('.difficulty-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const winCondition = parseInt(btn.dataset.win);
+      modal.classList.remove('active');
+      // Now show difficulty selection
+      showAIDifficultyForChallenge('connect4', { winCondition });
+    });
+  });
+  
+  document.getElementById('cancelC4AI')?.addEventListener('click', () => {
     modal.classList.remove('active');
   });
 }
@@ -1437,40 +1850,503 @@ function showSudokuDifficultyModal() {
 function sendChat() {
   const message = elements.chatInput.value.trim();
   if (!message) return;
-  socket.emit('chatMessage', message);
+  
+  const chatData = { message };
+  if (replyState.lobby.replyTo) {
+    chatData.replyTo = replyState.lobby.replyTo;
+    cancelReply('lobby');
+  }
+  
+  socket.emit('chatMessage', chatData);
   elements.chatInput.value = '';
 }
 
 function sendGameChat() {
   const message = elements.gameChatInput.value.trim();
   if (!message) return;
-  socket.emit('chatMessage', message);
+  
+  const chatData = { message };
+  if (replyState.game.replyTo) {
+    chatData.replyTo = replyState.game.replyTo;
+    cancelReply('game');
+  }
+  
+  socket.emit('chatMessage', chatData);
   elements.gameChatInput.value = '';
 }
 
+function sendMobileChat() {
+  const input = document.getElementById('mobileChatInput');
+  const message = input ? input.value.trim() : '';
+  if (!message) return;
+  
+  const chatData = { message };
+  if (replyState.mobile.replyTo) {
+    chatData.replyTo = replyState.mobile.replyTo;
+    cancelReply('mobile');
+  }
+  
+  socket.emit('chatMessage', chatData);
+  if (input) input.value = '';
+}
+// Make available globally for mobile chat overlay
+window.sendMobileChat = sendMobileChat;
+
+// Reply state
+const replyState = {
+  lobby: { replyTo: null },
+  game: { replyTo: null },
+  mobile: { replyTo: null }
+};
+
 function addChatMessage(msg, container = elements.chatMessages) {
   const div = document.createElement('div');
-  div.className = 'chat-message' + (msg.isGuess ? ' guess' : '') + (msg.system ? ' system' : '');
+  let className = 'chat-message chat-notification';
+  if (msg.isGuess) className += ' guess';
+  if (msg.system) className += ' system';
+  if (msg.isAI) className += ' ai-message';
+  if (msg.playerId === state.playerId) className += ' is-me';
+  
+  // Check if player is mentioned
+  const playerName = state.playerName || '';
+  if (msg.message && playerName && msg.message.toLowerCase().includes(playerName.toLowerCase())) {
+    className += ' mentioned';
+  }
+  
+  div.className = className;
+  
+  // Store message ID for reply functionality
+  if (msg.id) {
+    div.dataset.msgId = msg.id;
+    div.dataset.msgPlayerName = msg.playerName || '';
+    div.dataset.msgText = msg.message || '';
+  }
+  
+  const timestamp = msg.timestamp ? formatMessageTime(msg.timestamp) : getTimeString();
   
   if (msg.system) {
-    div.innerHTML = `<span class="message">${escapeHtml(msg.message)}</span>`;
+    div.innerHTML = `
+      <span class="message">${escapeHtml(msg.message)}</span>
+      <span class="timestamp">${timestamp}</span>
+    `;
   } else {
     // Use player color if available, fallback to default
-    const senderColor = msg.playerColor || '#ff2a6d';
+    const senderColor = msg.color || msg.playerColor || (msg.isAI ? '#9333ea' : '#ff2a6d');
+    const aiIcon = msg.isAI ? '' : '';
+    const wednesdayIcon = msg.playerName === '🖤 Wednesday' ? '' : '';
+    
+    // Build reply context if this is a reply
+    let replyHtml = '';
+    if (msg.replyTo && msg.replyTo.playerName) {
+      const replyText = (msg.replyTo.text || '').substring(0, 50) + (msg.replyTo.text && msg.replyTo.text.length > 50 ? '...' : '');
+      replyHtml = `<div class="reply-context">↩ ${escapeHtml(msg.replyTo.playerName)}: ${escapeHtml(replyText)}</div>`;
+    }
+    
+    // Format message with simple markdown support
+    let formattedMessage = escapeHtml(msg.message);
+    // Bold: **text** -> <strong>text</strong>
+    formattedMessage = formattedMessage.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+    // Italic: *text* -> <em>text</em>
+    formattedMessage = formattedMessage.replace(/\*(.+?)\*/g, '<em>$1</em>');
+    // Highlight @Wednesday mentions
+    formattedMessage = formattedMessage.replace(/@wednesday/gi, '<span class="wednesday-mention">@Wednesday</span>');
+    
     div.innerHTML = `
-      <span class="sender" style="color: ${senderColor}">${escapeHtml(msg.playerName)}:</span>
-      <span class="message">${escapeHtml(msg.message)}</span>
+      ${replyHtml}
+      <span class="sender" style="color: ${senderColor}">${aiIcon}${wednesdayIcon}${escapeHtml(msg.playerName)}:</span>
+      <span class="message">${formattedMessage}</span>
+      <span class="timestamp">${timestamp}</span>
     `;
   }
   
+  // Add click handler for reply (only for non-system messages)
+  if (!msg.system && msg.id) {
+    // Add data attribute to identify chat type
+    if (container.id === 'gameChatMessages' || container === elements.gameChatMessages) {
+      div.dataset.chatType = 'game';
+    } else if (container.id === 'mobileChatMessages') {
+      div.dataset.chatType = 'mobile';
+    } else {
+      div.dataset.chatType = 'lobby';
+    }
+    
+    div.addEventListener('click', (e) => {
+      e.stopPropagation(); // Prevent event bubbling issues
+      const chatType = div.dataset.chatType;
+      setReplyToByType(chatType, msg.id, msg.playerName, msg.message);
+    });
+    div.style.cursor = 'pointer';
+    div.title = 'Click to reply';
+  }
+  
   container.appendChild(div);
-  container.scrollTop = container.scrollHeight;
+  
+  // Smart scroll - only auto-scroll if already near bottom
+  const isNearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 100;
+  if (isNearBottom) {
+    container.scrollTop = container.scrollHeight;
+  } else {
+    // Show scroll button if not at bottom
+    showScrollToBottomButton(container);
+  }
+  
+  // Play notification sound if enabled and not own message
+  if (chatSettings.soundEnabled && msg.playerId !== state.playerId && !msg.system) {
+    playMessageSound();
+  }
   
   // Sync to mobile chat if this is the game chat
   if (container === elements.gameChatMessages && typeof syncMobileChat === 'function') {
     syncMobileChat();
   }
 }
+
+// Format message timestamp
+function formatMessageTime(timestamp) {
+  const date = new Date(timestamp);
+  return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+
+// Clear chat containers
+function clearChat() {
+  if (elements.chatMessages) elements.chatMessages.innerHTML = '';
+  if (elements.gameChatMessages) elements.gameChatMessages.innerHTML = '';
+  const mobileChat = document.getElementById('mobileChatMessages');
+  if (mobileChat) mobileChat.innerHTML = '';
+}
+
+// Load chat history
+function loadChatHistory(history) {
+  history.forEach(msg => {
+    addChatMessage(msg, elements.chatMessages);
+  });
+}
+
+// Set reply to a message by chat type (more reliable)
+function setReplyToByType(chatType, msgId, playerName, text) {
+  const configs = {
+    lobby: {
+      stateKey: 'lobby',
+      previewId: 'replyPreview',
+      nameId: 'replyToName',
+      textId: 'replyToText',
+      inputId: 'chatInput'
+    },
+    game: {
+      stateKey: 'game',
+      previewId: 'gameReplyPreview',
+      nameId: 'gameReplyToName',
+      textId: 'gameReplyToText',
+      inputId: 'gameChatInput'
+    },
+    mobile: {
+      stateKey: 'mobile',
+      previewId: 'mobileReplyPreview',
+      nameId: 'mobileReplyToName',
+      textId: 'mobileReplyToText',
+      inputId: 'mobileChatInput'
+    }
+  };
+  
+  const config = configs[chatType] || configs.lobby;
+  
+  replyState[config.stateKey].replyTo = { id: msgId, playerName, text };
+  
+  const preview = document.getElementById(config.previewId);
+  const nameEl = document.getElementById(config.nameId);
+  const textEl = document.getElementById(config.textId);
+  const input = document.getElementById(config.inputId);
+  
+  if (preview && nameEl && textEl) {
+    nameEl.textContent = playerName;
+    textEl.textContent = text.substring(0, 50) + (text.length > 50 ? '...' : '');
+    preview.style.display = 'flex';
+  }
+  
+  if (input) input.focus();
+}
+
+// Set reply to a message (legacy, uses container reference)
+function setReplyTo(container, msgId, playerName, text) {
+  let chatType = 'lobby';
+  
+  // Check both reference and ID for game chat (more reliable)
+  if (container === elements.gameChatMessages || container.id === 'gameChatMessages') {
+    chatType = 'game';
+  } else if (container.id === 'mobileChatMessages') {
+    chatType = 'mobile';
+  }
+  
+  setReplyToByType(chatType, msgId, playerName, text);
+}
+
+// Cancel reply
+function cancelReply(stateKey) {
+  replyState[stateKey].replyTo = null;
+  
+  const previewIds = {
+    lobby: 'replyPreview',
+    game: 'gameReplyPreview',
+    mobile: 'mobileReplyPreview'
+  };
+  
+  const preview = document.getElementById(previewIds[stateKey]);
+  if (preview) preview.style.display = 'none';
+}
+
+// Show scroll to bottom button
+function showScrollToBottomButton(container) {
+  let btnId = 'scrollToBottomBtn';
+  if (container === elements.gameChatMessages) btnId = 'gameScrollToBottomBtn';
+  else if (container.id === 'mobileChatMessages') btnId = 'mobileScrollToBottomBtn';
+  
+  const btn = document.getElementById(btnId);
+  if (btn) btn.style.display = 'flex';
+}
+
+// Hide scroll to bottom button
+function hideScrollToBottomButton(container) {
+  let btnId = 'scrollToBottomBtn';
+  if (container === elements.gameChatMessages) btnId = 'gameScrollToBottomBtn';
+  else if (container.id === 'mobileChatMessages') btnId = 'mobileScrollToBottomBtn';
+  
+  const btn = document.getElementById(btnId);
+  if (btn) btn.style.display = 'none';
+}
+
+// Scroll to bottom of chat
+function scrollChatToBottom(container) {
+  container.scrollTop = container.scrollHeight;
+  hideScrollToBottomButton(container);
+}
+
+// ============================================
+// 💬 ADVANCED CHAT FEATURES
+// ============================================
+
+// Chat settings
+const chatSettings = {
+  soundEnabled: true,
+  lastTypingTime: 0,
+  typingTimeout: null
+};
+
+// Initialize advanced chat features
+function initAdvancedChat() {
+  // Sound toggle
+  const soundToggle = document.getElementById('chatSoundToggle');
+  if (soundToggle) {
+    // Load saved preference
+    const savedSound = localStorage.getItem('chatSoundEnabled');
+    if (savedSound !== null) {
+      chatSettings.soundEnabled = savedSound === 'true';
+      soundToggle.classList.toggle('muted', !chatSettings.soundEnabled);
+      soundToggle.textContent = chatSettings.soundEnabled ? '🔔' : '🔕';
+    }
+    
+    soundToggle.addEventListener('click', () => {
+      chatSettings.soundEnabled = !chatSettings.soundEnabled;
+      localStorage.setItem('chatSoundEnabled', chatSettings.soundEnabled);
+      soundToggle.classList.toggle('muted', !chatSettings.soundEnabled);
+      soundToggle.textContent = chatSettings.soundEnabled ? '🔔' : '🔕';
+      showNotification(chatSettings.soundEnabled ? '🔔 Sound enabled' : '🔕 Sound muted', 'info');
+    });
+  }
+  
+  // Typing indicator - send typing status
+  const chatInput = document.getElementById('chatInput');
+  const gameChatInput = document.getElementById('gameChatInput');
+  const mobileChatInput = document.getElementById('mobileChatInput');
+  
+  [chatInput, gameChatInput, mobileChatInput].forEach(input => {
+    if (input) {
+      input.addEventListener('input', () => {
+        const now = Date.now();
+        if (now - chatSettings.lastTypingTime > 2000) {
+          chatSettings.lastTypingTime = now;
+          socket.emit('typing', { isTyping: true });
+        }
+        
+        // Clear previous timeout
+        if (chatSettings.typingTimeout) {
+          clearTimeout(chatSettings.typingTimeout);
+        }
+        
+        // Stop typing after 3 seconds of no input
+        chatSettings.typingTimeout = setTimeout(() => {
+          socket.emit('typing', { isTyping: false });
+        }, 3000);
+      });
+      
+      // Stop typing on send
+      input.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') {
+          if (chatSettings.typingTimeout) {
+            clearTimeout(chatSettings.typingTimeout);
+          }
+          socket.emit('typing', { isTyping: false });
+        }
+      });
+    }
+  });
+  
+  // Scroll to bottom buttons
+  const scrollToBottomBtn = document.getElementById('scrollToBottomBtn');
+  const gameScrollToBottomBtn = document.getElementById('gameScrollToBottomBtn');
+  const mobileScrollToBottomBtn = document.getElementById('mobileScrollToBottomBtn');
+  
+  if (scrollToBottomBtn) {
+    scrollToBottomBtn.addEventListener('click', () => {
+      scrollChatToBottom(elements.chatMessages);
+    });
+  }
+  if (gameScrollToBottomBtn) {
+    gameScrollToBottomBtn.addEventListener('click', () => {
+      scrollChatToBottom(elements.gameChatMessages);
+    });
+  }
+  if (mobileScrollToBottomBtn) {
+    mobileScrollToBottomBtn.addEventListener('click', () => {
+      const mobileChat = document.getElementById('mobileChatMessages');
+      if (mobileChat) scrollChatToBottom(mobileChat);
+    });
+  }
+  
+  // Hide scroll button when at bottom
+  [elements.chatMessages, elements.gameChatMessages].forEach(container => {
+    if (container) {
+      container.addEventListener('scroll', () => {
+        const isAtBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 50;
+        if (isAtBottom) {
+          hideScrollToBottomButton(container);
+        }
+      });
+    }
+  });
+  
+  // Mobile chat scroll
+  const mobileChat = document.getElementById('mobileChatMessages');
+  if (mobileChat) {
+    mobileChat.addEventListener('scroll', () => {
+      const isAtBottom = mobileChat.scrollHeight - mobileChat.scrollTop - mobileChat.clientHeight < 50;
+      if (isAtBottom) {
+        hideScrollToBottomButton(mobileChat);
+      }
+    });
+  }
+  
+  // Cancel reply buttons
+  const cancelReplyBtn = document.getElementById('cancelReplyBtn');
+  const gameCancelReplyBtn = document.getElementById('gameCancelReplyBtn');
+  const mobileCancelReplyBtn = document.getElementById('mobileCancelReplyBtn');
+  
+  if (cancelReplyBtn) {
+    cancelReplyBtn.addEventListener('click', () => cancelReply('lobby'));
+  }
+  if (gameCancelReplyBtn) {
+    gameCancelReplyBtn.addEventListener('click', () => cancelReply('game'));
+  }
+  if (mobileCancelReplyBtn) {
+    mobileCancelReplyBtn.addEventListener('click', () => cancelReply('mobile'));
+  }
+  
+  // Wednesday buttons - quick summon
+  const wednesdayBtn = document.getElementById('wednesdayBtn');
+  const gameWednesdayBtn = document.getElementById('gameWednesdayBtn');
+  const mobileWednesdayBtn = document.getElementById('mobileWednesdayBtn');
+  
+  if (wednesdayBtn) {
+    wednesdayBtn.addEventListener('click', () => {
+      const input = document.getElementById('chatInput');
+      if (input) {
+        input.value = '@Wednesday ' + input.value;
+        input.focus();
+        wednesdayBtn.classList.add('active');
+        setTimeout(() => wednesdayBtn.classList.remove('active'), 300);
+      }
+    });
+  }
+  if (gameWednesdayBtn) {
+    gameWednesdayBtn.addEventListener('click', () => {
+      const input = document.getElementById('gameChatInput');
+      if (input) {
+        input.value = '@Wednesday ' + input.value;
+        input.focus();
+        gameWednesdayBtn.classList.add('active');
+        setTimeout(() => gameWednesdayBtn.classList.remove('active'), 300);
+      }
+    });
+  }
+  if (mobileWednesdayBtn) {
+    mobileWednesdayBtn.addEventListener('click', () => {
+      const input = document.getElementById('mobileChatInput');
+      if (input) {
+        input.value = '@Wednesday ' + input.value;
+        input.focus();
+        mobileWednesdayBtn.classList.add('active');
+        setTimeout(() => mobileWednesdayBtn.classList.remove('active'), 300);
+      }
+    });
+  }
+}
+
+// Update unread badge
+function updateUnreadBadge(container) {
+  if (container === elements.chatMessages) {
+    const badge = document.getElementById('unreadBadge');
+    if (badge) {
+      const count = parseInt(badge.textContent || '0') + 1;
+      badge.textContent = count > 99 ? '99+' : count;
+      badge.style.display = 'block';
+    }
+  }
+}
+
+// Play message notification sound
+function playMessageSound() {
+  if (!chatSettings.soundEnabled) return;
+  
+  try {
+    // Create a simple beep using Web Audio API
+    const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+    const oscillator = audioContext.createOscillator();
+    const gainNode = audioContext.createGain();
+    
+    oscillator.connect(gainNode);
+    gainNode.connect(audioContext.destination);
+    
+    oscillator.frequency.value = 800;
+    oscillator.type = 'sine';
+    gainNode.gain.value = 0.1;
+    
+    oscillator.start();
+    gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.1);
+    oscillator.stop(audioContext.currentTime + 0.1);
+  } catch (e) {
+    // Audio not supported, fail silently
+  }
+}
+
+// Get time string for message
+function getTimeString() {
+  const now = new Date();
+  return now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+
+// Handle typing indicator from server
+socket.on('userTyping', (data) => {
+  const indicator = data.inGame ? 
+    document.getElementById('gameTypingIndicator') : 
+    document.getElementById('typingIndicator');
+  
+  if (indicator) {
+    if (data.isTyping && data.playerName && data.playerId !== state.playerId) {
+      indicator.textContent = `${data.playerName} is typing...`;
+    } else {
+      indicator.textContent = '';
+    }
+  }
+});
 
 // ============================================
 // GAME MANAGEMENT
@@ -1484,13 +2360,70 @@ function endGame() {
   // Clean up any game-specific listeners
   document.removeEventListener('keydown', handleSudokuKeypress);
   window.sudokuKeyboardListenerAdded = false;
-  socket.emit('endGame');
+  
+  if (state.isAIGame) {
+    socket.emit('leaveAIRoom');
+    state.isAIGame = false;
+    state.roomId = null;
+    state.currentGame = null;
+    showScreen('mainMenu');
+  } else {
+    socket.emit('endGame');
+  }
 }
 
 function closeResults() {
   elements.resultsModal.classList.remove('active');
-  // Actually return to lobby - send endGame to server
-  socket.emit('endGame');
+  
+  if (state.isAIGame) {
+    // For AI games, offer play again or return to menu
+    showAIPlayAgainModal();
+  } else {
+    // Actually return to lobby - send endGame to server
+    socket.emit('endGame');
+  }
+}
+
+function showAIPlayAgainModal() {
+  const modal = document.getElementById('votingModal');
+  if (!modal) {
+    endGame();
+    return;
+  }
+  
+  modal.innerHTML = `
+    <div class="voting-modal-content">
+      <h3>🎮 Game Over</h3>
+      <div class="ai-end-options">
+        <button class="btn btn-primary" id="aiPlayAgainBtn">
+          <span class="btn-icon">🔄</span> Play Again
+        </button>
+        <button class="btn btn-secondary" id="aiChangeDifficultyBtn">
+          <span class="btn-icon">⚙️</span> Change Difficulty
+        </button>
+        <button class="btn btn-ghost" id="aiExitBtn">
+          <span class="btn-icon">🚪</span> Exit to Menu
+        </button>
+      </div>
+    </div>
+  `;
+  modal.classList.add('active');
+  
+  document.getElementById('aiPlayAgainBtn')?.addEventListener('click', () => {
+    modal.classList.remove('active');
+    socket.emit('restartAIGame', { type: state.currentGame });
+  });
+  
+  document.getElementById('aiChangeDifficultyBtn')?.addEventListener('click', () => {
+    modal.classList.remove('active');
+    endGame();
+    showAIDifficultySelection(state.currentGame);
+  });
+  
+  document.getElementById('aiExitBtn')?.addEventListener('click', () => {
+    modal.classList.remove('active');
+    endGame();
+  });
 }
 
 function updateScoreBoard(players, currentPlayer = null) {
@@ -1517,10 +2450,26 @@ function updateScoreBoard(players, currentPlayer = null) {
 // ============================================
 
 function initTicTacToe(gameState, players) {
+  console.log('🎮 initTicTacToe called with:', { gameState, players, playerId: state.playerId });
+  
+  if (!gameState || !gameState.playerSymbols) {
+    console.error('Invalid game state:', gameState);
+    elements.gameContent.innerHTML = '<div style="text-align:center;color:red;">Error: Invalid game state</div>';
+    return;
+  }
+  
   state.gameState = gameState;
   elements.gameTitle.textContent = '⭕ Upside Down Tic-Tac-Toe ❌';
   
-  const playerSymbols = new Map(Object.entries(gameState.playerSymbols));
+  // Handle playerSymbols whether it's a Map or Object
+  let playerSymbols;
+  if (gameState.playerSymbols instanceof Map) {
+    playerSymbols = gameState.playerSymbols;
+  } else {
+    playerSymbols = new Map(Object.entries(gameState.playerSymbols));
+  }
+  state.gameState.playerSymbols = playerSymbols;
+  
   const mySymbol = playerSymbols.get(state.playerId);
   const isSpectator = state.isSpectator || !mySymbol;
   
@@ -1534,10 +2483,22 @@ function initTicTacToe(gameState, players) {
     addSpectatorBadge();
   }
   
+  // Determine status message
+  let statusMessage;
+  if (isSpectator) {
+    statusMessage = '👁️ Watching...';
+  } else if (gameState.currentPlayer === state.playerId) {
+    statusMessage = '🔴 Your turn!';
+  } else if (state.isAIGame && gameState.currentPlayer === AI_PLAYER_ID) {
+    statusMessage = '<span class="ai-thinking">🤖 Wednesday is thinking...</span>';
+  } else {
+    statusMessage = 'Waiting for opponent...';
+  }
+
   elements.gameContent.innerHTML = `
     <div class="ttt-container">
       <div class="ttt-status" id="tttStatus">
-        ${isSpectator ? '👁️ Watching...' : (gameState.currentPlayer === state.playerId ? "🔴 Your turn!" : "Waiting for opponent...")}
+        ${statusMessage}
       </div>
       <div class="ttt-board" id="tttBoard">
         ${gameState.board.map((cell, i) => `
@@ -1555,9 +2516,11 @@ function initTicTacToe(gameState, players) {
       cell.addEventListener('click', () => {
         if (state.gameState.currentPlayer !== state.playerId) return;
         if (cell.classList.contains('taken')) return;
-        // Use matchMove for challenge matches, tttMove for regular games
+        // Use correct socket event based on game mode
         if (state.matchId) {
           socket.emit('matchMove', { matchId: state.matchId, moveData: { cellIndex: parseInt(cell.dataset.index) }});
+        } else if (state.isAIGame) {
+          socket.emit('aiTttMove', parseInt(cell.dataset.index));
         } else {
           socket.emit('tttMove', parseInt(cell.dataset.index));
         }
@@ -1639,6 +2602,8 @@ function updateTicTacToe(data) {
           if (cell.classList.contains('taken')) return;
           if (state.matchId) {
             socket.emit('matchMove', { matchId: state.matchId, moveData: { cellIndex: parseInt(cell.dataset.index) }});
+          } else if (state.isAIGame) {
+            socket.emit('aiTttMove', parseInt(cell.dataset.index));
           } else {
             socket.emit('tttMove', parseInt(cell.dataset.index));
           }
@@ -1661,8 +2626,12 @@ function updateTicTacToe(data) {
     state.gameState.currentPlayer = data.currentPlayer;
     if (isSpectator) {
       status.innerHTML = '👁️ Watching...';
+    } else if (data.currentPlayer === state.playerId) {
+      status.innerHTML = '🔴 Your turn!';
+    } else if (state.isAIGame && data.currentPlayer === AI_PLAYER_ID) {
+      status.innerHTML = '<span class="ai-thinking">🤖 Wednesday is thinking...</span>';
     } else {
-      status.innerHTML = data.currentPlayer === state.playerId ? "🔴 Your turn!" : "Waiting for opponent...";
+      status.innerHTML = 'Waiting for opponent...';
     }
     updateScoreBoard(players, data.currentPlayer);
   }
@@ -1673,35 +2642,69 @@ function showPlayAgainButton(gameType) {
   const container = document.querySelector(`.${gameType}-container`) || elements.gameContent;
   
   // Remove existing play again button if any
-  const existingBtn = container.querySelector('.play-again-btn');
+  const existingBtn = container.querySelector('.play-again-container');
   if (existingBtn) existingBtn.remove();
   
   const playAgainDiv = document.createElement('div');
   playAgainDiv.className = 'play-again-container';
-  playAgainDiv.innerHTML = `
-    <button class="btn btn-primary play-again-btn" id="playAgainBtn">
-      <span class="btn-icon">🔄</span> Play Again
-    </button>
-    <button class="btn btn-secondary back-to-lobby-btn" id="backToLobbyFromGame">
-      <span class="btn-icon">🏠</span> Back to Lobby
-    </button>
-  `;
-  container.appendChild(playAgainDiv);
   
-  document.getElementById('playAgainBtn').addEventListener('click', () => {
-    // Any player can trigger play again
-    if (state.currentGame === 'memory' && state.gameState.difficulty) {
-      socket.emit('restartGame', { type: 'memory', options: { difficulty: state.gameState.difficulty } });
-    } else if (state.currentGame === 'sudoku' && state.gameState.difficulty) {
-      socket.emit('restartGame', { type: 'sudoku', options: { difficulty: state.gameState.difficulty } });
-    } else {
-      socket.emit('restartGame', state.currentGame);
-    }
-  });
-  
-  document.getElementById('backToLobbyFromGame').addEventListener('click', () => {
-    socket.emit('endGame');
-  });
+  // Different buttons for AI mode vs regular mode
+  if (state.isAIGame) {
+    playAgainDiv.innerHTML = `
+      <button class="btn btn-primary play-again-btn" id="playAgainBtn">
+        <span class="btn-icon">🔄</span> Play Again
+      </button>
+      <button class="btn btn-secondary" id="aiChangeDiffBtn">
+        <span class="btn-icon">⚙️</span> Change Difficulty
+      </button>
+      <button class="btn btn-ghost" id="aiExitToMenuBtn">
+        <span class="btn-icon">🚪</span> Exit to Menu
+      </button>
+    `;
+    container.appendChild(playAgainDiv);
+    
+    document.getElementById('playAgainBtn')?.addEventListener('click', () => {
+      const options = {};
+      if (state.currentGame === 'memory' && state.gameState.difficulty) {
+        options.difficulty = state.gameState.difficulty;
+      }
+      socket.emit('restartAIGame', { type: state.currentGame, options });
+    });
+    
+    document.getElementById('aiChangeDiffBtn')?.addEventListener('click', () => {
+      const currentGame = state.currentGame;
+      endGame();
+      showAIDifficultySelection(currentGame);
+    });
+    
+    document.getElementById('aiExitToMenuBtn')?.addEventListener('click', () => {
+      endGame();
+    });
+  } else {
+    playAgainDiv.innerHTML = `
+      <button class="btn btn-primary play-again-btn" id="playAgainBtn">
+        <span class="btn-icon">🔄</span> Play Again
+      </button>
+      <button class="btn btn-secondary back-to-lobby-btn" id="backToLobbyFromGame">
+        <span class="btn-icon">🏠</span> Back to Lobby
+      </button>
+    `;
+    container.appendChild(playAgainDiv);
+    
+    document.getElementById('playAgainBtn')?.addEventListener('click', () => {
+      if (state.currentGame === 'memory' && state.gameState.difficulty) {
+        socket.emit('restartGame', { type: 'memory', options: { difficulty: state.gameState.difficulty } });
+      } else if (state.currentGame === 'sudoku' && state.gameState.difficulty) {
+        socket.emit('restartGame', { type: 'sudoku', options: { difficulty: state.gameState.difficulty } });
+      } else {
+        socket.emit('restartGame', state.currentGame);
+      }
+    });
+    
+    document.getElementById('backToLobbyFromGame')?.addEventListener('click', () => {
+      socket.emit('endGame');
+    });
+  }
 }
 
 // ============================================
@@ -1709,6 +2712,14 @@ function showPlayAgainButton(gameType) {
 // ============================================
 
 function initMemoryGame(gameState, players) {
+  console.log('🎮 initMemoryGame called with:', { gameState, players, playerId: state.playerId });
+  
+  if (!gameState || !gameState.cards) {
+    console.error('Invalid memory game state:', gameState);
+    elements.gameContent.innerHTML = '<div style="text-align:center;color:red;">Error: Invalid game state</div>';
+    return;
+  }
+  
   state.gameState = gameState;
   const difficultyLabel = gameState.difficulty ? gameState.difficulty.charAt(0).toUpperCase() + gameState.difficulty.slice(1) : 'Normal';
   elements.gameTitle.textContent = `🃏 Vecna's Memory Match (${difficultyLabel}) 🃏`;
@@ -1734,10 +2745,20 @@ function initMemoryGame(gameState, players) {
     }
   }
   
+  // Determine status message
+  let memoryStatusMsg;
+  if (gameState.currentPlayer === state.playerId) {
+    memoryStatusMsg = "🧠 Your turn to find a match!";
+  } else if (state.isAIGame && gameState.currentPlayer === AI_PLAYER_ID) {
+    memoryStatusMsg = '<span class="ai-thinking">🤖 Wednesday is searching...</span>';
+  } else {
+    memoryStatusMsg = "Watching...";
+  }
+
   elements.gameContent.innerHTML = `
     <div class="memory-container">
       <div class="memory-status" id="memoryStatus">
-        ${gameState.currentPlayer === state.playerId ? "🧠 Your turn to find a match!" : "Watching..."}
+        ${memoryStatusMsg}
       </div>
       <div class="memory-board" id="memoryBoard" data-cols="${gridCols}" style="grid-template-columns: repeat(${gridCols}, 1fr);">
         ${gameState.cards.map((card, i) => `
@@ -1755,7 +2776,11 @@ function initMemoryGame(gameState, players) {
   document.querySelectorAll('.memory-card').forEach(card => {
     card.addEventListener('click', () => {
       if (state.gameState.currentPlayer !== state.playerId) return;
-      socket.emit('memoryFlip', parseInt(card.dataset.index));
+      if (state.isAIGame) {
+        socket.emit('aiMemoryFlip', parseInt(card.dataset.index));
+      } else {
+        socket.emit('memoryFlip', parseInt(card.dataset.index));
+      }
     });
   });
   
@@ -1806,8 +2831,13 @@ function handleMemoryTurn(data) {
   state.gameState.currentPlayer = data.currentPlayer;
   const status = document.getElementById('memoryStatus');
   if (status) {
-    status.innerHTML = data.currentPlayer === state.playerId ? 
-      "🧠 Your turn to find a match!" : "Watching...";
+    if (data.currentPlayer === state.playerId) {
+      status.innerHTML = "🧠 Your turn to find a match!";
+    } else if (state.isAIGame && data.currentPlayer === AI_PLAYER_ID) {
+      status.innerHTML = '<span class="ai-thinking">🤖 Wednesday is searching...</span>';
+    } else {
+      status.innerHTML = "Watching...";
+    }
   }
   updateScoreBoard(state.players, data.currentPlayer);
 }
@@ -1914,6 +2944,14 @@ const CHESS_PIECES = {
 };
 
 function initChessGame(gameState, players) {
+  console.log('🎮 initChessGame called with:', { gameState, players, playerId: state.playerId });
+  
+  if (!gameState || !gameState.board) {
+    console.error('Invalid chess game state:', gameState);
+    elements.gameContent.innerHTML = '<div style="text-align:center;color:red;">Error: Invalid game state</div>';
+    return;
+  }
+  
   state.gameState = gameState;
   elements.gameTitle.textContent = '♟️ Vecna\'s Chess 👑';
   
@@ -1924,8 +2962,9 @@ function initChessGame(gameState, players) {
   chessState.selectedSquare = null;
   chessState.validMoves = [];
   
-  const whiteName = players.find(p => p.id === gameState.whitePlayer)?.name || 'White';
-  const blackName = players.find(p => p.id === gameState.blackPlayer)?.name || 'Black';
+  // Handle AI player names
+  const whiteName = players.find(p => p.id === gameState.whitePlayer)?.name || (gameState.whitePlayer === AI_PLAYER_ID ? AI_PLAYER_NAME : 'White');
+  const blackName = players.find(p => p.id === gameState.blackPlayer)?.name || (gameState.blackPlayer === AI_PLAYER_ID ? AI_PLAYER_NAME : 'Black');
   
   // Update "Now Playing" display
   if (players && players.length > 0) {
@@ -2100,6 +3139,11 @@ function handleChessSquareClick(row, col) {
       socket.emit('matchMove', { 
         matchId: state.matchId, 
         moveData: { from: [fromRow, fromCol], to: [row, col] }
+      });
+    } else if (state.isAIGame) {
+      socket.emit('aiChessMove', {
+        from: [fromRow, fromCol],
+        to: [row, col]
       });
     } else {
       socket.emit('chessMove', {
@@ -2356,6 +3400,14 @@ function handleChessUpdate(data) {
 // ============================================
 
 function initPsychicGame(gameState, players) {
+  console.log('🎮 initPsychicGame called with:', { gameState, players });
+  
+  if (!gameState) {
+    console.error('Invalid psychic game state:', gameState);
+    elements.gameContent.innerHTML = '<div style="text-align:center;color:red;">Error: Invalid game state</div>';
+    return;
+  }
+  
   state.gameState = gameState;
   state.gameState.myChoice = null;
   state.gameState.showingRules = true;
@@ -2450,7 +3502,11 @@ function showPsychicRound(round) {
       state.gameState.myChoice = choice.dataset.choice;
       choice.classList.add('selected');
       document.getElementById('psychicWaiting').style.display = 'block';
-      socket.emit('psychicMove', choice.dataset.choice);
+      if (state.isAIGame) {
+        socket.emit('aiPsychicMove', choice.dataset.choice);
+      } else {
+        socket.emit('psychicMove', choice.dataset.choice);
+      }
     });
   });
 }
@@ -2554,6 +3610,13 @@ socket.on('roomCreated', (data) => {
   state.players = data.players;
   elements.displayRoomCode.textContent = data.roomId;
   updatePlayersList(data.players);
+  
+  // Clear and load chat history
+  clearChat();
+  if (data.chatHistory && data.chatHistory.length > 0) {
+    loadChatHistory(data.chatHistory);
+  }
+  
   showScreen('lobby');
 });
 
@@ -2564,6 +3627,12 @@ socket.on('roomJoined', (data) => {
   state.activeMatches = data.activeMatches || [];
   elements.displayRoomCode.textContent = data.roomId;
   updatePlayersList(data.players);
+  
+  // Clear and load chat history (new joiners get empty history)
+  clearChat();
+  if (data.chatHistory && data.chatHistory.length > 0) {
+    loadChatHistory(data.chatHistory);
+  }
   
   // Display active matches if any
   if (data.activeMatches && data.activeMatches.length > 0) {
@@ -2629,8 +3698,17 @@ socket.on('matchStarted', (data) => {
     state.matchId = data.matchId;
     state.isSpectator = false;
     
-    if (data.autoRotation) {
-      showNotification('🔄 New round! Your turn to play!', 'info');
+    // Check if this is an AI match
+    if (data.isAIMatch) {
+      state.isAIGame = true;
+      state.aiDifficulty = data.aiDifficulty;
+      showNotification(`🤖 Match vs Wednesday (${data.aiDifficulty})!`, 'info');
+    } else {
+      state.isAIGame = false;
+      state.aiDifficulty = null;
+      if (data.autoRotation) {
+        showNotification('🔄 New round! Your turn to play!', 'info');
+      }
     }
     
     showScreen('gameScreen');
@@ -2639,7 +3717,8 @@ socket.on('matchStarted', (data) => {
     // We're spectating this match
     state.currentGame = data.gameType;
     state.matchId = data.matchId;
-    state.isSpectator = true;
+    state.isSpectator = false;
+    state.isAIGame = false;
     
     if (data.autoRotation) {
       showNotification('🔄 New round started - you\'re next in queue!', 'info');
@@ -2660,9 +3739,15 @@ socket.on('matchUpdate', (data) => {
   }
 });
 
+// Track pending AI end options timeout so we can cancel it
+let aiEndOptionsTimeout = null;
+
 socket.on('matchEnded', (data) => {
   console.log('🏁 Match ended:', data);
   const wasMyMatch = state.matchId === data.matchId;
+  const savedMatchId = state.matchId;
+  const wasAIGame = state.isAIGame; // Save before potentially clearing
+  const currentGame = state.currentGame;
   state.matchId = null;
   state.isSpectator = false;
   
@@ -2676,6 +3761,23 @@ socket.on('matchEnded', (data) => {
     showNotification(`🤝 It's a draw!`, 'info');
   }
   
+  // If this was an AI match, show replay options
+  if (wasMyMatch && wasAIGame) {
+    // Cancel any existing timeout
+    if (aiEndOptionsTimeout) {
+      clearTimeout(aiEndOptionsTimeout);
+    }
+    // Show options after a brief delay for the win/draw message to display
+    aiEndOptionsTimeout = setTimeout(() => {
+      // Only show if still on game screen and still AI game
+      if (state.isAIGame && document.getElementById('gameScreen')?.classList.contains('active')) {
+        showAIMatchEndOptions(currentGame);
+      }
+      aiEndOptionsTimeout = null;
+    }, 800);
+    return;
+  }
+  
   // If no auto-rotation (new match starting), return to lobby
   if (wasMyMatch && !data.autoRotation) {
     setTimeout(() => {
@@ -2685,6 +3787,76 @@ socket.on('matchEnded', (data) => {
     }, 2000);
   }
 });
+
+// Show end options for AI matches
+function showAIMatchEndOptions(gameType) {
+  const modal = document.getElementById('votingModal');
+  if (!modal) return;
+  
+  // Prevent showing if modal is already active with AI options
+  if (modal.classList.contains('active') && modal.querySelector('.ai-end-options')) {
+    return;
+  }
+  
+  const gameNames = {
+    'tictactoe': '⭕❌ Tic-Tac-Toe',
+    'chess': '♟️ Chess',
+    'connect4': '🔴🟡 Connect 4'
+  };
+  
+  modal.innerHTML = `
+    <div class="voting-modal-content">
+      <h3>🏁 Game Over!</h3>
+      <p class="modal-subtitle">${gameNames[gameType] || gameType} vs Wednesday</p>
+      <div class="ai-end-options">
+        <button class="btn btn-primary ai-end-btn" id="aiRematchBtn">
+          <span class="btn-icon">🔄</span> Play Again
+        </button>
+        <button class="btn btn-secondary ai-end-btn" id="aiChangeDiffBtn">
+          <span class="btn-icon">⚙️</span> Change Difficulty
+        </button>
+        <button class="btn btn-ghost ai-end-btn" id="aiBackToLobbyBtn">
+          <span class="btn-icon">🚪</span> Back to Lobby
+        </button>
+      </div>
+    </div>
+  `;
+  modal.classList.add('active');
+  
+  document.getElementById('aiRematchBtn')?.addEventListener('click', () => {
+    modal.classList.remove('active');
+    // Rechallenge Wednesday with same difficulty
+    socket.emit('challengeWednesday', { 
+      gameType: gameType, 
+      difficulty: state.aiDifficulty || 'medium',
+      options: gameType === 'connect4' ? { winCondition: state.gameState?.winCondition || 4 } : {}
+    });
+  });
+  
+  document.getElementById('aiChangeDiffBtn')?.addEventListener('click', () => {
+    modal.classList.remove('active');
+    // Show difficulty selection
+    if (gameType === 'connect4') {
+      showConnect4AIOptions(gameType);
+    } else {
+      showAIDifficultyForChallenge(gameType);
+    }
+  });
+  
+  document.getElementById('aiBackToLobbyBtn')?.addEventListener('click', () => {
+    modal.classList.remove('active');
+    // Clear any pending timeout
+    if (aiEndOptionsTimeout) {
+      clearTimeout(aiEndOptionsTimeout);
+      aiEndOptionsTimeout = null;
+    }
+    state.currentGame = null;
+    state.gameState = {};
+    state.isAIGame = false;
+    state.aiDifficulty = null;
+    showScreen('lobby');
+  });
+}
 
 socket.on('activeMatchesUpdate', (data) => {
   // Update lobby display with current matches
@@ -2799,46 +3971,71 @@ socket.on('spectatorJoined', (data) => {
 
 // Game events
 socket.on('gameStarted', (data) => {
-  console.log('🎮 Game started:', data.gameType, data.gameState);
-  state.currentGame = data.gameType;
+  console.log('🎮 Game started:', data.gameType || data.game, data.gameState || data.state);
+  
+  // Support both formats (regular and AI)
+  const gameType = data.gameType || data.game;
+  const gameState = data.gameState || data.state;
+  
+  // Handle AI game flag
+  if (data.isAIGame) {
+    state.isAIGame = true;
+    state.aiDifficulty = data.aiDifficulty;
+  }
+  
+  state.currentGame = gameType;
   state.players = data.players;
   showScreen('gameScreen');
   
+  // Add AI indicator to game title if AI game
+  if (state.isAIGame) {
+    const diffEmoji = { easy: '😊', medium: '🤔', hard: '😈', impossible: '💀' };
+    setTimeout(() => {
+      const existingIndicator = document.querySelector('.ai-indicator');
+      if (!existingIndicator) {
+        const indicator = document.createElement('span');
+        indicator.className = 'ai-indicator';
+        indicator.textContent = ` vs AI ${diffEmoji[state.aiDifficulty] || '🤖'}`;
+        elements.gameTitle.appendChild(indicator);
+      }
+    }, 100);
+  }
+  
   try {
-    switch (data.gameType) {
+    switch (gameType) {
       case 'tictactoe':
-        initTicTacToe(data.gameState, data.players);
+        initTicTacToe(gameState, data.players);
         break;
       case 'memory':
-        initMemoryGame(data.gameState, data.players);
+        initMemoryGame(gameState, data.players);
         break;
       case 'trivia':
-        initTrivia(data.gameState, data.players);
+        initTrivia(gameState, data.players);
         break;
       case 'chess':
-        initChessGame(data.gameState, data.players);
+        initChessGame(gameState, data.players);
         break;
       case 'psychic':
-        initPsychicGame(data.gameState, data.players);
+        initPsychicGame(gameState, data.players);
         break;
       case 'sudoku':
-        initSudokuGame(data.gameState, data.players);
+        initSudokuGame(gameState, data.players);
         break;
       case 'connect4':
-        initConnect4Game(data.gameState, data.players);
+        initConnect4Game(gameState, data.players);
         break;
       case 'molewhack':
-        initMoleWhackGame(data.gameState, data.players);
+        initMoleWhackGame(gameState, data.players);
         break;
       case 'mathquiz':
-        initMathQuizGame(data.gameState, data.players);
+        initMathQuizGame(gameState, data.players);
         break;
       case 'ludo':
-        initLudoGame(data.gameState, data.players);
+        initLudoGame(gameState, data.players);
         break;
       default:
-        console.error('Unknown game type:', data.gameType);
-        elements.gameContent.innerHTML = '<div style="text-align:center;color:red;">Unknown game type</div>';
+        console.error('Unknown game type:', gameType);
+        elements.gameContent.innerHTML = '<div style="text-align:center;color:red;">Unknown game type: ' + gameType + '</div>';
     }
   } catch (err) {
     console.error('Error initializing game:', err);
@@ -2851,6 +4048,19 @@ socket.on('gameUpdate', (data) => {
 });
 
 socket.on('returnToLobby', (data) => {
+  // For AI games, go to main menu instead of lobby
+  if (state.isAIGame) {
+    state.isAIGame = false;
+    state.currentGame = null;
+    state.gameState = {};
+    state.roomId = null;
+    elements.gameContent.innerHTML = '';
+    elements.resultsModal.classList.remove('active');
+    document.getElementById('votingModal')?.classList.remove('active');
+    showScreen('mainMenu');
+    return;
+  }
+  
   state.currentGame = null;
   state.gameState = {};
   state.players = data.players;
@@ -3039,8 +4249,18 @@ socket.on('gameEnded', (data) => {
 socket.on('gameRestarted', (data) => {
   console.log('🔄 Game restarted:', data.gameType, data.gameState);
   elements.resultsModal.classList.remove('active');
+  
+  // Close any open modals
+  const votingModal = document.getElementById('votingModal');
+  if (votingModal) votingModal.classList.remove('active');
+  
   state.currentGame = data.gameType;
   state.players = data.players;
+  
+  // Keep AI game state
+  if (data.isAIGame) {
+    state.isAIGame = true;
+  }
   
   try {
     switch (data.gameType) {
@@ -3389,17 +4609,24 @@ function initConnect4Game(gameState, players) {
 function renderConnect4Board(gameState, players) {
   const player1 = players.find(p => p.id === gameState.player1);
   const player2 = players.find(p => p.id === gameState.player2);
+  const player1Name = player1?.name || (gameState.player1 === AI_PLAYER_ID ? AI_PLAYER_NAME : 'Player 1');
+  const player2Name = player2?.name || (gameState.player2 === AI_PLAYER_ID ? AI_PLAYER_NAME : 'Player 2');
   const isMyTurn = gameState.currentPlayer === state.playerId;
   const myPiece = state.playerId === gameState.player1 ? '🔴' : '🟡';
   
   let statusText = '';
   if (gameState.winner) {
-    const winnerName = players.find(p => p.id === gameState.winner)?.name || 'Winner';
+    const winnerPlayer = players.find(p => p.id === gameState.winner);
+    const winnerName = winnerPlayer?.name || (gameState.winner === AI_PLAYER_ID ? AI_PLAYER_NAME : 'Winner');
     statusText = `🏆 ${winnerName} wins!`;
   } else if (gameState.isDraw) {
     statusText = "🤝 It's a draw!";
+  } else if (isMyTurn) {
+    statusText = `🎯 Your turn! (${myPiece})`;
+  } else if (state.isAIGame && gameState.currentPlayer === AI_PLAYER_ID) {
+    statusText = '<span class="ai-thinking">🤖 Wednesday is plotting...</span>';
   } else {
-    statusText = isMyTurn ? `🎯 Your turn! (${myPiece})` : "⏳ Opponent's turn...";
+    statusText = "⏳ Opponent's turn...";
   }
   
   elements.gameContent.innerHTML = `
@@ -3407,10 +4634,10 @@ function renderConnect4Board(gameState, players) {
       <div class="connect4-status" id="connect4Status">${statusText}</div>
       <div class="connect4-players">
         <span class="c4-player ${gameState.currentPlayer === gameState.player1 ? 'active' : ''}">
-          🔴 ${escapeHtml(player1?.name || 'Player 1')}
+          🔴 ${escapeHtml(player1Name)}
         </span>
         <span class="c4-player ${gameState.currentPlayer === gameState.player2 ? 'active' : ''}">
-          🟡 ${escapeHtml(player2?.name || 'Player 2')}
+          🟡 ${escapeHtml(player2Name)}
         </span>
       </div>
       <div class="connect4-board" id="connect4Board">
@@ -3434,6 +4661,8 @@ function renderConnect4Board(gameState, players) {
         const col = parseInt(cell.dataset.col);
         if (state.matchId) {
           socket.emit('matchMove', { matchId: state.matchId, moveData: { column: col } });
+        } else if (state.isAIGame) {
+          socket.emit('aiConnect4Move', col);
         } else {
           socket.emit('connect4Move', col);
         }
@@ -3441,7 +4670,8 @@ function renderConnect4Board(gameState, players) {
     });
   }
   
-  if (gameState.winner || gameState.isDraw) {
+  // Only show play again button for non-match mode (match mode uses showAIMatchEndOptions via matchEnded event)
+  if ((gameState.winner || gameState.isDraw) && !state.matchId) {
     showPlayAgainButton('connect4');
   }
 }
