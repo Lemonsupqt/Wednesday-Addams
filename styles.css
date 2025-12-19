@@ -6579,6 +6579,27 @@ input[type="password"]::placeholder {
   transform: scale(0.99);
 }
 
+/* AI Match End Options */
+.ai-end-options {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 20px;
+}
+
+.ai-end-btn {
+  width: 100%;
+  padding: 12px 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+}
+
+.ai-end-btn .btn-icon {
+  font-size: 1.2rem;
+}
+
 /* Mobile chat improvements */
 @media (max-width: 768px) {
   .chat-hint {

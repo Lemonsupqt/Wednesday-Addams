@@ -541,10 +541,32 @@ function setupMobileChatOverlay() {
     }
   });
   
-  // Sync mobile chat with main chat
+  // Sync mobile chat with main chat - properly clone messages with click handlers
   window.syncMobileChat = function() {
     if (!mobileChatMessages || !elements.gameChatMessages) return;
-    mobileChatMessages.innerHTML = elements.gameChatMessages.innerHTML;
+    
+    // Clone all messages from game chat to mobile chat
+    mobileChatMessages.innerHTML = '';
+    
+    const gameMessages = elements.gameChatMessages.querySelectorAll('.chat-message');
+    gameMessages.forEach(msg => {
+      const clone = msg.cloneNode(true);
+      // Update the chat type for mobile
+      clone.dataset.chatType = 'mobile';
+      
+      // Re-add click handler if this is a clickable message
+      if (clone.dataset.msgId && !clone.classList.contains('system')) {
+        clone.style.cursor = 'pointer';
+        clone.title = 'Click to reply';
+        clone.addEventListener('click', (e) => {
+          e.stopPropagation();
+          setReplyToByType('mobile', clone.dataset.msgId, clone.dataset.msgPlayerName, clone.dataset.msgText);
+        });
+      }
+      
+      mobileChatMessages.appendChild(clone);
+    });
+    
     mobileChatMessages.scrollTop = mobileChatMessages.scrollHeight;
   };
   
@@ -3720,6 +3742,7 @@ socket.on('matchUpdate', (data) => {
 socket.on('matchEnded', (data) => {
   console.log('🏁 Match ended:', data);
   const wasMyMatch = state.matchId === data.matchId;
+  const savedMatchId = state.matchId;
   state.matchId = null;
   state.isSpectator = false;
   
@@ -3733,6 +3756,14 @@ socket.on('matchEnded', (data) => {
     showNotification(`🤝 It's a draw!`, 'info');
   }
   
+  // If this was an AI match, show replay options
+  if (wasMyMatch && state.isAIGame) {
+    setTimeout(() => {
+      showAIMatchEndOptions(state.currentGame);
+    }, 1500);
+    return;
+  }
+  
   // If no auto-rotation (new match starting), return to lobby
   if (wasMyMatch && !data.autoRotation) {
     setTimeout(() => {
@@ -3742,6 +3773,66 @@ socket.on('matchEnded', (data) => {
     }, 2000);
   }
 });
+
+// Show end options for AI matches
+function showAIMatchEndOptions(gameType) {
+  const modal = document.getElementById('votingModal');
+  if (!modal) return;
+  
+  const gameNames = {
+    'tictactoe': '⭕❌ Tic-Tac-Toe',
+    'chess': '♟️ Chess',
+    'connect4': '🔴🟡 Connect 4'
+  };
+  
+  modal.innerHTML = `
+    <div class="voting-modal-content">
+      <h3>🏁 Game Over!</h3>
+      <p class="modal-subtitle">${gameNames[gameType] || gameType} vs Wednesday</p>
+      <div class="ai-end-options">
+        <button class="btn btn-primary ai-end-btn" id="aiRematchBtn">
+          <span class="btn-icon">🔄</span> Play Again
+        </button>
+        <button class="btn btn-secondary ai-end-btn" id="aiChangeDiffBtn">
+          <span class="btn-icon">⚙️</span> Change Difficulty
+        </button>
+        <button class="btn btn-ghost ai-end-btn" id="aiBackToLobbyBtn">
+          <span class="btn-icon">🚪</span> Back to Lobby
+        </button>
+      </div>
+    </div>
+  `;
+  modal.classList.add('active');
+  
+  document.getElementById('aiRematchBtn')?.addEventListener('click', () => {
+    modal.classList.remove('active');
+    // Rechallenge Wednesday with same difficulty
+    socket.emit('challengeWednesday', { 
+      gameType: gameType, 
+      difficulty: state.aiDifficulty || 'medium',
+      options: gameType === 'connect4' ? { winCondition: state.gameState?.winCondition || 4 } : {}
+    });
+  });
+  
+  document.getElementById('aiChangeDiffBtn')?.addEventListener('click', () => {
+    modal.classList.remove('active');
+    // Show difficulty selection
+    if (gameType === 'connect4') {
+      showConnect4AIOptions(gameType);
+    } else {
+      showAIDifficultyForChallenge(gameType);
+    }
+  });
+  
+  document.getElementById('aiBackToLobbyBtn')?.addEventListener('click', () => {
+    modal.classList.remove('active');
+    state.currentGame = null;
+    state.gameState = {};
+    state.isAIGame = false;
+    state.aiDifficulty = null;
+    showScreen('lobby');
+  });
+}
 
 socket.on('activeMatchesUpdate', (data) => {
   // Update lobby display with current matches

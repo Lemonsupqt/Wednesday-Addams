@@ -1820,6 +1820,8 @@ io.on('connection', (socket) => {
         return {
           board: Array(6).fill(null).map(() => Array(7).fill(null)),
           currentPlayer: playerId,
+          player1: playerId,
+          player2: AI_PLAYER_ID,
           playerPieces: { [playerId]: '🔴', [AI_PLAYER_ID]: '🟡' },
           winCondition: options.winCondition || 4
         };
@@ -1959,7 +1961,15 @@ io.on('connection', (socket) => {
               io.to(playerId).emit('matchUpdate', {
                 matchId,
                 gameType: 'connect4',
-                gameState: { board: state.board, winner: AI_PLAYER_ID, winnerName: AI_PLAYER_NAME, lastMove: { row, col } },
+                gameState: { 
+                  board: state.board, 
+                  winner: AI_PLAYER_ID, 
+                  winnerName: AI_PLAYER_NAME, 
+                  lastMove: { row, col },
+                  player1: playerId,
+                  player2: AI_PLAYER_ID,
+                  currentPlayer: null
+                },
                 players: match.players
               });
               io.to(playerId).emit('matchEnded', {
@@ -1972,7 +1982,14 @@ io.on('connection', (socket) => {
               io.to(playerId).emit('matchUpdate', {
                 matchId,
                 gameType: 'connect4',
-                gameState: { board: state.board, draw: true, lastMove: { row, col } },
+                gameState: { 
+                  board: state.board, 
+                  isDraw: true, 
+                  lastMove: { row, col },
+                  player1: playerId,
+                  player2: AI_PLAYER_ID,
+                  currentPlayer: null
+                },
                 players: match.players
               });
               io.to(playerId).emit('matchEnded', {
@@ -1986,7 +2003,13 @@ io.on('connection', (socket) => {
               io.to(playerId).emit('matchUpdate', {
                 matchId,
                 gameType: 'connect4',
-                gameState: { board: state.board, currentPlayer: playerId, lastMove: { row, col } },
+                gameState: { 
+                  board: state.board, 
+                  currentPlayer: playerId, 
+                  lastMove: { row, col },
+                  player1: playerId,
+                  player2: AI_PLAYER_ID
+                },
                 players: match.players,
                 currentPlayer: playerId
               });
@@ -2328,7 +2351,12 @@ io.on('connection', (socket) => {
       }
       
       case 'connect4': {
-        const { col } = moveData;
+        // Accept both 'col' and 'column' for compatibility
+        const col = moveData.col ?? moveData.column;
+        if (col === undefined) {
+          console.log('Invalid Connect4 move - no column:', moveData);
+          return null;
+        }
         
         // Find lowest empty row
         let row = -1;
@@ -2351,7 +2379,10 @@ io.on('connection', (socket) => {
               board: state.board,
               winner: playerId,
               winnerName: match.players[0].name,
-              lastMove: { row, col }
+              lastMove: { row, col },
+              player1: playerId,
+              player2: AI_PLAYER_ID,
+              currentPlayer: null
             }
           };
         }
@@ -2361,8 +2392,11 @@ io.on('connection', (socket) => {
             gameOver: true,
             updateData: {
               board: state.board,
-              draw: true,
-              lastMove: { row, col }
+              isDraw: true,
+              lastMove: { row, col },
+              player1: playerId,
+              player2: AI_PLAYER_ID,
+              currentPlayer: null
             }
           };
         }
@@ -2373,7 +2407,9 @@ io.on('connection', (socket) => {
           updateData: {
             board: state.board,
             currentPlayer: AI_PLAYER_ID,
-            lastMove: { row, col }
+            lastMove: { row, col },
+            player1: playerId,
+            player2: AI_PLAYER_ID
           }
         };
       }
