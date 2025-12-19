@@ -1840,10 +1840,26 @@ function updateScoreBoard(players, currentPlayer = null) {
 // ============================================
 
 function initTicTacToe(gameState, players) {
+  console.log('🎮 initTicTacToe called with:', { gameState, players, playerId: state.playerId });
+  
+  if (!gameState || !gameState.playerSymbols) {
+    console.error('Invalid game state:', gameState);
+    elements.gameContent.innerHTML = '<div style="text-align:center;color:red;">Error: Invalid game state</div>';
+    return;
+  }
+  
   state.gameState = gameState;
   elements.gameTitle.textContent = '⭕ Upside Down Tic-Tac-Toe ❌';
   
-  const playerSymbols = new Map(Object.entries(gameState.playerSymbols));
+  // Handle playerSymbols whether it's a Map or Object
+  let playerSymbols;
+  if (gameState.playerSymbols instanceof Map) {
+    playerSymbols = gameState.playerSymbols;
+  } else {
+    playerSymbols = new Map(Object.entries(gameState.playerSymbols));
+  }
+  state.gameState.playerSymbols = playerSymbols;
+  
   const mySymbol = playerSymbols.get(state.playerId);
   const isSpectator = state.isSpectator || !mySymbol;
   
@@ -2052,6 +2068,14 @@ function showPlayAgainButton(gameType) {
 // ============================================
 
 function initMemoryGame(gameState, players) {
+  console.log('🎮 initMemoryGame called with:', { gameState, players, playerId: state.playerId });
+  
+  if (!gameState || !gameState.cards) {
+    console.error('Invalid memory game state:', gameState);
+    elements.gameContent.innerHTML = '<div style="text-align:center;color:red;">Error: Invalid game state</div>';
+    return;
+  }
+  
   state.gameState = gameState;
   const difficultyLabel = gameState.difficulty ? gameState.difficulty.charAt(0).toUpperCase() + gameState.difficulty.slice(1) : 'Normal';
   elements.gameTitle.textContent = `🃏 Vecna's Memory Match (${difficultyLabel}) 🃏`;
@@ -2077,10 +2101,20 @@ function initMemoryGame(gameState, players) {
     }
   }
   
+  // Determine status message
+  let memoryStatusMsg;
+  if (gameState.currentPlayer === state.playerId) {
+    memoryStatusMsg = "🧠 Your turn to find a match!";
+  } else if (state.isAIGame && gameState.currentPlayer === AI_PLAYER_ID) {
+    memoryStatusMsg = '<span class="ai-thinking">🤖 Wednesday is searching...</span>';
+  } else {
+    memoryStatusMsg = "Watching...";
+  }
+
   elements.gameContent.innerHTML = `
     <div class="memory-container">
       <div class="memory-status" id="memoryStatus">
-        ${gameState.currentPlayer === state.playerId ? "🧠 Your turn to find a match!" : "Watching..."}
+        ${memoryStatusMsg}
       </div>
       <div class="memory-board" id="memoryBoard" data-cols="${gridCols}" style="grid-template-columns: repeat(${gridCols}, 1fr);">
         ${gameState.cards.map((card, i) => `
@@ -2153,8 +2187,13 @@ function handleMemoryTurn(data) {
   state.gameState.currentPlayer = data.currentPlayer;
   const status = document.getElementById('memoryStatus');
   if (status) {
-    status.innerHTML = data.currentPlayer === state.playerId ? 
-      "🧠 Your turn to find a match!" : "Watching...";
+    if (data.currentPlayer === state.playerId) {
+      status.innerHTML = "🧠 Your turn to find a match!";
+    } else if (state.isAIGame && data.currentPlayer === AI_PLAYER_ID) {
+      status.innerHTML = '<span class="ai-thinking">🤖 Wednesday is searching...</span>';
+    } else {
+      status.innerHTML = "Watching...";
+    }
   }
   updateScoreBoard(state.players, data.currentPlayer);
 }
@@ -2261,6 +2300,14 @@ const CHESS_PIECES = {
 };
 
 function initChessGame(gameState, players) {
+  console.log('🎮 initChessGame called with:', { gameState, players, playerId: state.playerId });
+  
+  if (!gameState || !gameState.board) {
+    console.error('Invalid chess game state:', gameState);
+    elements.gameContent.innerHTML = '<div style="text-align:center;color:red;">Error: Invalid game state</div>';
+    return;
+  }
+  
   state.gameState = gameState;
   elements.gameTitle.textContent = '♟️ Vecna\'s Chess 👑';
   
@@ -2271,8 +2318,9 @@ function initChessGame(gameState, players) {
   chessState.selectedSquare = null;
   chessState.validMoves = [];
   
-  const whiteName = players.find(p => p.id === gameState.whitePlayer)?.name || 'White';
-  const blackName = players.find(p => p.id === gameState.blackPlayer)?.name || 'Black';
+  // Handle AI player names
+  const whiteName = players.find(p => p.id === gameState.whitePlayer)?.name || (gameState.whitePlayer === AI_PLAYER_ID ? AI_PLAYER_NAME : 'White');
+  const blackName = players.find(p => p.id === gameState.blackPlayer)?.name || (gameState.blackPlayer === AI_PLAYER_ID ? AI_PLAYER_NAME : 'Black');
   
   // Update "Now Playing" display
   if (players && players.length > 0) {
@@ -2708,6 +2756,14 @@ function handleChessUpdate(data) {
 // ============================================
 
 function initPsychicGame(gameState, players) {
+  console.log('🎮 initPsychicGame called with:', { gameState, players });
+  
+  if (!gameState) {
+    console.error('Invalid psychic game state:', gameState);
+    elements.gameContent.innerHTML = '<div style="text-align:center;color:red;">Error: Invalid game state</div>';
+    return;
+  }
+  
   state.gameState = gameState;
   state.gameState.myChoice = null;
   state.gameState.showingRules = true;
@@ -3186,40 +3242,40 @@ socket.on('gameStarted', (data) => {
   }
   
   try {
-    switch (data.gameType) {
+    switch (gameType) {
       case 'tictactoe':
-        initTicTacToe(data.gameState, data.players);
+        initTicTacToe(gameState, data.players);
         break;
       case 'memory':
-        initMemoryGame(data.gameState, data.players);
+        initMemoryGame(gameState, data.players);
         break;
       case 'trivia':
-        initTrivia(data.gameState, data.players);
+        initTrivia(gameState, data.players);
         break;
       case 'chess':
-        initChessGame(data.gameState, data.players);
+        initChessGame(gameState, data.players);
         break;
       case 'psychic':
-        initPsychicGame(data.gameState, data.players);
+        initPsychicGame(gameState, data.players);
         break;
       case 'sudoku':
-        initSudokuGame(data.gameState, data.players);
+        initSudokuGame(gameState, data.players);
         break;
       case 'connect4':
-        initConnect4Game(data.gameState, data.players);
+        initConnect4Game(gameState, data.players);
         break;
       case 'molewhack':
-        initMoleWhackGame(data.gameState, data.players);
+        initMoleWhackGame(gameState, data.players);
         break;
       case 'mathquiz':
-        initMathQuizGame(data.gameState, data.players);
+        initMathQuizGame(gameState, data.players);
         break;
       case 'ludo':
-        initLudoGame(data.gameState, data.players);
+        initLudoGame(gameState, data.players);
         break;
       default:
-        console.error('Unknown game type:', data.gameType);
-        elements.gameContent.innerHTML = '<div style="text-align:center;color:red;">Unknown game type</div>';
+        console.error('Unknown game type:', gameType);
+        elements.gameContent.innerHTML = '<div style="text-align:center;color:red;">Unknown game type: ' + gameType + '</div>';
     }
   } catch (err) {
     console.error('Error initializing game:', err);
@@ -3780,17 +3836,24 @@ function initConnect4Game(gameState, players) {
 function renderConnect4Board(gameState, players) {
   const player1 = players.find(p => p.id === gameState.player1);
   const player2 = players.find(p => p.id === gameState.player2);
+  const player1Name = player1?.name || (gameState.player1 === AI_PLAYER_ID ? AI_PLAYER_NAME : 'Player 1');
+  const player2Name = player2?.name || (gameState.player2 === AI_PLAYER_ID ? AI_PLAYER_NAME : 'Player 2');
   const isMyTurn = gameState.currentPlayer === state.playerId;
   const myPiece = state.playerId === gameState.player1 ? '🔴' : '🟡';
   
   let statusText = '';
   if (gameState.winner) {
-    const winnerName = players.find(p => p.id === gameState.winner)?.name || 'Winner';
+    const winnerPlayer = players.find(p => p.id === gameState.winner);
+    const winnerName = winnerPlayer?.name || (gameState.winner === AI_PLAYER_ID ? AI_PLAYER_NAME : 'Winner');
     statusText = `🏆 ${winnerName} wins!`;
   } else if (gameState.isDraw) {
     statusText = "🤝 It's a draw!";
+  } else if (isMyTurn) {
+    statusText = `🎯 Your turn! (${myPiece})`;
+  } else if (state.isAIGame && gameState.currentPlayer === AI_PLAYER_ID) {
+    statusText = '<span class="ai-thinking">🤖 Wednesday is plotting...</span>';
   } else {
-    statusText = isMyTurn ? `🎯 Your turn! (${myPiece})` : "⏳ Opponent's turn...";
+    statusText = "⏳ Opponent's turn...";
   }
   
   elements.gameContent.innerHTML = `
@@ -3798,10 +3861,10 @@ function renderConnect4Board(gameState, players) {
       <div class="connect4-status" id="connect4Status">${statusText}</div>
       <div class="connect4-players">
         <span class="c4-player ${gameState.currentPlayer === gameState.player1 ? 'active' : ''}">
-          🔴 ${escapeHtml(player1?.name || 'Player 1')}
+          🔴 ${escapeHtml(player1Name)}
         </span>
         <span class="c4-player ${gameState.currentPlayer === gameState.player2 ? 'active' : ''}">
-          🟡 ${escapeHtml(player2?.name || 'Player 2')}
+          🟡 ${escapeHtml(player2Name)}
         </span>
       </div>
       <div class="connect4-board" id="connect4Board">
