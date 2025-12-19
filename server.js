@@ -682,16 +682,21 @@ io.on('connection', (socket) => {
       return;
     }
     
-    // Kick existing session if logged in elsewhere
+    // Kick existing session if logged in elsewhere (but only if socket is still active)
     const existingSocketId = usernameToSocket.get(cleanUsername);
     if (existingSocketId && existingSocketId !== socket.id) {
       const existingSocket = io.sockets.sockets.get(existingSocketId);
-      if (existingSocket) {
+      if (existingSocket && existingSocket.connected) {
+        // Only kick if the existing socket is actually still connected
+        // This prevents issues during page refresh where the old socket might be stale
         existingSocket.emit('forcedLogout', { 
           message: 'Your account was logged in from another device' 
         });
         authenticatedSockets.delete(existingSocketId);
         console.log(`⚠️ Kicked existing session for ${cleanUsername}`);
+      } else {
+        // Old socket is gone, just clean up the tracking
+        authenticatedSockets.delete(existingSocketId);
       }
     }
     

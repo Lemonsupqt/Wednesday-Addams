@@ -160,8 +160,14 @@ document.addEventListener('DOMContentLoaded', () => {
         // The actual login uses saved credentials from localStorage
         if (loginPassword) loginPassword.placeholder = 'Auto-logging in...';
         
-        // Attempt auto-login
-        socket.emit('login', auth);
+        // Wait for socket to connect before auto-login
+        if (socket.connected) {
+          socket.emit('login', auth);
+        } else {
+          socket.once('connect', () => {
+            socket.emit('login', auth);
+          });
+        }
       }
     } catch (e) {
       console.error('Failed to parse saved auth:', e);
@@ -318,7 +324,7 @@ socket.on('authSuccess', (data) => {
   state.username = data.username;
   state.userStats = data;
   
-  // Save session (for auto-login)
+  // Save session (for auto-login) - only if manually logging in (not auto-login)
   const loginUsername = document.getElementById('loginUsername')?.value.trim();
   const loginPassword = document.getElementById('loginPassword')?.value;
   if (loginUsername && loginPassword) {
@@ -327,10 +333,24 @@ socket.on('authSuccess', (data) => {
       password: loginPassword 
     }));
   }
+  // Note: During auto-login, the saved session is preserved (not overwritten)
   
   // Use display name for player name
   if (elements.playerName) {
     elements.playerName.value = data.displayName;
+  }
+  
+  // Reset login button state
+  const loginBtn = document.getElementById('loginBtn');
+  if (loginBtn) {
+    loginBtn.innerHTML = '<span class="btn-icon">⚡</span> Enter the Archives';
+    loginBtn.disabled = false;
+  }
+  
+  // Reset password placeholder
+  const loginPasswordEl = document.getElementById('loginPassword');
+  if (loginPasswordEl) {
+    loginPasswordEl.placeholder = 'Password';
   }
   
   showScreen('mainMenu');
