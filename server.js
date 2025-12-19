@@ -1840,6 +1840,8 @@ io.on('connection', (socket) => {
     const difficulty = match.aiDifficulty || 'medium';
     const state = match.gameState;
     
+    const playerId = match.players[0].id;
+    
     switch (gameType) {
       case 'tictactoe': {
         const aiSymbol = state.playerSymbols[AI_PLAYER_ID];
@@ -1850,22 +1852,30 @@ io.on('connection', (socket) => {
           state.board[move] = aiSymbol;
           
           const winner = checkTTTWinner(state.board);
-          const playerId = match.players[0].id;
           
           if (winner) {
             io.to(playerId).emit('matchUpdate', {
               matchId,
               gameType: 'tictactoe',
-              board: state.board,
-              winner: AI_PLAYER_ID,
-              winnerName: AI_PLAYER_NAME
+              gameState: { board: state.board, winner: AI_PLAYER_ID, winnerName: AI_PLAYER_NAME },
+              players: match.players
+            });
+            io.to(playerId).emit('matchEnded', {
+              matchId,
+              winner: { id: AI_PLAYER_ID, name: AI_PLAYER_NAME },
+              draw: false
             });
             endAIMatch(room, matchId);
           } else if (!state.board.includes(null)) {
             io.to(playerId).emit('matchUpdate', {
               matchId,
               gameType: 'tictactoe',
-              board: state.board,
+              gameState: { board: state.board, draw: true },
+              players: match.players
+            });
+            io.to(playerId).emit('matchEnded', {
+              matchId,
+              winner: null,
               draw: true
             });
             endAIMatch(room, matchId);
@@ -1874,7 +1884,8 @@ io.on('connection', (socket) => {
             io.to(playerId).emit('matchUpdate', {
               matchId,
               gameType: 'tictactoe',
-              board: state.board,
+              gameState: { board: state.board, currentPlayer: playerId },
+              players: match.players,
               currentPlayer: playerId
             });
           }
@@ -1906,24 +1917,27 @@ io.on('connection', (socket) => {
           updateCastlingRights(state, move.from);
           
           state.moveHistory.push(move);
-          
-          const playerId = match.players[0].id;
           state.currentPlayer = playerId;
           
           io.to(playerId).emit('matchUpdate', {
             matchId,
             gameType: 'chess',
-            board: state.board,
-            currentPlayer: playerId,
-            lastMove: move,
-            castlingRights: state.castlingRights
+            gameState: { 
+              board: state.board, 
+              currentPlayer: playerId, 
+              lastMove: move, 
+              castlingRights: state.castlingRights,
+              isWhiteTurn: state.playerColors[playerId] === 'white'
+            },
+            players: match.players,
+            currentPlayer: playerId
           });
         }
         break;
       }
       case 'connect4': {
         const aiPiece = state.playerPieces[AI_PLAYER_ID];
-        const playerPiece = state.playerPieces[match.players[0].id];
+        const playerPiece = state.playerPieces[playerId];
         const col = getAIConnect4Move(state.board, aiPiece, playerPiece, state.winCondition, difficulty);
         
         if (col !== null) {
@@ -1939,26 +1953,32 @@ io.on('connection', (socket) => {
           if (row >= 0) {
             state.board[row][col] = aiPiece;
             
-            const playerId = match.players[0].id;
             const winner = checkConnect4Winner(state.board, state.winCondition);
             
             if (winner) {
               io.to(playerId).emit('matchUpdate', {
                 matchId,
                 gameType: 'connect4',
-                board: state.board,
-                winner: AI_PLAYER_ID,
-                winnerName: AI_PLAYER_NAME,
-                lastMove: { row, col }
+                gameState: { board: state.board, winner: AI_PLAYER_ID, winnerName: AI_PLAYER_NAME, lastMove: { row, col } },
+                players: match.players
+              });
+              io.to(playerId).emit('matchEnded', {
+                matchId,
+                winner: { id: AI_PLAYER_ID, name: AI_PLAYER_NAME },
+                draw: false
               });
               endAIMatch(room, matchId);
             } else if (state.board[0].every(cell => cell !== null)) {
               io.to(playerId).emit('matchUpdate', {
                 matchId,
                 gameType: 'connect4',
-                board: state.board,
-                draw: true,
-                lastMove: { row, col }
+                gameState: { board: state.board, draw: true, lastMove: { row, col } },
+                players: match.players
+              });
+              io.to(playerId).emit('matchEnded', {
+                matchId,
+                winner: null,
+                draw: true
               });
               endAIMatch(room, matchId);
             } else {
@@ -1966,9 +1986,9 @@ io.on('connection', (socket) => {
               io.to(playerId).emit('matchUpdate', {
                 matchId,
                 gameType: 'connect4',
-                board: state.board,
-                currentPlayer: playerId,
-                lastMove: { row, col }
+                gameState: { board: state.board, currentPlayer: playerId, lastMove: { row, col } },
+                players: match.players,
+                currentPlayer: playerId
               });
             }
           }
@@ -2159,15 +2179,23 @@ io.on('connection', (socket) => {
       const result = processAIMatchMove(room, match, socket.id, moveData);
       
       if (result) {
-        // Send update to player
+        // Send update to player - wrap in gameState for compatibility
         socket.emit('matchUpdate', {
           matchId,
           gameType: match.gameType,
-          ...result.updateData
+          gameState: result.updateData,
+          players: match.players,
+          currentPlayer: result.updateData.currentPlayer
         });
         
         // Check for game end
         if (result.gameOver) {
+          // Send game over notification
+          socket.emit('matchEnded', {
+            matchId,
+            winner: result.updateData.winner ? { id: result.updateData.winner, name: result.updateData.winnerName } : null,
+            draw: result.updateData.draw || false
+          });
           endAIMatch(room, matchId);
         } else if (result.aiTurn) {
           // Schedule AI move after delay
@@ -2208,13 +2236,18 @@ io.on('connection', (socket) => {
     
     // Verify it's the player's turn
     if (state.currentPlayer !== playerId) {
+      console.log('Not player turn:', { currentPlayer: state.currentPlayer, playerId });
       return null;
     }
     
     switch (match.gameType) {
       case 'tictactoe': {
-        const { index } = moveData;
-        if (state.board[index] !== null) return null;
+        // Accept both 'index' and 'cellIndex' for compatibility
+        const index = moveData.index ?? moveData.cellIndex;
+        if (index === undefined || state.board[index] !== null) {
+          console.log('Invalid TTT move:', { index, moveData });
+          return null;
+        }
         
         state.board[index] = state.playerSymbols[playerId];
         
@@ -2251,27 +2284,36 @@ io.on('connection', (socket) => {
       
       case 'chess': {
         const { from, to, promotion } = moveData;
-        const piece = state.board[from.row][from.col];
+        // Handle both array format [row, col] and object format {row, col}
+        const fromRow = Array.isArray(from) ? from[0] : from.row;
+        const fromCol = Array.isArray(from) ? from[1] : from.col;
+        const toRow = Array.isArray(to) ? to[0] : to.row;
+        const toCol = Array.isArray(to) ? to[1] : to.col;
         
-        if (!piece) return null;
+        const piece = state.board[fromRow][fromCol];
+        
+        if (!piece) {
+          console.log('Invalid chess move - no piece:', { from, to });
+          return null;
+        }
         
         // Apply move
-        state.board[to.row][to.col] = promotion || piece;
-        state.board[from.row][from.col] = null;
+        state.board[toRow][toCol] = promotion || piece;
+        state.board[fromRow][fromCol] = null;
         
         // Handle castling
         if (moveData.castle) {
           if (moveData.castle === 'kingside') {
-            state.board[from.row][5] = state.board[from.row][7];
-            state.board[from.row][7] = null;
+            state.board[fromRow][5] = state.board[fromRow][7];
+            state.board[fromRow][7] = null;
           } else {
-            state.board[from.row][3] = state.board[from.row][0];
-            state.board[from.row][0] = null;
+            state.board[fromRow][3] = state.board[fromRow][0];
+            state.board[fromRow][0] = null;
           }
         }
         
-        updateCastlingRights(state, from);
-        state.moveHistory.push({ from, to, promotion });
+        updateCastlingRights(state, { row: fromRow, col: fromCol });
+        state.moveHistory.push({ from: { row: fromRow, col: fromCol }, to: { row: toRow, col: toCol }, promotion });
         state.currentPlayer = AI_PLAYER_ID;
         
         return {
@@ -2279,7 +2321,7 @@ io.on('connection', (socket) => {
           updateData: {
             board: state.board,
             currentPlayer: AI_PLAYER_ID,
-            lastMove: { from, to },
+            lastMove: { from: { row: fromRow, col: fromCol }, to: { row: toRow, col: toCol } },
             castlingRights: state.castlingRights
           }
         };
