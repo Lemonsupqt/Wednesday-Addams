@@ -174,6 +174,8 @@ app.get('/api/leaderboard', (req, res) => {
 const rooms = new Map();
 const players = new Map();
 const authenticatedSockets = new Map(); // socket.id -> username
+const usernameToSocket = new Map(); // username -> socket.id (for preventing duplicate logins)
+const roomTrophies = new Map(); // roomId -> Map<username, trophyCount> (for persistent room trophies)
 
 // Trivia questions - Stranger Things & Wednesday themed
 const triviaQuestions = [
@@ -450,7 +452,7 @@ const PLAYER_COLORS = [
 
 // Room class to manage game state
 class GameRoom {
-  constructor(id, creatorId, creatorName, creatorUsername = null) {
+  constructor(id, creatorId, creatorName, creatorUsername = null, storedTrophies = 0) {
     this.id = id;
     this.creatorId = creatorId; // Original creator (for reference)
     this.players = new Map();
@@ -458,7 +460,7 @@ class GameRoom {
       id: creatorId, 
       name: creatorName,
       username: creatorUsername,  // Linked account username
-      trophies: 0,        // Trophies earned in this room session
+      trophies: storedTrophies,   // Trophies earned in this room (persisted)
       sessionWins: 0,     // Wins in current game session  
       points: 0,          // In-game points (resets each round)
       ready: false, 
@@ -474,14 +476,14 @@ class GameRoom {
     this.votingActive = false;
   }
 
-  addPlayer(playerId, playerName, username = null) {
+  addPlayer(playerId, playerName, username = null, storedTrophies = 0) {
     const color = PLAYER_COLORS[this.colorIndex % PLAYER_COLORS.length];
     this.colorIndex++;
     this.players.set(playerId, { 
       id: playerId, 
       name: playerName,
       username: username,
-      trophies: 0,
+      trophies: storedTrophies, // Restore persisted trophies
       sessionWins: 0,
       points: 0,
       ready: false, 
@@ -490,6 +492,17 @@ class GameRoom {
   }
 
   removePlayer(playerId) {
+    const player = this.players.get(playerId);
+    
+    // Persist room trophies before removing the player
+    if (player && player.username && player.trophies > 0) {
+      if (!roomTrophies.has(this.id)) {
+        roomTrophies.set(this.id, new Map());
+      }
+      roomTrophies.get(this.id).set(player.username, player.trophies);
+      console.log(`💾 Saved ${player.trophies} trophies for @${player.username} in room ${this.id} (player left)`);
+    }
+    
     this.players.delete(playerId);
     this.gameVotes.delete(playerId);
   }
@@ -569,6 +582,15 @@ class GameRoom {
       const winner = this.players.get(winners[0].id);
       winner.trophies += 1;
       
+      // Persist room trophies for this user
+      if (winner.username) {
+        if (!roomTrophies.has(this.id)) {
+          roomTrophies.set(this.id, new Map());
+        }
+        roomTrophies.get(this.id).set(winner.username, winner.trophies);
+        console.log(`🏆 Persisted ${winner.trophies} trophies for @${winner.username} in room ${this.id}`);
+      }
+      
       // Update global account stats
       if (winner.username && userAccounts[winner.username]) {
         updateUserStats(winner.username, false, true);
@@ -627,6 +649,7 @@ io.on('connection', (socket) => {
     saveUsers(userAccounts);
     
     authenticatedSockets.set(socket.id, cleanUsername);
+    usernameToSocket.set(cleanUsername, socket.id);
     
     socket.emit('authSuccess', { 
       username: cleanUsername,
@@ -659,7 +682,25 @@ io.on('connection', (socket) => {
       return;
     }
     
+    // Check if this account is already logged in elsewhere
+    const existingSocketId = usernameToSocket.get(cleanUsername);
+    if (existingSocketId && existingSocketId !== socket.id) {
+      // Kick the existing session
+      const existingSocket = io.sockets.sockets.get(existingSocketId);
+      if (existingSocket) {
+        existingSocket.emit('forcedLogout', { 
+          message: 'Your account was logged in from another device' 
+        });
+        // Clean up the old session
+        authenticatedSockets.delete(existingSocketId);
+        // Handle disconnect for old socket (remove from room, etc.)
+        handleDisconnectCleanup(existingSocketId);
+        console.log(`⚠️ Kicked existing session for ${cleanUsername} (socket: ${existingSocketId})`);
+      }
+    }
+    
     authenticatedSockets.set(socket.id, cleanUsername);
+    usernameToSocket.set(cleanUsername, socket.id);
     
     socket.emit('authSuccess', {
       username: cleanUsername,
@@ -677,6 +718,10 @@ io.on('connection', (socket) => {
     const username = authenticatedSockets.get(socket.id);
     if (username) {
       authenticatedSockets.delete(socket.id);
+      // Only remove from usernameToSocket if this socket is the current one for this user
+      if (usernameToSocket.get(username) === socket.id) {
+        usernameToSocket.delete(username);
+      }
       console.log(`🔒 User logged out: ${username}`);
     }
     socket.emit('loggedOut');
@@ -694,7 +739,17 @@ io.on('connection', (socket) => {
   socket.on('createRoom', (playerName) => {
     const username = authenticatedSockets.get(socket.id);
     const roomId = uuidv4().substring(0, 6).toUpperCase();
-    const room = new GameRoom(roomId, socket.id, playerName, username);
+    
+    // Get stored trophies for this user in this room (if any - unlikely for new room but handles edge cases)
+    let storedTrophies = 0;
+    if (username) {
+      const roomTrophyMap = roomTrophies.get(roomId);
+      if (roomTrophyMap && roomTrophyMap.has(username)) {
+        storedTrophies = roomTrophyMap.get(username);
+      }
+    }
+    
+    const room = new GameRoom(roomId, socket.id, playerName, username, storedTrophies);
     rooms.set(roomId, room);
     players.set(socket.id, roomId);
     
@@ -706,7 +761,8 @@ io.on('connection', (socket) => {
   // Join room
   socket.on('joinRoom', ({ roomId, playerName }) => {
     const username = authenticatedSockets.get(socket.id);
-    const room = rooms.get(roomId.toUpperCase());
+    const normalizedRoomId = roomId.toUpperCase();
+    const room = rooms.get(normalizedRoomId);
     if (!room) {
       socket.emit('error', { message: 'Room not found. Check the code and try again.' });
       return;
@@ -719,14 +775,32 @@ io.on('connection', (socket) => {
       socket.emit('error', { message: 'Game already in progress' });
       return;
     }
-
-    room.addPlayer(socket.id, playerName, username);
-    players.set(socket.id, roomId.toUpperCase());
     
-    socket.join(roomId.toUpperCase());
-    socket.emit('roomJoined', { roomId: roomId.toUpperCase(), players: room.getPlayerList() });
-    socket.to(roomId.toUpperCase()).emit('playerJoined', { players: room.getPlayerList() });
-    console.log(`👤 ${playerName}${username ? ` (@${username})` : ''} joined room ${roomId}`);
+    // Prevent same account from joining the same room twice
+    if (username) {
+      const existingPlayer = Array.from(room.players.values()).find(p => p.username === username);
+      if (existingPlayer) {
+        socket.emit('error', { message: 'This account is already in this room!' });
+        return;
+      }
+    }
+    
+    // Get stored trophies for this user in this room (if any)
+    let storedTrophies = 0;
+    if (username) {
+      const roomTrophyMap = roomTrophies.get(normalizedRoomId);
+      if (roomTrophyMap && roomTrophyMap.has(username)) {
+        storedTrophies = roomTrophyMap.get(username);
+      }
+    }
+
+    room.addPlayer(socket.id, playerName, username, storedTrophies);
+    players.set(socket.id, normalizedRoomId);
+    
+    socket.join(normalizedRoomId);
+    socket.emit('roomJoined', { roomId: normalizedRoomId, players: room.getPlayerList() });
+    socket.to(normalizedRoomId).emit('playerJoined', { players: room.getPlayerList() });
+    console.log(`👤 ${playerName}${username ? ` (@${username})` : ''} joined room ${roomId}${storedTrophies > 0 ? ` (restored ${storedTrophies} trophies)` : ''}`);
   });
 
   // Chat message
@@ -1658,7 +1732,44 @@ io.on('connection', (socket) => {
     console.log(`👋 Player disconnected: ${socket.id}`);
   });
 
+  // Clean up function for forced disconnects (e.g., when kicked due to duplicate login)
+  function handleDisconnectCleanup(socketId) {
+    const roomId = players.get(socketId);
+    if (!roomId) return;
+
+    const room = rooms.get(roomId);
+    if (!room) return;
+
+    const playerName = room.players.get(socketId)?.name;
+    room.removePlayer(socketId);
+    players.delete(socketId);
+
+    if (room.players.size === 0) {
+      rooms.delete(roomId);
+      console.log(`🗑️ Room ${roomId} deleted (empty)`);
+    } else {
+      // Transfer host if needed
+      if (room.hostId === socketId) {
+        room.hostId = room.players.keys().next().value;
+      }
+      
+      io.to(roomId).emit('playerLeft', { 
+        playerId: socketId,
+        playerName,
+        players: room.getPlayerList(),
+        newHostId: room.hostId
+      });
+    }
+  }
+
   function handleDisconnect(socket) {
+    // Clean up username tracking
+    const username = authenticatedSockets.get(socket.id);
+    if (username && usernameToSocket.get(username) === socket.id) {
+      usernameToSocket.delete(username);
+    }
+    authenticatedSockets.delete(socket.id);
+    
     const roomId = players.get(socket.id);
     if (!roomId) return;
 
