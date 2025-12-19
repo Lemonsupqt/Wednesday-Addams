@@ -131,6 +131,7 @@ document.addEventListener('DOMContentLoaded', () => {
   setupFullscreenToggle();
   setupMobileChatOverlay();
   setupScoreToggle();
+  initAdvancedChat();
   
   // Restore saved player name for both guests and registered users
   const savedPlayerName = localStorage.getItem('playerName');
@@ -1711,32 +1712,271 @@ function sendGameChat() {
 
 function addChatMessage(msg, container = elements.chatMessages) {
   const div = document.createElement('div');
-  let className = 'chat-message';
+  let className = 'chat-message chat-notification';
   if (msg.isGuess) className += ' guess';
   if (msg.system) className += ' system';
   if (msg.isAI) className += ' ai-message';
+  if (msg.playerId === state.playerId) className += ' is-me';
+  
+  // Check if player is mentioned
+  const playerName = state.playerName || '';
+  if (msg.message && playerName && msg.message.toLowerCase().includes(playerName.toLowerCase())) {
+    className += ' mentioned';
+  }
+  
   div.className = className;
   
+  const timestamp = getTimeString();
+  
   if (msg.system) {
-    div.innerHTML = `<span class="message">${escapeHtml(msg.message)}</span>`;
+    div.innerHTML = `
+      <span class="message">${escapeHtml(msg.message)}</span>
+      <span class="timestamp">${timestamp}</span>
+    `;
   } else {
     // Use player color if available, fallback to default
     const senderColor = msg.color || msg.playerColor || (msg.isAI ? '#a855f7' : '#ff2a6d');
     const aiIcon = msg.isAI ? '🤖 ' : '';
+    
+    // Format message with simple markdown support
+    let formattedMessage = escapeHtml(msg.message);
+    // Bold: **text** -> <strong>text</strong>
+    formattedMessage = formattedMessage.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+    // Italic: *text* -> <em>text</em>
+    formattedMessage = formattedMessage.replace(/\*(.+?)\*/g, '<em>$1</em>');
+    
     div.innerHTML = `
       <span class="sender" style="color: ${senderColor}">${aiIcon}${escapeHtml(msg.playerName)}:</span>
-      <span class="message">${escapeHtml(msg.message)}</span>
+      <span class="message">${formattedMessage}</span>
+      <span class="timestamp">${timestamp}</span>
     `;
   }
   
   container.appendChild(div);
-  container.scrollTop = container.scrollHeight;
+  
+  // Smart scroll - only auto-scroll if already near bottom
+  const isNearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 100;
+  if (isNearBottom) {
+    container.scrollTop = container.scrollHeight;
+  } else {
+    // Show scroll indicator if not auto-scrolling
+    updateUnreadBadge(container);
+  }
+  
+  // Play notification sound if enabled and not own message
+  if (chatSettings.soundEnabled && msg.playerId !== state.playerId && !msg.system) {
+    playMessageSound();
+  }
   
   // Sync to mobile chat if this is the game chat
   if (container === elements.gameChatMessages && typeof syncMobileChat === 'function') {
     syncMobileChat();
   }
 }
+
+// ============================================
+// 💬 ADVANCED CHAT FEATURES
+// ============================================
+
+// Chat settings
+const chatSettings = {
+  soundEnabled: true,
+  lastTypingTime: 0,
+  typingTimeout: null
+};
+
+// Initialize advanced chat features
+function initAdvancedChat() {
+  // Quick phrases
+  document.querySelectorAll('.quick-phrase').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const phrase = btn.dataset.phrase;
+      socket.emit('chatMessage', phrase);
+    });
+  });
+  
+  // Emoji picker - lobby
+  const emojiBtn = document.getElementById('emojiPickerBtn');
+  const emojiPicker = document.getElementById('emojiPicker');
+  if (emojiBtn && emojiPicker) {
+    emojiBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      emojiPicker.style.display = emojiPicker.style.display === 'none' ? 'block' : 'none';
+    });
+  }
+  
+  // Emoji picker - game
+  const gameEmojiBtn = document.getElementById('gameEmojiBtn');
+  const gameEmojiPicker = document.getElementById('gameEmojiPicker');
+  if (gameEmojiBtn && gameEmojiPicker) {
+    gameEmojiBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      gameEmojiPicker.style.display = gameEmojiPicker.style.display === 'none' ? 'block' : 'none';
+    });
+  }
+  
+  // Emoji selection
+  document.querySelectorAll('.emoji-item').forEach(emoji => {
+    emoji.addEventListener('click', () => {
+      const emojiChar = emoji.textContent;
+      // Find the active input
+      const lobbyInput = document.getElementById('chatInput');
+      const gameInput = document.getElementById('gameChatInput');
+      const activeInput = document.activeElement === gameInput ? gameInput : lobbyInput;
+      
+      if (activeInput) {
+        activeInput.value += emojiChar;
+        activeInput.focus();
+      }
+      
+      // Close pickers
+      if (emojiPicker) emojiPicker.style.display = 'none';
+      if (gameEmojiPicker) gameEmojiPicker.style.display = 'none';
+    });
+  });
+  
+  // Close emoji picker when clicking outside
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('.emoji-picker') && !e.target.closest('.emoji-picker-btn')) {
+      if (emojiPicker) emojiPicker.style.display = 'none';
+      if (gameEmojiPicker) gameEmojiPicker.style.display = 'none';
+    }
+  });
+  
+  // Sound toggle
+  const soundToggle = document.getElementById('chatSoundToggle');
+  if (soundToggle) {
+    // Load saved preference
+    const savedSound = localStorage.getItem('chatSoundEnabled');
+    if (savedSound !== null) {
+      chatSettings.soundEnabled = savedSound === 'true';
+      soundToggle.classList.toggle('muted', !chatSettings.soundEnabled);
+      soundToggle.textContent = chatSettings.soundEnabled ? '🔔' : '🔕';
+    }
+    
+    soundToggle.addEventListener('click', () => {
+      chatSettings.soundEnabled = !chatSettings.soundEnabled;
+      localStorage.setItem('chatSoundEnabled', chatSettings.soundEnabled);
+      soundToggle.classList.toggle('muted', !chatSettings.soundEnabled);
+      soundToggle.textContent = chatSettings.soundEnabled ? '🔔' : '🔕';
+      showNotification(chatSettings.soundEnabled ? '🔔 Sound enabled' : '🔕 Sound muted', 'info');
+    });
+  }
+  
+  // Typing indicator - send typing status
+  const chatInput = document.getElementById('chatInput');
+  const gameChatInput = document.getElementById('gameChatInput');
+  
+  [chatInput, gameChatInput].forEach(input => {
+    if (input) {
+      input.addEventListener('input', () => {
+        const now = Date.now();
+        if (now - chatSettings.lastTypingTime > 2000) {
+          chatSettings.lastTypingTime = now;
+          socket.emit('typing', { isTyping: true });
+        }
+        
+        // Clear previous timeout
+        if (chatSettings.typingTimeout) {
+          clearTimeout(chatSettings.typingTimeout);
+        }
+        
+        // Stop typing after 3 seconds of no input
+        chatSettings.typingTimeout = setTimeout(() => {
+          socket.emit('typing', { isTyping: false });
+        }, 3000);
+      });
+      
+      // Stop typing on send
+      input.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') {
+          if (chatSettings.typingTimeout) {
+            clearTimeout(chatSettings.typingTimeout);
+          }
+          socket.emit('typing', { isTyping: false });
+        }
+      });
+    }
+  });
+  
+  // Scroll to bottom when clicking unread badge
+  const unreadBadge = document.getElementById('unreadBadge');
+  if (unreadBadge) {
+    unreadBadge.addEventListener('click', () => {
+      elements.chatMessages.scrollTop = elements.chatMessages.scrollHeight;
+      unreadBadge.style.display = 'none';
+    });
+  }
+  
+  // Reset unread when scrolling to bottom
+  if (elements.chatMessages) {
+    elements.chatMessages.addEventListener('scroll', () => {
+      const isAtBottom = elements.chatMessages.scrollHeight - elements.chatMessages.scrollTop - elements.chatMessages.clientHeight < 50;
+      if (isAtBottom && unreadBadge) {
+        unreadBadge.style.display = 'none';
+        unreadBadge.textContent = '0';
+      }
+    });
+  }
+}
+
+// Update unread badge
+function updateUnreadBadge(container) {
+  if (container === elements.chatMessages) {
+    const badge = document.getElementById('unreadBadge');
+    if (badge) {
+      const count = parseInt(badge.textContent || '0') + 1;
+      badge.textContent = count > 99 ? '99+' : count;
+      badge.style.display = 'block';
+    }
+  }
+}
+
+// Play message notification sound
+function playMessageSound() {
+  if (!chatSettings.soundEnabled) return;
+  
+  try {
+    // Create a simple beep using Web Audio API
+    const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+    const oscillator = audioContext.createOscillator();
+    const gainNode = audioContext.createGain();
+    
+    oscillator.connect(gainNode);
+    gainNode.connect(audioContext.destination);
+    
+    oscillator.frequency.value = 800;
+    oscillator.type = 'sine';
+    gainNode.gain.value = 0.1;
+    
+    oscillator.start();
+    gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.1);
+    oscillator.stop(audioContext.currentTime + 0.1);
+  } catch (e) {
+    // Audio not supported, fail silently
+  }
+}
+
+// Get time string for message
+function getTimeString() {
+  const now = new Date();
+  return now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+
+// Handle typing indicator from server
+socket.on('userTyping', (data) => {
+  const indicator = data.inGame ? 
+    document.getElementById('gameTypingIndicator') : 
+    document.getElementById('typingIndicator');
+  
+  if (indicator) {
+    if (data.isTyping && data.playerName && data.playerId !== state.playerId) {
+      indicator.textContent = `${data.playerName} is typing...`;
+    } else {
+      indicator.textContent = '';
+    }
+  }
+});
 
 // ============================================
 // GAME MANAGEMENT
@@ -2032,35 +2272,69 @@ function showPlayAgainButton(gameType) {
   const container = document.querySelector(`.${gameType}-container`) || elements.gameContent;
   
   // Remove existing play again button if any
-  const existingBtn = container.querySelector('.play-again-btn');
+  const existingBtn = container.querySelector('.play-again-container');
   if (existingBtn) existingBtn.remove();
   
   const playAgainDiv = document.createElement('div');
   playAgainDiv.className = 'play-again-container';
-  playAgainDiv.innerHTML = `
-    <button class="btn btn-primary play-again-btn" id="playAgainBtn">
-      <span class="btn-icon">🔄</span> Play Again
-    </button>
-    <button class="btn btn-secondary back-to-lobby-btn" id="backToLobbyFromGame">
-      <span class="btn-icon">🏠</span> Back to Lobby
-    </button>
-  `;
-  container.appendChild(playAgainDiv);
   
-  document.getElementById('playAgainBtn').addEventListener('click', () => {
-    // Any player can trigger play again
-    if (state.currentGame === 'memory' && state.gameState.difficulty) {
-      socket.emit('restartGame', { type: 'memory', options: { difficulty: state.gameState.difficulty } });
-    } else if (state.currentGame === 'sudoku' && state.gameState.difficulty) {
-      socket.emit('restartGame', { type: 'sudoku', options: { difficulty: state.gameState.difficulty } });
-    } else {
-      socket.emit('restartGame', state.currentGame);
-    }
-  });
-  
-  document.getElementById('backToLobbyFromGame').addEventListener('click', () => {
-    socket.emit('endGame');
-  });
+  // Different buttons for AI mode vs regular mode
+  if (state.isAIGame) {
+    playAgainDiv.innerHTML = `
+      <button class="btn btn-primary play-again-btn" id="playAgainBtn">
+        <span class="btn-icon">🔄</span> Play Again
+      </button>
+      <button class="btn btn-secondary" id="aiChangeDiffBtn">
+        <span class="btn-icon">⚙️</span> Change Difficulty
+      </button>
+      <button class="btn btn-ghost" id="aiExitToMenuBtn">
+        <span class="btn-icon">🚪</span> Exit to Menu
+      </button>
+    `;
+    container.appendChild(playAgainDiv);
+    
+    document.getElementById('playAgainBtn')?.addEventListener('click', () => {
+      const options = {};
+      if (state.currentGame === 'memory' && state.gameState.difficulty) {
+        options.difficulty = state.gameState.difficulty;
+      }
+      socket.emit('restartAIGame', { type: state.currentGame, options });
+    });
+    
+    document.getElementById('aiChangeDiffBtn')?.addEventListener('click', () => {
+      const currentGame = state.currentGame;
+      endGame();
+      showAIDifficultySelection(currentGame);
+    });
+    
+    document.getElementById('aiExitToMenuBtn')?.addEventListener('click', () => {
+      endGame();
+    });
+  } else {
+    playAgainDiv.innerHTML = `
+      <button class="btn btn-primary play-again-btn" id="playAgainBtn">
+        <span class="btn-icon">🔄</span> Play Again
+      </button>
+      <button class="btn btn-secondary back-to-lobby-btn" id="backToLobbyFromGame">
+        <span class="btn-icon">🏠</span> Back to Lobby
+      </button>
+    `;
+    container.appendChild(playAgainDiv);
+    
+    document.getElementById('playAgainBtn')?.addEventListener('click', () => {
+      if (state.currentGame === 'memory' && state.gameState.difficulty) {
+        socket.emit('restartGame', { type: 'memory', options: { difficulty: state.gameState.difficulty } });
+      } else if (state.currentGame === 'sudoku' && state.gameState.difficulty) {
+        socket.emit('restartGame', { type: 'sudoku', options: { difficulty: state.gameState.difficulty } });
+      } else {
+        socket.emit('restartGame', state.currentGame);
+      }
+    });
+    
+    document.getElementById('backToLobbyFromGame')?.addEventListener('click', () => {
+      socket.emit('endGame');
+    });
+  }
 }
 
 // ============================================
@@ -3288,6 +3562,19 @@ socket.on('gameUpdate', (data) => {
 });
 
 socket.on('returnToLobby', (data) => {
+  // For AI games, go to main menu instead of lobby
+  if (state.isAIGame) {
+    state.isAIGame = false;
+    state.currentGame = null;
+    state.gameState = {};
+    state.roomId = null;
+    elements.gameContent.innerHTML = '';
+    elements.resultsModal.classList.remove('active');
+    document.getElementById('votingModal')?.classList.remove('active');
+    showScreen('mainMenu');
+    return;
+  }
+  
   state.currentGame = null;
   state.gameState = {};
   state.players = data.players;

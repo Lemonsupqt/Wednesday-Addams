@@ -1503,6 +1503,24 @@ io.on('connection', (socket) => {
     io.to(roomId).emit('chatMessage', chatMsg);
   });
 
+  // Typing indicator
+  socket.on('typing', ({ isTyping }) => {
+    const roomId = players.get(socket.id);
+    const room = rooms.get(roomId);
+    if (!room) return;
+    
+    const player = room.players.get(socket.id);
+    if (!player) return;
+    
+    // Broadcast typing status to others in room
+    socket.to(roomId).emit('userTyping', {
+      playerId: socket.id,
+      playerName: player.name,
+      isTyping,
+      inGame: room.currentGame !== null
+    });
+  });
+
   // ============================================
   // CHALLENGE SYSTEM (2-Player Games)
   // ============================================

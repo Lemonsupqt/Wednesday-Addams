@@ -165,11 +165,41 @@
         </div>
 
         <div class="chat-section">
-          <h3>💬 The Séance Circle</h3>
+          <div class="chat-header">
+            <h3>💬 The Séance Circle</h3>
+            <div class="chat-header-actions">
+              <span id="typingIndicator" class="typing-indicator"></span>
+              <span id="unreadBadge" class="unread-badge" style="display: none;">0</span>
+              <button id="chatSoundToggle" class="chat-sound-btn" title="Toggle Sound">🔔</button>
+            </div>
+          </div>
           <div id="chatMessages" class="chat-messages"></div>
+          <div id="quickPhrases" class="quick-phrases">
+            <button class="quick-phrase" data-phrase="GG! 🎮">GG!</button>
+            <button class="quick-phrase" data-phrase="Nice move! 👏">Nice!</button>
+            <button class="quick-phrase" data-phrase="Let's go! 🚀">Go!</button>
+            <button class="quick-phrase" data-phrase="😂">😂</button>
+            <button class="quick-phrase" data-phrase="🔥">🔥</button>
+            <button class="quick-phrase" data-phrase="💀">💀</button>
+          </div>
           <div class="chat-input-container">
+            <button id="emojiPickerBtn" class="emoji-picker-btn" title="Emoji">😊</button>
             <input type="text" id="chatInput" placeholder="Whisper into the void..." maxlength="200">
             <button id="sendChatBtn" class="btn-small">📨</button>
+          </div>
+          <div id="emojiPicker" class="emoji-picker" style="display: none;">
+            <div class="emoji-grid">
+              <span class="emoji-item">😀</span><span class="emoji-item">😂</span><span class="emoji-item">🤣</span>
+              <span class="emoji-item">😊</span><span class="emoji-item">😎</span><span class="emoji-item">🤔</span>
+              <span class="emoji-item">😱</span><span class="emoji-item">😈</span><span class="emoji-item">👻</span>
+              <span class="emoji-item">💀</span><span class="emoji-item">🎮</span><span class="emoji-item">🏆</span>
+              <span class="emoji-item">🔥</span><span class="emoji-item">⚡</span><span class="emoji-item">🌟</span>
+              <span class="emoji-item">👍</span><span class="emoji-item">👎</span><span class="emoji-item">👏</span>
+              <span class="emoji-item">🙌</span><span class="emoji-item">🤝</span><span class="emoji-item">💪</span>
+              <span class="emoji-item">🎯</span><span class="emoji-item">🎲</span><span class="emoji-item">♟️</span>
+              <span class="emoji-item">🃏</span><span class="emoji-item">🔮</span><span class="emoji-item">🧠</span>
+              <span class="emoji-item">❤️</span><span class="emoji-item">💔</span><span class="emoji-item">🖤</span>
+            </div>
           </div>
         </div>
       </div>
@@ -215,10 +245,27 @@
       </div>
 
       <div class="game-chat">
+        <div class="game-chat-header">
+          <span id="gameTypingIndicator" class="typing-indicator"></span>
+        </div>
         <div id="gameChatMessages" class="chat-messages small"></div>
+        <div id="gameQuickPhrases" class="quick-phrases compact">
+          <button class="quick-phrase" data-phrase="GG!">GG</button>
+          <button class="quick-phrase" data-phrase="Nice!">👏</button>
+          <button class="quick-phrase" data-phrase="🔥">🔥</button>
+          <button class="quick-phrase" data-phrase="😂">😂</button>
+        </div>
         <div class="chat-input-container">
-          <input type="text" id="gameChatInput" placeholder="Chat or guess..." maxlength="200">
+          <button id="gameEmojiBtn" class="emoji-picker-btn small" title="Emoji">😊</button>
+          <input type="text" id="gameChatInput" placeholder="Chat..." maxlength="200">
           <button id="sendGameChatBtn" class="btn-small">📨</button>
+        </div>
+        <div id="gameEmojiPicker" class="emoji-picker compact" style="display: none;">
+          <div class="emoji-grid compact">
+            <span class="emoji-item">😀</span><span class="emoji-item">😂</span><span class="emoji-item">🔥</span>
+            <span class="emoji-item">💀</span><span class="emoji-item">👏</span><span class="emoji-item">🏆</span>
+            <span class="emoji-item">👍</span><span class="emoji-item">👎</span><span class="emoji-item">❤️</span>
+          </div>
         </div>
       </div>
     </div>
