@@ -1939,8 +1939,19 @@ function addChatMessage(msg, container = elements.chatMessages) {
   
   // Add click handler for reply (only for non-system messages)
   if (!msg.system && msg.id) {
-    div.addEventListener('click', () => {
-      setReplyTo(container, msg.id, msg.playerName, msg.message);
+    // Add data attribute to identify chat type
+    if (container.id === 'gameChatMessages' || container === elements.gameChatMessages) {
+      div.dataset.chatType = 'game';
+    } else if (container.id === 'mobileChatMessages') {
+      div.dataset.chatType = 'mobile';
+    } else {
+      div.dataset.chatType = 'lobby';
+    }
+    
+    div.addEventListener('click', (e) => {
+      e.stopPropagation(); // Prevent event bubbling issues
+      const chatType = div.dataset.chatType;
+      setReplyToByType(chatType, msg.id, msg.playerName, msg.message);
     });
     div.style.cursor = 'pointer';
     div.title = 'Click to reply';
@@ -1989,35 +2000,40 @@ function loadChatHistory(history) {
   });
 }
 
-// Set reply to a message
-function setReplyTo(container, msgId, playerName, text) {
-  let stateKey = 'lobby';
-  let previewId = 'replyPreview';
-  let nameId = 'replyToName';
-  let textId = 'replyToText';
-  let inputId = 'chatInput';
+// Set reply to a message by chat type (more reliable)
+function setReplyToByType(chatType, msgId, playerName, text) {
+  const configs = {
+    lobby: {
+      stateKey: 'lobby',
+      previewId: 'replyPreview',
+      nameId: 'replyToName',
+      textId: 'replyToText',
+      inputId: 'chatInput'
+    },
+    game: {
+      stateKey: 'game',
+      previewId: 'gameReplyPreview',
+      nameId: 'gameReplyToName',
+      textId: 'gameReplyToText',
+      inputId: 'gameChatInput'
+    },
+    mobile: {
+      stateKey: 'mobile',
+      previewId: 'mobileReplyPreview',
+      nameId: 'mobileReplyToName',
+      textId: 'mobileReplyToText',
+      inputId: 'mobileChatInput'
+    }
+  };
   
-  // Check both reference and ID for game chat (more reliable)
-  if (container === elements.gameChatMessages || container.id === 'gameChatMessages') {
-    stateKey = 'game';
-    previewId = 'gameReplyPreview';
-    nameId = 'gameReplyToName';
-    textId = 'gameReplyToText';
-    inputId = 'gameChatInput';
-  } else if (container.id === 'mobileChatMessages') {
-    stateKey = 'mobile';
-    previewId = 'mobileReplyPreview';
-    nameId = 'mobileReplyToName';
-    textId = 'mobileReplyToText';
-    inputId = 'mobileChatInput';
-  }
+  const config = configs[chatType] || configs.lobby;
   
-  replyState[stateKey].replyTo = { id: msgId, playerName, text };
+  replyState[config.stateKey].replyTo = { id: msgId, playerName, text };
   
-  const preview = document.getElementById(previewId);
-  const nameEl = document.getElementById(nameId);
-  const textEl = document.getElementById(textId);
-  const input = document.getElementById(inputId);
+  const preview = document.getElementById(config.previewId);
+  const nameEl = document.getElementById(config.nameId);
+  const textEl = document.getElementById(config.textId);
+  const input = document.getElementById(config.inputId);
   
   if (preview && nameEl && textEl) {
     nameEl.textContent = playerName;
@@ -2026,6 +2042,20 @@ function setReplyTo(container, msgId, playerName, text) {
   }
   
   if (input) input.focus();
+}
+
+// Set reply to a message (legacy, uses container reference)
+function setReplyTo(container, msgId, playerName, text) {
+  let chatType = 'lobby';
+  
+  // Check both reference and ID for game chat (more reliable)
+  if (container === elements.gameChatMessages || container.id === 'gameChatMessages') {
+    chatType = 'game';
+  } else if (container.id === 'mobileChatMessages') {
+    chatType = 'mobile';
+  }
+  
+  setReplyToByType(chatType, msgId, playerName, text);
 }
 
 // Cancel reply
