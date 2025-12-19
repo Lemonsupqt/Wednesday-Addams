@@ -2642,7 +2642,14 @@ function setupSudokuListeners() {
       cell.addEventListener('click', function() {
         const row = parseInt(this.dataset.row);
         const col = parseInt(this.dataset.col);
-        state.gameState.selectedCell = [row, col];
+        
+        // Toggle selection - deselect if same cell is tapped again
+        const currentSelection = state.gameState.selectedCell;
+        if (currentSelection && currentSelection[0] === row && currentSelection[1] === col) {
+          state.gameState.selectedCell = null;
+        } else {
+          state.gameState.selectedCell = [row, col];
+        }
         updateSudokuDisplay();
       });
     });
