@@ -7,6 +7,39 @@ const fs = require('fs');
 const crypto = require('crypto');
 const { MongoClient } = require('mongodb');
 
+// ============================================
+// OPENAI API CONFIGURATION FOR WEDNESDAY AI CHATBOT
+// ============================================
+const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+const WEDNESDAY_SYSTEM_PROMPT = `You are Wednesday Addams from the Netflix series "Wednesday". You are a dark, sardonic, and highly intelligent teenage girl at Nevermore Academy. 
+
+Character traits:
+- Deadpan humor and dry wit
+- Fascinated by the macabre, death, and the occult
+- Extremely intelligent and observant
+- Dismissive of emotions but secretly cares
+- Never uses exclamation marks or emojis
+- Speaks in short, cutting sentences
+- References her pet spider (Enid named him) and her cello
+- Occasionally mentions Thing (the disembodied hand) or her family (Gomez, Morticia, Pugsley)
+- Loves black, despises bright colors and optimism
+- Expert fencer and has psychic visions
+
+Response style:
+- Keep responses SHORT (1-3 sentences max)
+- Never be enthusiastic or use positive emotions
+- Use dark humor and morbid references
+- Be dismissive but occasionally helpful
+- Can use *actions* like *stares blankly* or *adjusts black collar*
+- Never break character
+
+You are chatting in a multiplayer game room. Keep responses brief and in-character.`;
+
+// Rate limiting for AI chat
+const aiChatRateLimit = new Map(); // roomId -> { lastRequest: timestamp, count: number }
+const AI_RATE_LIMIT_WINDOW = 60000; // 1 minute
+const AI_RATE_LIMIT_MAX = 10; // 10 requests per minute per room
+
 const app = express();
 
 // CORS for GitHub Pages frontend
@@ -1524,28 +1557,105 @@ io.on('connection', (socket) => {
     const hasMention = message.toLowerCase().includes('@wednesday');
     
     if (hasMention || isReplyToWednesday) {
-      setTimeout(() => {
-        const aiResponse = getWednesdayResponse(message, isReplyToWednesday);
-        const aiMsg = {
-          id: uuidv4(),
-          playerId: 'WEDNESDAY_AI',
-          playerName: '🖤 Wednesday',
-          playerColor: '#9333ea',
-          message: aiResponse,
-          timestamp: Date.now(),
-          isAI: true,
-          replyTo: isReplyToWednesday ? { id: chatMsg.id, playerName: player.name, text: message.substring(0, 50) } : null
-        };
-        room.chat.push(aiMsg);
-        io.to(roomId).emit('chatMessage', aiMsg);
+      // Use async/await for AI response (with delay for natural feel)
+      setTimeout(async () => {
+        try {
+          const aiResponse = await getWednesdayResponse(message, isReplyToWednesday, roomId);
+          const aiMsg = {
+            id: uuidv4(),
+            playerId: 'WEDNESDAY_AI',
+            playerName: '🖤 Wednesday',
+            playerColor: '#9333ea',
+            message: aiResponse,
+            timestamp: Date.now(),
+            isAI: true,
+            replyTo: isReplyToWednesday ? { id: chatMsg.id, playerName: player.name, text: message.substring(0, 50) } : null
+          };
+          room.chat.push(aiMsg);
+          io.to(roomId).emit('chatMessage', aiMsg);
+        } catch (error) {
+          console.error('Error getting Wednesday response:', error);
+        }
       }, 1000 + Math.random() * 1500); // 1-2.5 second delay for natural feel
     }
   });
   
-  // Wednesday AI chat responses
-  function getWednesdayResponse(userMessage, isReply = false) {
+  // Wednesday AI chat responses - Uses OpenAI API with fallback to static responses
+  async function getWednesdayResponse(userMessage, isReply = false, roomId = null) {
     const msg = userMessage.toLowerCase();
     
+    // Check rate limiting for AI requests
+    if (roomId) {
+      const now = Date.now();
+      let rateData = aiChatRateLimit.get(roomId);
+      
+      if (!rateData || now - rateData.lastRequest > AI_RATE_LIMIT_WINDOW) {
+        rateData = { lastRequest: now, count: 1 };
+      } else {
+        rateData.count++;
+        if (rateData.count > AI_RATE_LIMIT_MAX) {
+          console.log(`⚠️ AI rate limit exceeded for room ${roomId}`);
+          return getFallbackResponse(msg, isReply);
+        }
+      }
+      aiChatRateLimit.set(roomId, rateData);
+    }
+    
+    // Try OpenAI API if configured
+    if (OPENAI_API_KEY) {
+      try {
+        const aiResponse = await callOpenAI(userMessage, isReply);
+        if (aiResponse) {
+          return aiResponse;
+        }
+      } catch (error) {
+        console.error('OpenAI API error:', error.message);
+        // Fall through to static responses
+      }
+    }
+    
+    // Fallback to static responses
+    return getFallbackResponse(msg, isReply);
+  }
+  
+  // Call OpenAI API for Wednesday responses
+  async function callOpenAI(userMessage, isReply) {
+    const messages = [
+      { role: 'system', content: WEDNESDAY_SYSTEM_PROMPT },
+      { 
+        role: 'user', 
+        content: isReply 
+          ? `[Continuing conversation] ${userMessage}` 
+          : userMessage.replace(/@wednesday/gi, '').trim() || userMessage
+      }
+    ];
+    
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${OPENAI_API_KEY}`
+      },
+      body: JSON.stringify({
+        model: 'gpt-4o-mini', // Cost-effective and fast
+        messages: messages,
+        max_tokens: 150,
+        temperature: 0.9, // More creative responses
+        presence_penalty: 0.6,
+        frequency_penalty: 0.3
+      })
+    });
+    
+    if (!response.ok) {
+      throw new Error(`OpenAI API returned ${response.status}`);
+    }
+    
+    const data = await response.json();
+    return data.choices[0]?.message?.content?.trim() || null;
+  }
+  
+  // Fallback static responses when OpenAI is unavailable
+  function getFallbackResponse(msg, isReply) {
     // Context-aware responses based on message content
     const responses = {
       greetings: [
@@ -1584,7 +1694,6 @@ io.on('connection', (socket) => {
         "Farewell. Try not to be too cheerful out there.",
         "*waves dismissively* Yes, yes. Go."
       ],
-      // Responses when user replies to Wednesday (continuing conversation)
       conversational: [
         "You're still talking to me? How unexpectedly persistent.",
         "I see you wish to continue our... exchange.",
@@ -1607,22 +1716,17 @@ io.on('connection', (socket) => {
     };
     
     // If this is a reply to Wednesday, add some conversational flavor
-    if (isReply) {
-      // 30% chance to use a conversational opener before the actual response
-      if (Math.random() < 0.3) {
-        const opener = responses.conversational[Math.floor(Math.random() * responses.conversational.length)];
-        // Continue to get a contextual response
-        const contextResponse = getContextualResponse(msg, responses);
-        return opener + ' ' + contextResponse;
-      }
+    if (isReply && Math.random() < 0.3) {
+      const opener = responses.conversational[Math.floor(Math.random() * responses.conversational.length)];
+      const contextResponse = getContextualResponse(msg, responses);
+      return opener + ' ' + contextResponse;
     }
     
     return getContextualResponse(msg, responses);
   }
   
-  // Helper to get contextual response
+  // Helper to get contextual response based on message content
   function getContextualResponse(msg, responses) {
-    
     // Detect message type
     if (/^(hi|hello|hey|greetings|sup|yo)\b/i.test(msg.replace('@wednesday', '').trim())) {
       return responses.greetings[Math.floor(Math.random() * responses.greetings.length)];
@@ -5750,11 +5854,13 @@ function broadcastActiveMatches(room, roomId) {
 
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
+  const aiStatus = OPENAI_API_KEY ? '🤖 Wednesday AI: ENABLED (OpenAI)' : '🤖 Wednesday AI: Fallback mode (static responses)';
   console.log(`
   ⚡️ THE UPSIDE DOWN NEVERMORE GAMES ⚡️
   =====================================
   🎮 Server running on port ${PORT}
   🌐 Open http://localhost:${PORT}
+  ${aiStatus}
   =====================================
   `);
 });

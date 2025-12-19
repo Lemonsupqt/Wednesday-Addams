@@ -156,6 +156,22 @@ For deploying to the cloud:
 
 2. **Environment Variables:**
    - `PORT` - Server port (default: 3000)
+   - `MONGODB_URI` - MongoDB Atlas connection string (optional, for persistent user accounts)
+   - `OPENAI_API_KEY` - OpenAI API key for Wednesday AI chatbot (optional)
+
+### 🖤 Wednesday AI Chatbot
+
+The Wednesday AI chatbot in the chat supports two modes:
+
+1. **With OpenAI API** (recommended): Set the `OPENAI_API_KEY` environment variable to enable GPT-powered responses. Wednesday will have dynamic, contextual conversations.
+
+2. **Fallback Mode**: Without an API key, Wednesday uses curated static responses that still feel in-character.
+
+To enable the AI chatbot:
+```bash
+export OPENAI_API_KEY=your-api-key-here
+npm start
+```
 
 ---
 

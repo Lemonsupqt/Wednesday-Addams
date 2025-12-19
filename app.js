@@ -3739,10 +3739,15 @@ socket.on('matchUpdate', (data) => {
   }
 });
 
+// Track pending AI end options timeout so we can cancel it
+let aiEndOptionsTimeout = null;
+
 socket.on('matchEnded', (data) => {
   console.log('🏁 Match ended:', data);
   const wasMyMatch = state.matchId === data.matchId;
   const savedMatchId = state.matchId;
+  const wasAIGame = state.isAIGame; // Save before potentially clearing
+  const currentGame = state.currentGame;
   state.matchId = null;
   state.isSpectator = false;
   
@@ -3757,10 +3762,19 @@ socket.on('matchEnded', (data) => {
   }
   
   // If this was an AI match, show replay options
-  if (wasMyMatch && state.isAIGame) {
-    setTimeout(() => {
-      showAIMatchEndOptions(state.currentGame);
-    }, 1500);
+  if (wasMyMatch && wasAIGame) {
+    // Cancel any existing timeout
+    if (aiEndOptionsTimeout) {
+      clearTimeout(aiEndOptionsTimeout);
+    }
+    // Show options after a brief delay for the win/draw message to display
+    aiEndOptionsTimeout = setTimeout(() => {
+      // Only show if still on game screen and still AI game
+      if (state.isAIGame && document.getElementById('gameScreen')?.classList.contains('active')) {
+        showAIMatchEndOptions(currentGame);
+      }
+      aiEndOptionsTimeout = null;
+    }, 800);
     return;
   }
   
@@ -3778,6 +3792,11 @@ socket.on('matchEnded', (data) => {
 function showAIMatchEndOptions(gameType) {
   const modal = document.getElementById('votingModal');
   if (!modal) return;
+  
+  // Prevent showing if modal is already active with AI options
+  if (modal.classList.contains('active') && modal.querySelector('.ai-end-options')) {
+    return;
+  }
   
   const gameNames = {
     'tictactoe': '⭕❌ Tic-Tac-Toe',
@@ -3826,6 +3845,11 @@ function showAIMatchEndOptions(gameType) {
   
   document.getElementById('aiBackToLobbyBtn')?.addEventListener('click', () => {
     modal.classList.remove('active');
+    // Clear any pending timeout
+    if (aiEndOptionsTimeout) {
+      clearTimeout(aiEndOptionsTimeout);
+      aiEndOptionsTimeout = null;
+    }
     state.currentGame = null;
     state.gameState = {};
     state.isAIGame = false;
@@ -4646,7 +4670,8 @@ function renderConnect4Board(gameState, players) {
     });
   }
   
-  if (gameState.winner || gameState.isDraw) {
+  // Only show play again button for non-match mode (match mode uses showAIMatchEndOptions via matchEnded event)
+  if ((gameState.winner || gameState.isDraw) && !state.matchId) {
     showPlayAgainButton('connect4');
   }
 }
