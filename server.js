@@ -761,8 +761,9 @@ io.on('connection', (socket) => {
       socket.emit('error', { message: 'Room is full (max 8 players)' });
       return;
     }
+    // Only block joining if a FULL room game is in progress (not challenge matches)
     if (room.currentGame) {
-      socket.emit('error', { message: 'Game already in progress' });
+      socket.emit('error', { message: 'A full room game is in progress. Wait for it to end.' });
       return;
     }
     
@@ -802,8 +803,27 @@ io.on('connection', (socket) => {
     players.set(socket.id, normalizedRoomId);
     
     socket.join(normalizedRoomId);
-    socket.emit('roomJoined', { roomId: normalizedRoomId, players: room.getPlayerList() });
-    socket.to(normalizedRoomId).emit('playerJoined', { players: room.getPlayerList() });
+    
+    // Build active matches list for the joining player
+    const activeMatches = room.activeMatches ? 
+      Array.from(room.activeMatches.values()).map(m => ({
+        matchId: m.matchId,
+        gameType: m.gameType,
+        players: m.players
+      })) : [];
+    
+    socket.emit('roomJoined', { 
+      roomId: normalizedRoomId, 
+      players: room.getPlayerList(),
+      activeMatches 
+    });
+    
+    // Notify existing players that someone joined (including those in matches)
+    socket.to(normalizedRoomId).emit('playerJoined', { 
+      players: room.getPlayerList(),
+      newPlayer: { name: playerName, id: socket.id }
+    });
+    
     console.log(`👤 ${playerName}${username ? ` (@${username})` : ''} joined room ${roomId}${storedTrophies > 0 ? ` (restored ${storedTrophies} trophies)` : ''}`);
   });
 
@@ -1035,13 +1055,15 @@ io.on('connection', (socket) => {
     const result = processMatchMove(match, socket.id, moveData);
     
     if (result) {
-      // Send update to players and spectators
+      // Send update to players and spectators with full player info
       const allRecipients = [...match.players.map(p => p.id), ...match.spectators];
       allRecipients.forEach(id => {
         io.to(id).emit('matchUpdate', {
           matchId,
           gameType: match.gameType,
-          gameState: match.gameState
+          gameState: match.gameState,
+          players: match.players,
+          currentPlayer: match.gameState.currentPlayer
         });
       });
       

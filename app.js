@@ -1232,6 +1232,26 @@ function showNotification(message, type = 'info') {
   }
 }
 
+// Floating translucent notification (for in-game player join alerts)
+function showFloatingNotification(message) {
+  // Create or reuse floating notification element
+  let floater = document.getElementById('floatingNotification');
+  if (!floater) {
+    floater = document.createElement('div');
+    floater.id = 'floatingNotification';
+    floater.className = 'floating-notification';
+    document.body.appendChild(floater);
+  }
+  
+  floater.textContent = message;
+  floater.classList.add('active');
+  
+  // Auto-hide after 3 seconds
+  setTimeout(() => {
+    floater.classList.remove('active');
+  }, 3000);
+}
+
 // Show Connect 4/5 selection modal (non-voting mode)
 function showConnect4DifficultyModal() {
   const modal = document.getElementById('votingModal');
@@ -1504,6 +1524,11 @@ function initTicTacToe(gameState, players) {
   const mySymbol = playerSymbols.get(state.playerId);
   const isSpectator = state.isSpectator || !mySymbol;
   
+  // Update "Now Playing" display
+  if (players && players.length > 0) {
+    updateNowPlayingDisplay(players);
+  }
+  
   // Add spectator badge if watching
   if (isSpectator) {
     addSpectatorBadge();
@@ -1574,6 +1599,26 @@ function leaveSpectate() {
   }
 }
 
+// Update the "Now Playing" display next to End Game button
+function updateNowPlayingDisplay(players) {
+  const display = document.getElementById('nowPlayingDisplay');
+  if (!display) return;
+  
+  if (!players || players.length === 0) {
+    display.innerHTML = '';
+    return;
+  }
+  
+  const names = players.map(p => p.name).join(' vs ');
+  display.innerHTML = `<span class="now-playing-label">🎮</span><span class="now-playing-names">${escapeHtml(names)}</span>`;
+}
+
+// Clear the "Now Playing" display
+function clearNowPlayingDisplay() {
+  const display = document.getElementById('nowPlayingDisplay');
+  if (display) display.innerHTML = '';
+}
+
 function updateTicTacToe(data) {
   const board = document.getElementById('tttBoard');
   const status = document.getElementById('tttStatus');
@@ -1602,9 +1647,12 @@ function updateTicTacToe(data) {
     }
   }
   
+  // Use players from data if available (for real-time score updates)
+  const players = data.players || state.players;
+  
   if (data.winner) {
     status.innerHTML = `🏆 ${escapeHtml(data.winnerName)} wins! 🏆`;
-    updateScoreBoard(data.players);
+    updateScoreBoard(players);
     if (!state.matchId) showPlayAgainButton('ttt');
   } else if (data.draw) {
     status.innerHTML = "🤝 It's a draw! 🤝";
@@ -1616,7 +1664,7 @@ function updateTicTacToe(data) {
     } else {
       status.innerHTML = data.currentPlayer === state.playerId ? "🔴 Your turn!" : "Waiting for opponent...";
     }
-    updateScoreBoard(state.players, data.currentPlayer);
+    updateScoreBoard(players, data.currentPlayer);
   }
 }
 
@@ -1878,6 +1926,11 @@ function initChessGame(gameState, players) {
   
   const whiteName = players.find(p => p.id === gameState.whitePlayer)?.name || 'White';
   const blackName = players.find(p => p.id === gameState.blackPlayer)?.name || 'Black';
+  
+  // Update "Now Playing" display
+  if (players && players.length > 0) {
+    updateNowPlayingDisplay(players);
+  }
   
   renderChessBoard(gameState.board, gameState.isWhiteTurn, whiteName, blackName);
   updateScoreBoard(players, gameState.currentPlayer);
@@ -2508,14 +2561,26 @@ socket.on('roomJoined', (data) => {
   state.roomId = data.roomId;
   state.isHost = false;
   state.players = data.players;
+  state.activeMatches = data.activeMatches || [];
   elements.displayRoomCode.textContent = data.roomId;
   updatePlayersList(data.players);
+  
+  // Display active matches if any
+  if (data.activeMatches && data.activeMatches.length > 0) {
+    updateActiveMatchesDisplay(data.activeMatches);
+  }
+  
   showScreen('lobby');
 });
 
 socket.on('playerJoined', (data) => {
   updatePlayersList(data.players);
   addChatMessage({ system: true, message: '👤 A new outcast has arrived!' });
+  
+  // Show floating notification for new player (especially for those in-game)
+  if (data.newPlayer && data.newPlayer.id !== state.playerId) {
+    showFloatingNotification(`${data.newPlayer.name} joined the room`);
+  }
 });
 
 socket.on('playerLeft', (data) => {
@@ -2648,15 +2713,20 @@ function handleMatchUpdate(data) {
   // Update state with match game state
   state.gameState = { ...state.gameState, ...data.gameState };
   
+  // Update "Now Playing" display with current player info
+  if (data.players) {
+    updateNowPlayingDisplay(data.players);
+  }
+  
   switch (data.gameType) {
     case 'tictactoe':
-      updateTicTacToe(data.gameState);
+      updateTicTacToe({ ...data.gameState, players: data.players || state.players });
       break;
     case 'chess':
-      handleChessUpdate({ ...data.gameState, players: data.gameState.players || state.players });
+      handleChessUpdate({ ...data.gameState, players: data.players || state.players });
       break;
     case 'connect4':
-      handleConnect4Update({ ...data.gameState, players: data.gameState.players || state.players });
+      handleConnect4Update({ ...data.gameState, players: data.players || state.players });
       break;
   }
 }
@@ -2790,6 +2860,9 @@ socket.on('returnToLobby', (data) => {
   
   // Remove spectator badge if present
   removeSpectatorBadge();
+  
+  // Clear now playing display
+  clearNowPlayingDisplay();
   
   // Clean up game-specific listeners
   document.removeEventListener('keydown', handleSudokuKeypress);
@@ -3296,6 +3369,11 @@ function initConnect4Game(gameState, players) {
   state.gameState = gameState || {};
   const winCondition = gameState.winCondition || 4;
   elements.gameTitle.textContent = `🔴 ${winCondition} in a Row 🟡`;
+  
+  // Update "Now Playing" display
+  if (players && players.length > 0) {
+    updateNowPlayingDisplay(players);
+  }
   
   // Ensure board exists
   if (!state.gameState.board || !Array.isArray(state.gameState.board)) {

@@ -5385,6 +5385,57 @@ input[type="password"]::placeholder {
   50% { box-shadow: 0 0 20px var(--st-neon-blue); }
 }
 
+/* Floating translucent notification for in-game alerts */
+/* Now Playing display next to End Game button */
+.now-playing-display {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  background: rgba(147, 51, 234, 0.2);
+  border: 1px solid rgba(147, 51, 234, 0.4);
+  border-radius: 20px;
+  font-size: 0.8rem;
+  color: var(--text-primary);
+  margin-right: 10px;
+}
+
+.now-playing-display:empty {
+  display: none;
+}
+
+.now-playing-label {
+  color: var(--text-secondary);
+}
+
+.now-playing-names {
+  color: var(--st-neon-pink);
+  font-weight: bold;
+}
+
+.floating-notification {
+  position: fixed;
+  bottom: 100px;
+  left: 50%;
+  transform: translateX(-50%) translateY(20px);
+  background: rgba(147, 51, 234, 0.3);
+  backdrop-filter: blur(10px);
+  color: var(--text-primary);
+  padding: 12px 24px;
+  border-radius: 30px;
+  font-size: 0.9rem;
+  border: 1px solid rgba(147, 51, 234, 0.4);
+  opacity: 0;
+  pointer-events: none;
+  transition: all 0.3s ease;
+  z-index: 999;
+}
+
+.floating-notification.active {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+
 /* ============================================
    ENHANCED SCORE BOARD
    ============================================ */
