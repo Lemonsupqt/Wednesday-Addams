@@ -118,21 +118,34 @@ document.addEventListener('DOMContentLoaded', () => {
   setupAuthListeners();
   setupFullscreenToggle();
   
-  // Check for saved session
+  // Always show auth screen first
+  showScreen('authScreen');
+  
+  // Then check for saved session and attempt auto-login
   const savedAuth = localStorage.getItem('authSession');
   if (savedAuth) {
     try {
       const auth = JSON.parse(savedAuth);
       if (auth.username && auth.password) {
+        // Show loading state
+        const loginBtn = document.getElementById('loginBtn');
+        if (loginBtn) {
+          loginBtn.textContent = '⏳ Logging in...';
+          loginBtn.disabled = true;
+        }
+        // Pre-fill the form
+        const loginUsername = document.getElementById('loginUsername');
+        const loginPassword = document.getElementById('loginPassword');
+        if (loginUsername) loginUsername.value = auth.username;
+        if (loginPassword) loginPassword.value = '••••••••';
+        
+        // Attempt auto-login
         socket.emit('login', auth);
-      } else {
-        showScreen('authScreen');
       }
     } catch (e) {
-      showScreen('authScreen');
+      console.error('Failed to parse saved auth:', e);
+      localStorage.removeItem('authSession');
     }
-  } else {
-    showScreen('authScreen');
   }
 });
 
@@ -279,6 +292,21 @@ socket.on('authSuccess', (data) => {
 
 socket.on('authError', (data) => {
   showError(data.message);
+  
+  // Reset login button state
+  const loginBtn = document.getElementById('loginBtn');
+  if (loginBtn) {
+    loginBtn.innerHTML = '<span class="btn-icon">⚡</span> Enter the Archives';
+    loginBtn.disabled = false;
+  }
+  
+  // Clear invalid saved session
+  if (data.message.includes('not found') || data.message.includes('Incorrect')) {
+    localStorage.removeItem('authSession');
+  }
+  
+  // Make sure auth screen is visible
+  showScreen('authScreen');
 });
 
 socket.on('loggedOut', () => {
