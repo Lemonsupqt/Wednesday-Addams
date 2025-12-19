@@ -1707,17 +1707,106 @@ input[type="text"]::placeholder {
   border-radius: 10px;
   font-size: 1rem;
   z-index: 1001;
-  transition: transform 0.3s ease;
+  transition: transform 0.3s ease, opacity 0.3s ease;
+  opacity: 0;
+  max-width: 90vw;
+  text-align: center;
 }
 
 .toast.active {
   transform: translateX(-50%) translateY(0);
+  opacity: 1;
+}
+
+.toast.hiding {
+  transform: translateX(-50%) translateY(0);
+  opacity: 0;
 }
 
 .toast.error {
   background: linear-gradient(135deg, #7f1d1d, #450a0a);
   border: 1px solid var(--danger);
   color: white;
+}
+
+/* ============================================
+   FULLSCREEN GAME MODE
+   ============================================ */
+
+/* Fullscreen styles */
+.game-fullscreen #gameScreen {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 9999;
+  background: var(--bg-primary);
+}
+
+.game-fullscreen .game-container {
+  height: 100vh;
+  height: 100dvh; /* Dynamic viewport height for mobile */
+}
+
+.game-fullscreen .game-content {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 10px;
+  overflow: auto;
+}
+
+/* Hide chat in fullscreen game mode on mobile for more space */
+@media (max-width: 768px) {
+  .game-fullscreen .game-chat {
+    display: none;
+  }
+  
+  .game-fullscreen .game-container {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto 1fr;
+  }
+  
+  .game-fullscreen .game-content {
+    max-height: calc(100vh - 60px);
+    max-height: calc(100dvh - 60px);
+  }
+}
+
+/* Fullscreen toggle when in game */
+.game-fullscreen .fullscreen-toggle {
+  bottom: 10px;
+  left: 10px;
+  width: 40px;
+  height: 40px;
+  font-size: 1.2rem;
+  opacity: 0.7;
+}
+
+.game-fullscreen .fullscreen-toggle:hover {
+  opacity: 1;
+}
+
+/* Ensure games scale properly in fullscreen */
+.game-fullscreen .chess-board,
+.game-fullscreen .ttt-board,
+.game-fullscreen .connect4-board,
+.game-fullscreen .memory-board,
+.game-fullscreen .ludo-board {
+  max-height: calc(100vh - 150px);
+  max-height: calc(100dvh - 150px);
+}
+
+.game-fullscreen .chess-container,
+.game-fullscreen .ttt-container,
+.game-fullscreen .connect4-container,
+.game-fullscreen .memory-container,
+.game-fullscreen .ludo-container {
+  max-height: calc(100vh - 80px);
+  max-height: calc(100dvh - 80px);
+  overflow-y: auto;
 }
 
 /* ============================================
@@ -1907,6 +1996,175 @@ input[type="text"]::placeholder {
   .ttt-board {
     max-height: 70vh;
     max-width: 70vh;
+  }
+}
+
+/* ============================================
+   PORTRAIT MODE OPTIMIZATIONS
+   ============================================ */
+
+/* Portrait mode for games - ensure proper layout */
+@media (max-width: 480px) and (orientation: portrait) {
+  /* Memory Game Portrait */
+  .memory-container {
+    padding: 5px;
+  }
+  
+  .memory-board {
+    width: 95vw !important;
+    max-width: 95vw !important;
+    gap: 6px;
+  }
+  
+  .memory-card {
+    min-width: 60px;
+    min-height: 60px;
+  }
+  
+  .memory-card::before {
+    font-size: 1.2rem;
+  }
+  
+  .memory-card .card-emoji {
+    font-size: 1.4rem;
+  }
+  
+  .memory-card .card-name {
+    font-size: 0.55rem;
+    display: none;
+  }
+  
+  /* Connect 4 Portrait - ensure board fits */
+  .connect4-container {
+    width: 100%;
+    max-width: 100%;
+    padding: 0 5px;
+  }
+  
+  .connect4-board {
+    width: 100%;
+    max-width: 95vw;
+    gap: 3px;
+    padding: 10px;
+  }
+  
+  .c4-cell {
+    min-height: 35px;
+    font-size: 1.5rem;
+  }
+  
+  .connect4-status {
+    font-size: 1.1rem;
+  }
+  
+  .connect4-players {
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+  
+  .c4-player {
+    font-size: 0.9rem;
+    padding: 5px 10px;
+  }
+  
+  /* Ludo Portrait - compact layout */
+  .ludo-container {
+    width: 100%;
+    max-width: 100%;
+    padding: 0 5px;
+  }
+  
+  .ludo-status {
+    font-size: 1.1rem;
+    margin-bottom: 10px;
+  }
+  
+  .ludo-board {
+    padding: 10px;
+    border-radius: 15px;
+  }
+  
+  .ludo-home {
+    min-width: 80px !important;
+    padding: 8px !important;
+    margin: 3px !important;
+  }
+  
+  .ludo-token {
+    width: 24px !important;
+    height: 24px !important;
+    font-size: 0.65rem !important;
+  }
+  
+  .ludo-dice-area {
+    gap: 10px;
+  }
+  
+  .ludo-dice {
+    font-size: 2.5rem;
+  }
+  
+  .ludo-roll-btn {
+    padding: 10px 25px;
+    font-size: 0.9rem;
+  }
+  
+  .ludo-players {
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  
+  .ludo-player-card {
+    padding: 6px 10px;
+    min-width: 70px;
+  }
+  
+  .ludo-player-emoji {
+    font-size: 1rem;
+  }
+  
+  .ludo-player-name {
+    font-size: 0.7rem;
+  }
+  
+  .ludo-player-progress {
+    font-size: 0.6rem;
+  }
+  
+  /* Game content in portrait */
+  .game-content {
+    padding: 10px;
+  }
+  
+  /* Game header compact */
+  .game-header {
+    padding: 8px 10px;
+  }
+  
+  .game-title-bar h2 {
+    font-size: 0.95rem;
+  }
+  
+  /* Hide chat sidebar in portrait during game, show at bottom */
+  .game-chat {
+    max-height: 120px;
+    padding: 8px;
+  }
+  
+  .game-chat .chat-messages {
+    height: 60px;
+  }
+  
+  /* Score board compact */
+  .score-board {
+    font-size: 0.7rem;
+  }
+  
+  .score-header,
+  .score-item {
+    grid-template-columns: 1fr 35px 35px 35px;
+    padding: 5px 8px;
+    gap: 3px;
   }
 }
 
@@ -3811,6 +4069,345 @@ input[type="text"]::placeholder {
 }
 
 /* ============================================
+   IMPROVED LUDO BOARD STYLES
+   ============================================ */
+
+/* Home bases grid layout */
+.ludo-homes-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+  margin-bottom: 15px;
+  max-width: 500px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.ludo-home-base {
+  background: linear-gradient(135deg, rgba(0,0,0,0.4), var(--player-color, #888)20);
+  border: 2px solid var(--player-color, #888);
+  border-radius: 15px;
+  padding: 12px;
+  text-align: center;
+  transition: all 0.3s ease;
+}
+
+.ludo-home-base:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+}
+
+.ludo-home-header {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.ludo-home-emoji {
+  font-size: 1.4rem;
+}
+
+.ludo-home-name {
+  font-family: 'Cinzel', serif;
+  font-size: 0.9rem;
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.ludo-home-tokens {
+  display: flex;
+  gap: 6px;
+  justify-content: center;
+  flex-wrap: wrap;
+  min-height: 36px;
+  align-items: center;
+}
+
+.ludo-empty-home {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  font-style: italic;
+}
+
+.ludo-home-stats {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+  margin-top: 8px;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+}
+
+.ludo-home-stats span {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+/* Improved token styles */
+.ludo-token {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.9rem;
+  background: var(--token-color, #888);
+  box-shadow: 0 3px 8px rgba(0,0,0,0.4), inset 0 -2px 4px rgba(0,0,0,0.3);
+  transition: all 0.2s ease;
+  cursor: default;
+  position: relative;
+}
+
+.ludo-token.movable {
+  cursor: pointer;
+  animation: tokenPulse 1s ease infinite;
+  box-shadow: 0 0 15px var(--token-color, gold), 0 3px 8px rgba(0,0,0,0.4);
+}
+
+.ludo-token.movable:hover {
+  transform: scale(1.15);
+  z-index: 10;
+}
+
+.ludo-token.mini {
+  width: 24px;
+  height: 24px;
+  font-size: 0.7rem;
+}
+
+/* Visual track */
+.ludo-track-visual {
+  background: rgba(0,0,0,0.4);
+  border-radius: 15px;
+  padding: 15px;
+  margin-bottom: 15px;
+}
+
+.ludo-track-title {
+  font-family: 'Cinzel', serif;
+  font-size: 1rem;
+  color: var(--wed-gold);
+  text-align: center;
+  margin-bottom: 12px;
+}
+
+.ludo-track-board {
+  min-height: 60px;
+}
+
+.ludo-track-empty {
+  text-align: center;
+  color: var(--text-secondary);
+  font-style: italic;
+  padding: 20px;
+}
+
+.ludo-track-squares {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: center;
+  align-items: flex-start;
+}
+
+.ludo-track-square {
+  min-width: 42px;
+  min-height: 42px;
+  padding: 4px;
+  border-radius: 8px;
+  border: 2px solid var(--border-color);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  position: relative;
+  transition: all 0.2s ease;
+}
+
+.ludo-track-square.safe {
+  border-color: var(--wed-gold);
+  box-shadow: inset 0 0 10px rgba(212, 175, 55, 0.2);
+}
+
+.ludo-track-square.start {
+  border-width: 2px;
+  border-style: dashed;
+}
+
+.ludo-track-square.occupied {
+  transform: scale(1.05);
+  z-index: 5;
+}
+
+.ludo-track-square .square-num {
+  font-size: 0.6rem;
+  color: var(--text-secondary);
+  opacity: 0.7;
+  position: absolute;
+  top: 2px;
+  right: 4px;
+}
+
+.ludo-track-square .square-tokens {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  justify-content: center;
+  margin-top: 8px;
+}
+
+/* Finish zone */
+.ludo-finish-zone {
+  background: linear-gradient(135deg, rgba(212, 175, 55, 0.1), rgba(212, 175, 55, 0.05));
+  border: 2px solid var(--wed-gold);
+  border-radius: 15px;
+  padding: 15px;
+  text-align: center;
+}
+
+.ludo-finish-title {
+  font-family: 'Cinzel', serif;
+  font-size: 1rem;
+  color: var(--wed-gold);
+  margin-bottom: 12px;
+}
+
+.ludo-finish-players {
+  display: flex;
+  justify-content: center;
+  gap: 15px;
+  flex-wrap: wrap;
+}
+
+.ludo-finish-player {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 10px;
+  background: var(--player-color, #888)20;
+  border: 2px solid var(--player-color, #888);
+  border-radius: 10px;
+  min-width: 70px;
+}
+
+.ludo-finish-player .finish-label {
+  font-size: 0.85rem;
+  color: var(--text-primary);
+}
+
+.ludo-finish-player .finish-tokens {
+  display: flex;
+  gap: 4px;
+}
+
+.ludo-finish-player .finish-token {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.65rem;
+}
+
+/* Ludo board improvements for mobile portrait */
+@media (max-width: 480px) and (orientation: portrait) {
+  .ludo-homes-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 8px;
+  }
+  
+  .ludo-home-base {
+    padding: 8px;
+  }
+  
+  .ludo-home-header {
+    gap: 4px;
+    margin-bottom: 6px;
+  }
+  
+  .ludo-home-emoji {
+    font-size: 1.1rem;
+  }
+  
+  .ludo-home-name {
+    font-size: 0.75rem;
+  }
+  
+  .ludo-token {
+    width: 26px;
+    height: 26px;
+    font-size: 0.75rem;
+  }
+  
+  .ludo-token.mini {
+    width: 20px;
+    height: 20px;
+    font-size: 0.6rem;
+  }
+  
+  .ludo-home-stats {
+    gap: 6px;
+    font-size: 0.65rem;
+  }
+  
+  .ludo-track-visual {
+    padding: 10px;
+  }
+  
+  .ludo-track-title {
+    font-size: 0.85rem;
+    margin-bottom: 8px;
+  }
+  
+  .ludo-track-squares {
+    gap: 4px;
+  }
+  
+  .ludo-track-square {
+    min-width: 36px;
+    min-height: 36px;
+    padding: 3px;
+  }
+  
+  .ludo-track-square .square-num {
+    font-size: 0.5rem;
+  }
+  
+  .ludo-finish-zone {
+    padding: 10px;
+  }
+  
+  .ludo-finish-title {
+    font-size: 0.85rem;
+  }
+  
+  .ludo-finish-players {
+    gap: 8px;
+  }
+  
+  .ludo-finish-player {
+    padding: 6px;
+    min-width: 55px;
+  }
+  
+  .ludo-finish-player .finish-label {
+    font-size: 0.75rem;
+  }
+  
+  .ludo-finish-player .finish-token {
+    width: 18px;
+    height: 18px;
+    font-size: 0.55rem;
+  }
+}
+
+/* ============================================
    TOURNAMENT SCORING SYSTEM
    ============================================ */
 
@@ -4486,10 +5083,37 @@ input[type="text"]::placeholder {
   .auth-card {
     padding: 20px;
     margin: 0 10px;
+    max-width: calc(100vw - 20px);
+    box-sizing: border-box;
   }
   
   .auth-tabs {
-    flex-direction: column;
+    flex-direction: row;
+    gap: 5px;
+  }
+  
+  .auth-tab {
+    padding: 10px 8px;
+    font-size: 0.85rem;
+  }
+  
+  .auth-form {
+    gap: 12px;
+  }
+  
+  .auth-form input {
+    padding: 12px 15px;
+    font-size: 0.95rem;
+  }
+  
+  .auth-form .btn {
+    padding: 12px 18px;
+    font-size: 0.95rem;
+  }
+  
+  .auth-hint {
+    font-size: 0.8rem;
+    padding: 8px;
   }
   
   .user-stats {
@@ -4528,5 +5152,67 @@ input[type="text"]::placeholder {
   
   .score-tiers .tier {
     font-size: 0.8rem;
+  }
+  
+  /* Menu card overflow fix */
+  .menu-card {
+    padding: 20px 15px;
+    max-width: calc(100vw - 40px);
+    box-sizing: border-box;
+    overflow: hidden;
+  }
+  
+  .menu-card input {
+    width: 100%;
+    box-sizing: border-box;
+  }
+  
+  .menu-card .btn {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 12px 15px;
+    font-size: 0.95rem;
+  }
+  
+  .menu-extras {
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+  
+  .menu-extras .btn-ghost {
+    padding: 8px 12px;
+    font-size: 0.85rem;
+  }
+  
+  /* Room code display fix */
+  .room-code-display {
+    max-width: 100%;
+    overflow: hidden;
+    padding: 8px 12px;
+  }
+  
+  .room-code-display .code {
+    font-size: 1.3rem;
+    word-break: break-all;
+  }
+  
+  /* Lobby actions fix */
+  .lobby-actions .btn {
+    max-width: 100%;
+    box-sizing: border-box;
+  }
+  
+  /* Voting section fix */
+  .voting-section {
+    padding: 10px;
+  }
+  
+  .voting-header h3 {
+    font-size: 1.1rem;
+  }
+  
+  .voting-header .btn {
+    width: 100%;
+    max-width: 250px;
   }
 }

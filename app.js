@@ -118,12 +118,25 @@ document.addEventListener('DOMContentLoaded', () => {
   setupAuthListeners();
   setupFullscreenToggle();
   
-  // Always show auth screen first
-  showScreen('authScreen');
+  // Restore saved player name for both guests and registered users
+  const savedPlayerName = localStorage.getItem('playerName');
+  if (savedPlayerName && elements.playerName) {
+    elements.playerName.value = savedPlayerName;
+  }
   
-  // Then check for saved session and attempt auto-login
+  // Restore last used room code if any
+  const savedRoomCode = localStorage.getItem('lastRoomCode');
+  if (savedRoomCode && elements.roomCode) {
+    elements.roomCode.value = savedRoomCode;
+  }
+  
+  // Check for saved session and attempt auto-login
   const savedAuth = localStorage.getItem('authSession');
+  const savedGuestSession = localStorage.getItem('guestSession');
+  
   if (savedAuth) {
+    // Show auth screen while attempting login
+    showScreen('authScreen');
     try {
       const auth = JSON.parse(savedAuth);
       if (auth.username && auth.password) {
@@ -145,7 +158,18 @@ document.addEventListener('DOMContentLoaded', () => {
     } catch (e) {
       console.error('Failed to parse saved auth:', e);
       localStorage.removeItem('authSession');
+      showScreen('authScreen');
     }
+  } else if (savedGuestSession === 'true') {
+    // Restore guest session - skip auth screen
+    state.isAuthenticated = false;
+    state.username = null;
+    state.userStats = null;
+    showScreen('mainMenu');
+    updateUserInfoDisplay();
+  } else {
+    // No saved session - show auth screen
+    showScreen('authScreen');
   }
 });
 
@@ -198,6 +222,8 @@ function setupAuthListeners() {
     state.isAuthenticated = false;
     state.username = null;
     state.userStats = null;
+    // Save guest session preference so user can skip auth screen next time
+    localStorage.setItem('guestSession', 'true');
     showScreen('mainMenu');
     updateUserInfoDisplay();
   });
@@ -206,6 +232,7 @@ function setupAuthListeners() {
   document.getElementById('logoutBtn')?.addEventListener('click', () => {
     socket.emit('logout');
     localStorage.removeItem('authSession');
+    localStorage.removeItem('guestSession');
     state.isAuthenticated = false;
     state.username = null;
     state.userStats = null;
@@ -489,15 +516,57 @@ function handleVote(gameType) {
     card.classList.add('voted');
   }
   
-  // Check for games that need difficulty selection
+  // Check for games that need difficulty/mode selection
   if (gameType === 'memory') {
     showMemoryVoteOptions(gameType);
   } else if (gameType === 'sudoku') {
     showSudokuVoteOptions(gameType);
+  } else if (gameType === 'connect4') {
+    showConnect4VoteOptions(gameType);
   } else {
     socket.emit('voteGame', { gameType });
     showNotification(`Voted for ${getGameName(gameType)}! 🗳️`, 'info');
   }
+}
+
+function showConnect4VoteOptions(gameType) {
+  const modal = document.getElementById('votingModal');
+  if (!modal) {
+    socket.emit('voteGame', { gameType, options: { winCondition: 4 } });
+    return;
+  }
+  
+  modal.innerHTML = `
+    <div class="voting-modal-content">
+      <h3>🔴🟡 Connect Game Mode</h3>
+      <div class="difficulty-options">
+        <button class="difficulty-btn" data-win="4">
+          <span class="diff-icon">4️⃣</span>
+          <div>
+            <span class="diff-name">4 in a Row</span>
+            <span class="diff-desc">Classic mode - connect 4 to win</span>
+          </div>
+        </button>
+        <button class="difficulty-btn" data-win="5">
+          <span class="diff-icon">5️⃣</span>
+          <div>
+            <span class="diff-name">5 in a Row</span>
+            <span class="diff-desc">Challenge mode - connect 5 to win</span>
+          </div>
+        </button>
+      </div>
+    </div>
+  `;
+  modal.classList.add('active');
+  
+  modal.querySelectorAll('.difficulty-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const winCondition = parseInt(btn.dataset.win);
+      socket.emit('voteGame', { gameType, options: { winCondition } });
+      modal.classList.remove('active');
+      showNotification(`Voted for ${winCondition} in a Row! 🗳️`, 'info');
+    });
+  });
 }
 
 function showMemoryVoteOptions(gameType) {
@@ -627,13 +696,96 @@ function updateVoteDisplay(voteCounts) {
 function showScreen(screenName) {
   Object.values(screens).forEach(screen => screen.classList.remove('active'));
   screens[screenName].classList.add('active');
+  
+  // Toggle game fullscreen mode
+  if (screenName === 'gameScreen') {
+    document.body.classList.add('game-fullscreen');
+    // Auto-enter fullscreen on mobile when entering game
+    enterGameFullscreen();
+  } else {
+    document.body.classList.remove('game-fullscreen');
+    // Exit fullscreen when leaving game
+    exitGameFullscreen();
+  }
 }
 
+// Enter fullscreen mode for games (mobile-friendly)
+function enterGameFullscreen() {
+  // Only attempt fullscreen on mobile devices
+  const isMobile = window.innerWidth <= 768 || 'ontouchstart' in window;
+  if (!isMobile) return;
+  
+  // Don't auto-enter if already in fullscreen
+  const isFullscreen = !!(document.fullscreenElement || document.webkitFullscreenElement || 
+                          document.mozFullScreenElement || document.msFullscreenElement);
+  if (isFullscreen) return;
+  
+  // Try to enter fullscreen
+  const elem = document.documentElement;
+  try {
+    if (elem.requestFullscreen) {
+      elem.requestFullscreen().catch(() => {});
+    } else if (elem.webkitRequestFullscreen) {
+      elem.webkitRequestFullscreen();
+    } else if (elem.mozRequestFullScreen) {
+      elem.mozRequestFullScreen();
+    } else if (elem.msRequestFullscreen) {
+      elem.msRequestFullscreen();
+    }
+  } catch (err) {
+    // Fullscreen may fail silently on some devices - that's OK
+    console.log('Fullscreen not supported or blocked');
+  }
+}
+
+// Exit fullscreen mode
+function exitGameFullscreen() {
+  const isFullscreen = !!(document.fullscreenElement || document.webkitFullscreenElement || 
+                          document.mozFullScreenElement || document.msFullscreenElement);
+  if (!isFullscreen) return;
+  
+  try {
+    if (document.exitFullscreen) {
+      document.exitFullscreen().catch(() => {});
+    } else if (document.webkitExitFullscreen) {
+      document.webkitExitFullscreen();
+    } else if (document.mozCancelFullScreen) {
+      document.mozCancelFullScreen();
+    } else if (document.msExitFullscreen) {
+      document.msExitFullscreen();
+    }
+  } catch (err) {
+    console.log('Exit fullscreen failed');
+  }
+}
+
+// Track error toast timeout to prevent stacking
+let errorToastTimeout = null;
+
 function showError(message) {
+  // Clear any existing timeout
+  if (errorToastTimeout) {
+    clearTimeout(errorToastTimeout);
+  }
+  
+  // Remove any existing classes first
+  elements.errorToast.classList.remove('active', 'hiding');
+  
+  // Set the message and show
   elements.errorToast.textContent = message;
+  
+  // Force reflow to restart animation
+  void elements.errorToast.offsetWidth;
+  
   elements.errorToast.classList.add('active');
-  setTimeout(() => {
-    elements.errorToast.classList.remove('active');
+  
+  // Hide after 4 seconds with fade out
+  errorToastTimeout = setTimeout(() => {
+    elements.errorToast.classList.add('hiding');
+    setTimeout(() => {
+      elements.errorToast.classList.remove('active', 'hiding');
+      errorToastTimeout = null;
+    }, 300);
   }, 4000);
 }
 
@@ -683,6 +835,7 @@ function joinRoom() {
   
   state.playerName = name;
   localStorage.setItem('playerName', name);
+  localStorage.setItem('lastRoomCode', code);
   socket.emit('joinRoom', { roomId: code, playerName: name });
 }
 
@@ -750,7 +903,7 @@ function updatePlayersList(players) {
       </button>
       <button class="game-card" data-game="connect4">
         <span class="game-icon">🔴🟡</span>
-        <span class="game-name">4 in<br>a Row</span>
+        <span class="game-name">Connect<br>4 or 5</span>
         <span class="game-players">2 players</span>
       </button>
       <button class="game-card" data-game="molewhack">
@@ -1604,6 +1757,33 @@ function calculateValidMoves(board, fromRow, fromCol, isWhiteTurn) {
       for (const [dr, dc] of [[-1,-1],[-1,0],[-1,1],[0,-1],[0,1],[1,-1],[1,0],[1,1]]) {
         if (canMoveTo(fromRow + dr, fromCol + dc)) moves.push([fromRow + dr, fromCol + dc]);
       }
+      
+      // Add castling moves if available
+      if (state.gameState && state.gameState.castlingRights) {
+        const rights = state.gameState.castlingRights;
+        const row = isWhite ? 7 : 0;
+        
+        // Only check castling if king is on starting square
+        if (fromRow === row && fromCol === 4) {
+          // Kingside castling (O-O)
+          const canKingside = isWhite ? rights.whiteKingside : rights.blackKingside;
+          if (canKingside) {
+            // Check path is clear (f1/f8 and g1/g8)
+            if (isEmpty(row, 5) && isEmpty(row, 6)) {
+              moves.push([row, 6]); // King moves to g1 or g8
+            }
+          }
+          
+          // Queenside castling (O-O-O)
+          const canQueenside = isWhite ? rights.whiteQueenside : rights.blackQueenside;
+          if (canQueenside) {
+            // Check path is clear (b1/b8, c1/c8, and d1/d8)
+            if (isEmpty(row, 1) && isEmpty(row, 2) && isEmpty(row, 3)) {
+              moves.push([row, 2]); // King moves to c1 or c8
+            }
+          }
+        }
+      }
       break;
   }
   
@@ -2374,7 +2554,8 @@ function handleSudokuComplete(data) {
 function initConnect4Game(gameState, players) {
   console.log('Initializing Connect 4:', gameState);
   state.gameState = gameState || {};
-  elements.gameTitle.textContent = '🔴 4 in a Row 🟡';
+  const winCondition = gameState.winCondition || 4;
+  elements.gameTitle.textContent = `🔴 ${winCondition} in a Row 🟡`;
   
   // Ensure board exists
   if (!state.gameState.board || !Array.isArray(state.gameState.board)) {
@@ -2868,98 +3049,157 @@ function renderLudoBoard(gameState, players) {
 }
 
 function renderLudoBoardHTML(gameState) {
-  // Simplified Ludo board display
+  // Improved Ludo board with visual track
   if (!gameState.playerOrder || !gameState.tokens) {
     return '<div style="color:red;">Error rendering Ludo board</div>';
   }
   
   let html = '<div class="ludo-path">';
   
-  // Render home bases for each player
-  html += '<div style="display:flex;flex-wrap:wrap;justify-content:center;gap:15px;margin-bottom:20px;">';
+  // Build a map of position -> tokens for the track
+  const trackPositions = {};
+  gameState.playerOrder.forEach((playerId, playerIdx) => {
+    const colorInfo = LUDO_COLORS[playerIdx] || { color: '#888', emoji: '⚪' };
+    const tokens = gameState.tokens[playerId] || [];
+    tokens.forEach((t, tIdx) => {
+      if (typeof t.position === 'number') {
+        if (!trackPositions[t.position]) trackPositions[t.position] = [];
+        const isMovable = gameState.validMoves && 
+                         gameState.validMoves.some(m => m.tokenIndex === tIdx) &&
+                         playerId === state.playerId;
+        trackPositions[t.position].push({
+          colorInfo,
+          isMovable,
+          tokenIdx: tIdx,
+          playerId,
+          playerIdx
+        });
+      }
+    });
+  });
+  
+  // Render home bases in a 2x2 grid layout
+  html += '<div class="ludo-homes-grid">';
   gameState.playerOrder.forEach((playerId, playerIdx) => {
     const colorInfo = LUDO_COLORS[playerIdx] || { color: '#888', emoji: '⚪', name: 'Player' };
     const tokens = gameState.tokens[playerId] || [];
     const homeTokens = tokens.filter(t => t.position === 'home');
-    const onBoardTokens = tokens.filter(t => typeof t.position === 'number');
-    const finishedTokens = tokens.filter(t => t.position === 'finished');
+    const onBoardCount = tokens.filter(t => typeof t.position === 'number').length;
+    const finishedCount = tokens.filter(t => t.position === 'finished').length;
     
     html += `
-      <div class="ludo-home" style="background: ${colorInfo.color}20; border-color: ${colorInfo.color}; padding:15px; border-radius:10px; border:2px solid; min-width:120px;">
-        <div style="text-align:center;margin-bottom:10px;">${colorInfo.emoji} ${colorInfo.name}</div>
-        <div style="display:flex;gap:5px;justify-content:center;flex-wrap:wrap;">
-          ${homeTokens.map((t, i) => {
+      <div class="ludo-home-base" style="--player-color: ${colorInfo.color};">
+        <div class="ludo-home-header">
+          <span class="ludo-home-emoji">${colorInfo.emoji}</span>
+          <span class="ludo-home-name">${colorInfo.name}</span>
+        </div>
+        <div class="ludo-home-tokens">
+          ${homeTokens.map((t) => {
             const tokenIdx = tokens.indexOf(t);
             const isMovable = gameState.validMoves && 
                              gameState.validMoves.some(m => m.tokenIndex === tokenIdx) &&
                              playerId === state.playerId;
             return `<div class="ludo-token ${isMovable ? 'movable' : ''}" 
                         data-token-index="${tokenIdx}"
-                        style="background: ${colorInfo.color}; width:30px; height:30px; border-radius:50%; display:flex; align-items:center; justify-content:center; cursor:${isMovable ? 'pointer' : 'default'}; ${isMovable ? 'box-shadow: 0 0 10px gold; animation: tokenPulse 1s infinite;' : ''}">${colorInfo.emoji}</div>`;
+                        style="--token-color: ${colorInfo.color}">
+                      ${colorInfo.emoji}
+                    </div>`;
           }).join('')}
+          ${homeTokens.length === 0 ? '<span class="ludo-empty-home">Empty</span>' : ''}
         </div>
-        <div style="font-size:0.8rem;color:var(--text-secondary);margin-top:8px;text-align:center;">
-          🏠 ${homeTokens.length} | 🎯 ${onBoardTokens.length} | ✅ ${finishedTokens.length}
+        <div class="ludo-home-stats">
+          <span title="Home">🏠${homeTokens.length}</span>
+          <span title="On Track">🎯${onBoardCount}</span>
+          <span title="Finished">✅${finishedCount}</span>
         </div>
       </div>
     `;
   });
   html += '</div>';
   
-  // Simplified track - just show tokens on board
-  const onBoardInfo = [];
-  gameState.playerOrder.forEach((playerId, playerIdx) => {
-    const colorInfo = LUDO_COLORS[playerIdx] || { color: '#888', emoji: '⚪' };
-    const tokens = gameState.tokens[playerId] || [];
-    tokens.forEach((t, tIdx) => {
-      if (typeof t.position === 'number') {
-        const isMovable = gameState.validMoves && 
-                         gameState.validMoves.some(m => m.tokenIndex === tIdx) &&
-                         playerId === state.playerId;
-        onBoardInfo.push({
-          position: t.position,
-          colorInfo,
-          isMovable,
-          tokenIdx: tIdx,
-          playerId
-        });
+  // Visual track - circular path representation
+  html += '<div class="ludo-track-visual">';
+  html += '<div class="ludo-track-title">🛤️ The Upside Down Track 🛤️</div>';
+  html += '<div class="ludo-track-board">';
+  
+  // Show track squares with tokens
+  const trackLength = 52;
+  const safeSquares = [0, 8, 13, 21, 26, 34, 39, 47];
+  const startSquares = [0, 13, 26, 39]; // Starting positions for each player
+  
+  // Only show occupied squares and key squares for clarity
+  const importantSquares = [...new Set([
+    ...Object.keys(trackPositions).map(Number),
+    ...safeSquares,
+    ...startSquares
+  ])].sort((a, b) => a - b);
+  
+  if (importantSquares.length === 0 || Object.keys(trackPositions).length === 0) {
+    html += '<div class="ludo-track-empty">No tokens on track yet - roll a 6 to start!</div>';
+  } else {
+    html += '<div class="ludo-track-squares">';
+    for (let pos = 0; pos < trackLength; pos++) {
+      const isSafe = safeSquares.includes(pos);
+      const isStart = startSquares.includes(pos);
+      const tokensHere = trackPositions[pos] || [];
+      const hasTokens = tokensHere.length > 0;
+      
+      // Only render if has tokens or is important
+      if (hasTokens || isSafe || isStart) {
+        let squareColor = 'var(--bg-secondary)';
+        if (isSafe) squareColor = 'rgba(212, 175, 55, 0.3)';
+        if (isStart) {
+          const startIdx = startSquares.indexOf(pos);
+          const startColor = LUDO_COLORS[startIdx]?.color || '#888';
+          squareColor = `${startColor}40`;
+        }
+        
+        html += `<div class="ludo-track-square ${isSafe ? 'safe' : ''} ${isStart ? 'start' : ''} ${hasTokens ? 'occupied' : ''}" 
+                      style="background: ${squareColor};" title="Position ${pos}${isSafe ? ' (Safe)' : ''}${isStart ? ' (Start)' : ''}">
+                  <span class="square-num">${pos}</span>
+                  <div class="square-tokens">
+                    ${tokensHere.map(info => `
+                      <div class="ludo-token mini ${info.isMovable ? 'movable' : ''}" 
+                           data-token-index="${info.tokenIdx}"
+                           data-player-id="${info.playerId}"
+                           style="--token-color: ${info.colorInfo.color}">
+                        ${info.colorInfo.emoji}
+                      </div>
+                    `).join('')}
+                  </div>
+                </div>`;
       }
-    });
+    }
+    html += '</div>';
+  }
+  html += '</div></div>';
+  
+  // Finish area - show who has finished tokens
+  const playersWithFinished = gameState.playerOrder.filter((playerId, idx) => {
+    const tokens = gameState.tokens[playerId] || [];
+    return tokens.some(t => t.position === 'finished');
   });
   
-  if (onBoardInfo.length > 0) {
-    html += '<div style="background:rgba(0,0,0,0.3);padding:15px;border-radius:10px;margin-bottom:20px;">';
-    html += '<div style="text-align:center;margin-bottom:10px;color:var(--text-secondary);">Tokens on Track:</div>';
-    html += '<div style="display:flex;flex-wrap:wrap;gap:10px;justify-content:center;">';
-    onBoardInfo.forEach(info => {
-      html += `<div class="ludo-token ${info.isMovable ? 'movable' : ''}" 
-                   data-token-index="${info.tokenIdx}"
-                   data-player-id="${info.playerId}"
-                   style="background: ${info.colorInfo.color}; width:35px; height:35px; border-radius:50%; display:flex; align-items:center; justify-content:center; position:relative; cursor:${info.isMovable ? 'pointer' : 'default'}; ${info.isMovable ? 'box-shadow: 0 0 10px gold; animation: tokenPulse 1s infinite;' : ''}">
-                ${info.colorInfo.emoji}
-                <span style="position:absolute;bottom:-15px;font-size:0.7rem;color:var(--text-secondary);">${info.position}</span>
-              </div>`;
+  if (playersWithFinished.length > 0) {
+    html += '<div class="ludo-finish-zone">';
+    html += '<div class="ludo-finish-title">🏁 Finish Line 🏁</div>';
+    html += '<div class="ludo-finish-players">';
+    gameState.playerOrder.forEach((playerId, playerIdx) => {
+      const colorInfo = LUDO_COLORS[playerIdx] || { color: '#888', emoji: '⚪' };
+      const tokens = gameState.tokens[playerId] || [];
+      const finishedTokens = tokens.filter(t => t.position === 'finished');
+      
+      if (finishedTokens.length > 0) {
+        html += `<div class="ludo-finish-player" style="--player-color: ${colorInfo.color}">
+                  <span class="finish-label">${colorInfo.emoji} ${finishedTokens.length}/4</span>
+                  <div class="finish-tokens">
+                    ${finishedTokens.map(() => `<span class="finish-token" style="background: ${colorInfo.color}">${colorInfo.emoji}</span>`).join('')}
+                  </div>
+                </div>`;
+      }
     });
     html += '</div></div>';
   }
-  
-  // Finish area
-  html += '<div style="display:flex;justify-content:center;gap:15px;flex-wrap:wrap;">';
-  gameState.playerOrder.forEach((playerId, playerIdx) => {
-    const colorInfo = LUDO_COLORS[playerIdx] || { color: '#888', emoji: '⚪' };
-    const tokens = gameState.tokens[playerId] || [];
-    const finishedTokens = tokens.filter(t => t.position === 'finished');
-    
-    if (finishedTokens.length > 0) {
-      html += `<div style="border:2px dashed ${colorInfo.color}; padding:10px; border-radius:10px; text-align:center;">
-                <div>✅ Finished</div>
-                <div style="display:flex;gap:5px;margin-top:5px;">
-                  ${finishedTokens.map(() => `<div style="background:${colorInfo.color};width:25px;height:25px;border-radius:50%;display:flex;align-items:center;justify-content:center;">${colorInfo.emoji}</div>`).join('')}
-                </div>
-              </div>`;
-    }
-  });
-  html += '</div>';
   
   html += '</div>';
   return html;

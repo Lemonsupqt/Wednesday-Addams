@@ -1319,8 +1319,9 @@ io.on('connection', (socket) => {
     const piece = socket.id === state.player1 ? '🔴' : '🟡';
     state.board[row][col] = piece;
     
-    // Check for winner
-    const winner = checkConnect4Winner(state.board, row, col, piece);
+    // Check for winner (using winCondition from game state, default to 4)
+    const winCondition = state.winCondition || 4;
+    const winner = checkConnect4Winner(state.board, row, col, piece, winCondition);
     if (winner) {
       state.winner = socket.id;
       state.winningCells = winner;
@@ -1800,13 +1801,16 @@ function initializeGame(gameType, room, options = {}) {
     case 'connect4':
       const c4Players = playerIds.slice(0, 2);
       const shuffledC4 = [...c4Players].sort(() => Math.random() - 0.5);
+      // Support 4 or 5 in a row mode (default to 4)
+      const winCondition = options.winCondition || 4;
       return {
         board: Array(6).fill(null).map(() => Array(7).fill(null)),
         currentPlayer: shuffledC4[0],
         player1: shuffledC4[0],
         player2: shuffledC4[1],
         winner: null,
-        winningCells: []
+        winningCells: [],
+        winCondition: winCondition
       };
 
     case 'molewhack':
@@ -2006,8 +2010,8 @@ function isValidSudokuPlacement(board, row, col, num) {
   return true;
 }
 
-// Connect 4 winner check
-function checkConnect4Winner(board, row, col, piece) {
+// Connect 4/5 winner check
+function checkConnect4Winner(board, row, col, piece, winCondition = 4) {
   const directions = [
     [0, 1],  // horizontal
     [1, 0],  // vertical
@@ -2018,8 +2022,8 @@ function checkConnect4Winner(board, row, col, piece) {
   for (const [dr, dc] of directions) {
     const cells = [[row, col]];
     
-    // Check positive direction
-    for (let i = 1; i < 4; i++) {
+    // Check positive direction (search up to winCondition - 1 in each direction)
+    for (let i = 1; i < winCondition; i++) {
       const r = row + dr * i;
       const c = col + dc * i;
       if (r >= 0 && r < 6 && c >= 0 && c < 7 && board[r][c] === piece) {
@@ -2028,7 +2032,7 @@ function checkConnect4Winner(board, row, col, piece) {
     }
     
     // Check negative direction
-    for (let i = 1; i < 4; i++) {
+    for (let i = 1; i < winCondition; i++) {
       const r = row - dr * i;
       const c = col - dc * i;
       if (r >= 0 && r < 6 && c >= 0 && c < 7 && board[r][c] === piece) {
@@ -2036,7 +2040,7 @@ function checkConnect4Winner(board, row, col, piece) {
       } else break;
     }
     
-    if (cells.length >= 4) return cells;
+    if (cells.length >= winCondition) return cells;
   }
   
   return null;
@@ -2374,6 +2378,9 @@ function startMoleWhackRound(room, roomId) {
 // Trivia and Math quiz timer only (mole spawning handled separately)
 setInterval(() => {
   rooms.forEach((room, roomId) => {
+    // Safety check - ensure room and gameState exist
+    if (!room || !room.gameState) return;
+    
     if (room.currentGame === 'trivia' && room.gameState.timeLeft > 0) {
       room.gameState.timeLeft--;
       io.to(roomId).emit('triviaTimer', { timeLeft: room.gameState.timeLeft });
