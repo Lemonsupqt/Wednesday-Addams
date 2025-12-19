@@ -1516,10 +1516,16 @@ io.on('connection', (socket) => {
     
     io.to(roomId).emit('chatMessage', chatMsg);
     
-    // Check for @Wednesday mention and respond
-    if (message.toLowerCase().includes('@wednesday')) {
+    // Check for @Wednesday mention OR reply to Wednesday
+    const isReplyToWednesday = replyTo && (
+      replyTo.playerName === '🖤 Wednesday' || 
+      replyTo.playerName?.includes('Wednesday')
+    );
+    const hasMention = message.toLowerCase().includes('@wednesday');
+    
+    if (hasMention || isReplyToWednesday) {
       setTimeout(() => {
-        const aiResponse = getWednesdayResponse(message);
+        const aiResponse = getWednesdayResponse(message, isReplyToWednesday);
         const aiMsg = {
           id: uuidv4(),
           playerId: 'WEDNESDAY_AI',
@@ -1527,7 +1533,8 @@ io.on('connection', (socket) => {
           playerColor: '#9333ea',
           message: aiResponse,
           timestamp: Date.now(),
-          isAI: true
+          isAI: true,
+          replyTo: isReplyToWednesday ? { id: chatMsg.id, playerName: player.name, text: message.substring(0, 50) } : null
         };
         room.chat.push(aiMsg);
         io.to(roomId).emit('chatMessage', aiMsg);
@@ -1536,7 +1543,7 @@ io.on('connection', (socket) => {
   });
   
   // Wednesday AI chat responses
-  function getWednesdayResponse(userMessage) {
+  function getWednesdayResponse(userMessage, isReply = false) {
     const msg = userMessage.toLowerCase();
     
     // Context-aware responses based on message content
@@ -1577,6 +1584,15 @@ io.on('connection', (socket) => {
         "Farewell. Try not to be too cheerful out there.",
         "*waves dismissively* Yes, yes. Go."
       ],
+      // Responses when user replies to Wednesday (continuing conversation)
+      conversational: [
+        "You're still talking to me? How unexpectedly persistent.",
+        "I see you wish to continue our... exchange.",
+        "*tilts head* Go on. You have my attention. Briefly.",
+        "Continuing this conversation, are we? Intriguing.",
+        "You return for more of my wisdom. Understandable.",
+        "Very well. I'm listening. For now."
+      ],
       default: [
         "How utterly fascinating. And by fascinating, I mean mundane.",
         "I heard you. I simply chose not to care deeply.",
@@ -1589,6 +1605,23 @@ io.on('connection', (socket) => {
         "My response? *exhales* Fine."
       ]
     };
+    
+    // If this is a reply to Wednesday, add some conversational flavor
+    if (isReply) {
+      // 30% chance to use a conversational opener before the actual response
+      if (Math.random() < 0.3) {
+        const opener = responses.conversational[Math.floor(Math.random() * responses.conversational.length)];
+        // Continue to get a contextual response
+        const contextResponse = getContextualResponse(msg, responses);
+        return opener + ' ' + contextResponse;
+      }
+    }
+    
+    return getContextualResponse(msg, responses);
+  }
+  
+  // Helper to get contextual response
+  function getContextualResponse(msg, responses) {
     
     // Detect message type
     if (/^(hi|hello|hey|greetings|sup|yo)\b/i.test(msg.replace('@wednesday', '').trim())) {

@@ -484,6 +484,8 @@ input[type="password"]::placeholder {
   border: 1px solid var(--border-color);
   border-radius: 15px;
   padding: 20px;
+  overflow: hidden;
+  min-width: 0; /* Prevent grid blowout */
 }
 
 .players-section h3,
@@ -6266,10 +6268,13 @@ input[type="password"]::placeholder {
   display: flex;
   gap: 8px;
   align-items: center;
+  min-width: 0; /* Prevent overflow */
+  max-width: 100%;
 }
 
 .chat-input-container input {
   flex: 1;
+  min-width: 0; /* Allow input to shrink */
   transition: border-color 0.3s, box-shadow 0.3s;
 }
 
@@ -6378,23 +6383,71 @@ input[type="password"]::placeholder {
   50% { transform: translateX(-50%) translateY(-3px); }
 }
 
+/* Wednesday button */
+.wednesday-btn {
+  background: linear-gradient(135deg, #1a1a2e, #16213e);
+  border: 2px solid var(--accent-secondary);
+  color: var(--accent-secondary);
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.1rem;
+  transition: all 0.3s ease;
+  flex-shrink: 0;
+}
+
+.wednesday-btn:hover {
+  background: var(--accent-secondary);
+  color: white;
+  transform: scale(1.1);
+  box-shadow: 0 0 15px rgba(147, 51, 234, 0.5);
+}
+
+.wednesday-btn:active {
+  transform: scale(0.95);
+}
+
+.wednesday-btn.small {
+  width: 28px;
+  height: 28px;
+  font-size: 0.9rem;
+}
+
+.wednesday-btn.active {
+  background: var(--accent-secondary);
+  color: white;
+  animation: pulse-wednesday 1.5s infinite;
+}
+
+@keyframes pulse-wednesday {
+  0%, 100% { box-shadow: 0 0 5px rgba(147, 51, 234, 0.5); }
+  50% { box-shadow: 0 0 20px rgba(147, 51, 234, 0.8); }
+}
+
 /* Reply preview bar */
 .reply-preview {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 8px 12px;
+  gap: 8px;
+  padding: 6px 10px;
   background: linear-gradient(135deg, rgba(147, 51, 234, 0.15), rgba(229, 9, 20, 0.1));
   border-left: 3px solid var(--accent-secondary);
   border-radius: 4px;
   margin-bottom: 8px;
-  font-size: 0.85rem;
+  font-size: 0.8rem;
   animation: slideDown 0.2s ease-out;
+  min-width: 0; /* Prevent overflow */
+  max-width: 100%;
+  box-sizing: border-box;
 }
 
 .reply-preview.small {
-  padding: 5px 8px;
-  font-size: 0.75rem;
+  padding: 4px 8px;
+  font-size: 0.7rem;
   margin-bottom: 5px;
 }
 
@@ -6412,6 +6465,7 @@ input[type="password"]::placeholder {
 .reply-preview .reply-to {
   color: var(--accent-secondary);
   white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .reply-preview .reply-text {
@@ -6420,6 +6474,7 @@ input[type="password"]::placeholder {
   text-overflow: ellipsis;
   white-space: nowrap;
   flex: 1;
+  min-width: 0; /* Enable text truncation */
 }
 
 .cancel-reply-btn {

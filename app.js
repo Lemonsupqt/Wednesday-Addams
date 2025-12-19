@@ -2078,6 +2078,45 @@ function initAdvancedChat() {
   if (mobileCancelReplyBtn) {
     mobileCancelReplyBtn.addEventListener('click', () => cancelReply('mobile'));
   }
+  
+  // Wednesday buttons - quick summon
+  const wednesdayBtn = document.getElementById('wednesdayBtn');
+  const gameWednesdayBtn = document.getElementById('gameWednesdayBtn');
+  const mobileWednesdayBtn = document.getElementById('mobileWednesdayBtn');
+  
+  if (wednesdayBtn) {
+    wednesdayBtn.addEventListener('click', () => {
+      const input = document.getElementById('chatInput');
+      if (input) {
+        input.value = '@Wednesday ' + input.value;
+        input.focus();
+        wednesdayBtn.classList.add('active');
+        setTimeout(() => wednesdayBtn.classList.remove('active'), 300);
+      }
+    });
+  }
+  if (gameWednesdayBtn) {
+    gameWednesdayBtn.addEventListener('click', () => {
+      const input = document.getElementById('gameChatInput');
+      if (input) {
+        input.value = '@Wednesday ' + input.value;
+        input.focus();
+        gameWednesdayBtn.classList.add('active');
+        setTimeout(() => gameWednesdayBtn.classList.remove('active'), 300);
+      }
+    });
+  }
+  if (mobileWednesdayBtn) {
+    mobileWednesdayBtn.addEventListener('click', () => {
+      const input = document.getElementById('mobileChatInput');
+      if (input) {
+        input.value = '@Wednesday ' + input.value;
+        input.focus();
+        mobileWednesdayBtn.classList.add('active');
+        setTimeout(() => mobileWednesdayBtn.classList.remove('active'), 300);
+      }
+    });
+  }
 }
 
 // Update unread badge

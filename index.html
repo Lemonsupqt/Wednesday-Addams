@@ -179,15 +179,16 @@
             </button>
           </div>
           <div id="replyPreview" class="reply-preview" style="display: none;">
-            <span class="reply-to">Replying to <strong id="replyToName"></strong></span>
+            <span class="reply-to">↩ <strong id="replyToName"></strong>:</span>
             <span class="reply-text" id="replyToText"></span>
             <button id="cancelReplyBtn" class="cancel-reply-btn">✕</button>
           </div>
           <div class="chat-input-container">
-            <input type="text" id="chatInput" placeholder="Type message... (@Wednesday to chat with AI)" maxlength="200">
+            <button id="wednesdayBtn" class="wednesday-btn" title="Talk to Wednesday">🖤</button>
+            <input type="text" id="chatInput" placeholder="Type a message..." maxlength="200">
             <button id="sendChatBtn" class="btn-small">📨</button>
           </div>
-          <div class="chat-hint">💡 Click a message to reply • Type @Wednesday to talk to AI</div>
+          <div class="chat-hint">💡 Click message to reply • Replying to Wednesday continues the chat</div>
         </div>
       </div>
 
@@ -245,7 +246,8 @@
           <button id="gameCancelReplyBtn" class="cancel-reply-btn">✕</button>
         </div>
         <div class="chat-input-container">
-          <input type="text" id="gameChatInput" placeholder="Chat... (@Wednesday for AI)" maxlength="200">
+          <button id="gameWednesdayBtn" class="wednesday-btn small" title="Talk to Wednesday">🖤</button>
+          <input type="text" id="gameChatInput" placeholder="Chat..." maxlength="200">
           <button id="sendGameChatBtn" class="btn-small">📨</button>
         </div>
       </div>
@@ -291,7 +293,8 @@
       <button id="mobileCancelReplyBtn" class="cancel-reply-btn">✕</button>
     </div>
     <div class="chat-input-area">
-      <input type="text" id="mobileChatInput" placeholder="Type... (@Wednesday for AI)" maxlength="200">
+      <button id="mobileWednesdayBtn" class="wednesday-btn" title="Talk to Wednesday">🖤</button>
+      <input type="text" id="mobileChatInput" placeholder="Type a message..." maxlength="200">
       <button id="sendMobileChatBtn" class="btn-small btn-primary">Send</button>
     </div>
   </div>
