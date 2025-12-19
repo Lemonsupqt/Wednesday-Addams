@@ -822,6 +822,232 @@ io.on('connection', (socket) => {
   });
 
   // ============================================
+  // CHALLENGE SYSTEM (2-Player Games)
+  // ============================================
+  
+  // Challenge another player
+  socket.on('challengePlayer', ({ targetPlayerId, gameType, options }) => {
+    const roomId = players.get(socket.id);
+    const room = rooms.get(roomId);
+    if (!room) return;
+    
+    const challenger = room.players.get(socket.id);
+    const target = room.players.get(targetPlayerId);
+    
+    if (!challenger || !target) {
+      socket.emit('error', { message: 'Player not found' });
+      return;
+    }
+    
+    // Check if either player is already in a match
+    if (challenger.inMatch || target.inMatch) {
+      socket.emit('error', { message: 'One of the players is already in a game' });
+      return;
+    }
+    
+    // Create challenge
+    const challengeId = uuidv4();
+    if (!room.pendingChallenges) room.pendingChallenges = new Map();
+    
+    room.pendingChallenges.set(challengeId, {
+      challengerId: socket.id,
+      challengerName: challenger.name,
+      targetId: targetPlayerId,
+      gameType,
+      options,
+      timestamp: Date.now()
+    });
+    
+    // Send challenge to target
+    io.to(targetPlayerId).emit('challengeReceived', {
+      challengeId,
+      challengerId: socket.id,
+      challengerName: challenger.name,
+      gameType,
+      options
+    });
+    
+    console.log(`⚔️ Challenge: ${challenger.name} -> ${target.name} (${gameType})`);
+  });
+  
+  // Accept a challenge
+  socket.on('acceptChallenge', ({ challengeId }) => {
+    const roomId = players.get(socket.id);
+    const room = rooms.get(roomId);
+    if (!room || !room.pendingChallenges) return;
+    
+    const challenge = room.pendingChallenges.get(challengeId);
+    if (!challenge || challenge.targetId !== socket.id) {
+      socket.emit('error', { message: 'Challenge not found or expired' });
+      return;
+    }
+    
+    // Remove the challenge
+    room.pendingChallenges.delete(challengeId);
+    
+    const challenger = room.players.get(challenge.challengerId);
+    const target = room.players.get(socket.id);
+    
+    if (!challenger || !target) {
+      socket.emit('error', { message: 'Player left the room' });
+      return;
+    }
+    
+    // Create a match
+    const matchId = uuidv4();
+    if (!room.activeMatches) room.activeMatches = new Map();
+    
+    // Mark players as in a match
+    challenger.inMatch = matchId;
+    target.inMatch = matchId;
+    
+    // Initialize match game state
+    const matchPlayers = [
+      { id: challenger.id, name: challenger.name, color: challenger.color },
+      { id: target.id, name: target.name, color: target.color }
+    ];
+    
+    const gameState = initializeMatchGame(challenge.gameType, matchPlayers, challenge.options);
+    
+    const match = {
+      matchId,
+      gameType: challenge.gameType,
+      players: matchPlayers,
+      spectators: [],
+      gameState,
+      options: challenge.options
+    };
+    
+    room.activeMatches.set(matchId, match);
+    
+    // Notify the two players
+    io.to(challenger.id).emit('matchStarted', {
+      matchId,
+      gameType: challenge.gameType,
+      players: matchPlayers,
+      gameState
+    });
+    io.to(target.id).emit('matchStarted', {
+      matchId,
+      gameType: challenge.gameType,
+      players: matchPlayers,
+      gameState
+    });
+    
+    // Broadcast updated player list (shows who's in games)
+    io.to(roomId).emit('playerJoined', { players: room.getPlayerList() });
+    
+    // Update lobby players about active matches
+    broadcastActiveMatches(room, roomId);
+    
+    console.log(`🎮 Match started: ${challenger.name} vs ${target.name} (${challenge.gameType})`);
+  });
+  
+  // Decline a challenge
+  socket.on('declineChallenge', ({ challengeId }) => {
+    const roomId = players.get(socket.id);
+    const room = rooms.get(roomId);
+    if (!room || !room.pendingChallenges) return;
+    
+    const challenge = room.pendingChallenges.get(challengeId);
+    if (!challenge) return;
+    
+    room.pendingChallenges.delete(challengeId);
+    
+    const decliner = room.players.get(socket.id);
+    io.to(challenge.challengerId).emit('challengeDeclined', {
+      playerName: decliner?.name || 'Player'
+    });
+  });
+  
+  // Spectate a match
+  socket.on('spectateMatch', ({ matchId }) => {
+    const roomId = players.get(socket.id);
+    const room = rooms.get(roomId);
+    if (!room || !room.activeMatches) return;
+    
+    const match = room.activeMatches.get(matchId);
+    if (!match) {
+      socket.emit('error', { message: 'Match not found' });
+      return;
+    }
+    
+    // Add to spectators
+    if (!match.spectators.includes(socket.id)) {
+      match.spectators.push(socket.id);
+    }
+    
+    const player = room.players.get(socket.id);
+    player.spectating = matchId;
+    
+    // Send current game state to spectator
+    socket.emit('matchStarted', {
+      matchId,
+      gameType: match.gameType,
+      players: match.players,
+      gameState: match.gameState,
+      isSpectator: true
+    });
+    
+    // Notify players that someone is watching
+    match.players.forEach(p => {
+      io.to(p.id).emit('spectatorJoined', { playerName: player?.name || 'Someone' });
+    });
+    
+    console.log(`👁️ ${player?.name} is spectating match ${matchId}`);
+  });
+  
+  // Leave spectating
+  socket.on('leaveSpectate', ({ matchId }) => {
+    const roomId = players.get(socket.id);
+    const room = rooms.get(roomId);
+    if (!room || !room.activeMatches) return;
+    
+    const match = room.activeMatches.get(matchId);
+    if (match) {
+      // Remove from spectators list
+      match.spectators = match.spectators.filter(id => id !== socket.id);
+    }
+    
+    const player = room.players.get(socket.id);
+    if (player) {
+      player.spectating = null;
+    }
+    
+    console.log(`👋 ${player?.name} stopped spectating`);
+  });
+  
+  // Match moves (2-player games)
+  socket.on('matchMove', ({ matchId, moveData }) => {
+    const roomId = players.get(socket.id);
+    const room = rooms.get(roomId);
+    if (!room || !room.activeMatches) return;
+    
+    const match = room.activeMatches.get(matchId);
+    if (!match) return;
+    
+    // Process move based on game type
+    const result = processMatchMove(match, socket.id, moveData);
+    
+    if (result) {
+      // Send update to players and spectators
+      const allRecipients = [...match.players.map(p => p.id), ...match.spectators];
+      allRecipients.forEach(id => {
+        io.to(id).emit('matchUpdate', {
+          matchId,
+          gameType: match.gameType,
+          gameState: match.gameState
+        });
+      });
+      
+      // Check for game end
+      if (result.winner || result.draw) {
+        endMatch(room, roomId, match, result);
+      }
+    }
+  });
+
+  // ============================================
   // GAME VOTING SYSTEM (The Séance Circle)
   // ============================================
   
@@ -2697,6 +2923,412 @@ setInterval(() => {
 function resetPuck(state, direction) {
   state.puckPosition = { x: 400, y: 300 };
   state.puckVelocity = { x: direction === 1 ? 5 : -5, y: (Math.random() - 0.5) * 4 };
+}
+
+// ============================================
+// CHALLENGE SYSTEM HELPER FUNCTIONS
+// ============================================
+
+// Initialize a match game (2-player games)
+function initializeMatchGame(gameType, matchPlayers, options = {}) {
+  const [player1, player2] = matchPlayers;
+  
+  // Helper for random starting player
+  const randomStart = () => matchPlayers[Math.floor(Math.random() * 2)];
+  
+  switch (gameType) {
+    case 'tictactoe':
+      const symbols = ['🔴', '💀'];
+      const shuffled = [...matchPlayers].sort(() => Math.random() - 0.5);
+      const symbolMap = {};
+      shuffled.forEach((p, i) => symbolMap[p.id] = symbols[i]);
+      return {
+        board: Array(9).fill(null),
+        currentPlayer: shuffled[0].id,
+        playerSymbols: symbolMap,
+        winner: null,
+        players: matchPlayers
+      };
+      
+    case 'chess':
+      const shuffledChess = [...matchPlayers].sort(() => Math.random() - 0.5);
+      return {
+        board: getInitialChessBoard(),
+        currentPlayer: shuffledChess[0].id,
+        whitePlayer: shuffledChess[0].id,
+        blackPlayer: shuffledChess[1].id,
+        isWhiteTurn: true,
+        selectedPiece: null,
+        gameOver: false,
+        winner: null,
+        castlingRights: {
+          whiteKingSide: true,
+          whiteQueenSide: true,
+          blackKingSide: true,
+          blackQueenSide: true
+        },
+        players: matchPlayers
+      };
+      
+    case 'connect4':
+      const winCondition = options.winCondition || 4;
+      const shuffledC4 = [...matchPlayers].sort(() => Math.random() - 0.5);
+      return {
+        board: Array(6).fill(null).map(() => Array(7).fill(null)),
+        currentPlayer: shuffledC4[0].id,
+        redPlayer: shuffledC4[0].id,
+        yellowPlayer: shuffledC4[1].id,
+        isRedTurn: true,
+        winner: null,
+        winCondition,
+        players: matchPlayers
+      };
+      
+    default:
+      return { players: matchPlayers };
+  }
+}
+
+// Process a match move
+function processMatchMove(match, playerId, moveData) {
+  const state = match.gameState;
+  
+  switch (match.gameType) {
+    case 'tictactoe':
+      return processTTTMatchMove(state, playerId, moveData);
+    case 'chess':
+      return processChessMatchMove(state, playerId, moveData);
+    case 'connect4':
+      return processConnect4MatchMove(state, playerId, moveData);
+    default:
+      return null;
+  }
+}
+
+// Process Tic-Tac-Toe move
+function processTTTMatchMove(state, playerId, moveData) {
+  const { cellIndex } = moveData;
+  
+  if (state.currentPlayer !== playerId) return null;
+  if (state.board[cellIndex] !== null) return null;
+  if (state.winner) return null;
+  
+  const symbol = state.playerSymbols[playerId];
+  state.board[cellIndex] = symbol;
+  
+  // Check for winner
+  const winPatterns = [
+    [0, 1, 2], [3, 4, 5], [6, 7, 8], // Rows
+    [0, 3, 6], [1, 4, 7], [2, 5, 8], // Columns
+    [0, 4, 8], [2, 4, 6] // Diagonals
+  ];
+  
+  for (const pattern of winPatterns) {
+    const [a, b, c] = pattern;
+    if (state.board[a] && state.board[a] === state.board[b] && state.board[a] === state.board[c]) {
+      state.winner = playerId;
+      const winner = state.players.find(p => p.id === playerId);
+      return { winner };
+    }
+  }
+  
+  // Check for draw
+  if (!state.board.includes(null)) {
+    return { draw: true };
+  }
+  
+  // Switch turns
+  const otherPlayer = state.players.find(p => p.id !== playerId);
+  state.currentPlayer = otherPlayer.id;
+  
+  return { moved: true };
+}
+
+// Process Chess move
+function processChessMatchMove(state, playerId, moveData) {
+  const { from, to } = moveData;
+  
+  if (state.currentPlayer !== playerId) return null;
+  if (state.gameOver) return null;
+  
+  const isWhiteTurn = state.isWhiteTurn;
+  
+  // Use existing chess validation
+  if (!isValidChessMove(state.board, from, to, isWhiteTurn, state.castlingRights)) {
+    return null;
+  }
+  
+  // Make the move
+  const piece = state.board[from[0]][from[1]];
+  
+  // Handle castling
+  if (piece && piece.type === 'king' && Math.abs(to[1] - from[1]) === 2) {
+    const isKingSide = to[1] > from[1];
+    const rookFromCol = isKingSide ? 7 : 0;
+    const rookToCol = isKingSide ? to[1] - 1 : to[1] + 1;
+    state.board[from[0]][rookToCol] = state.board[from[0]][rookFromCol];
+    state.board[from[0]][rookFromCol] = null;
+  }
+  
+  // Update castling rights
+  if (piece) {
+    if (piece.type === 'king') {
+      if (piece.color === 'white') {
+        state.castlingRights.whiteKingSide = false;
+        state.castlingRights.whiteQueenSide = false;
+      } else {
+        state.castlingRights.blackKingSide = false;
+        state.castlingRights.blackQueenSide = false;
+      }
+    }
+    if (piece.type === 'rook') {
+      if (from[0] === 7 && from[1] === 0) state.castlingRights.whiteQueenSide = false;
+      if (from[0] === 7 && from[1] === 7) state.castlingRights.whiteKingSide = false;
+      if (from[0] === 0 && from[1] === 0) state.castlingRights.blackQueenSide = false;
+      if (from[0] === 0 && from[1] === 7) state.castlingRights.blackKingSide = false;
+    }
+  }
+  
+  // Handle pawn promotion
+  if (piece && piece.type === 'pawn' && (to[0] === 0 || to[0] === 7)) {
+    state.board[to[0]][to[1]] = { type: 'queen', color: piece.color };
+  } else {
+    state.board[to[0]][to[1]] = piece;
+  }
+  state.board[from[0]][from[1]] = null;
+  
+  // Check for checkmate/stalemate
+  const opponentColor = isWhiteTurn ? 'black' : 'white';
+  const opponentInCheck = isInCheck(state.board, opponentColor);
+  const opponentHasMoves = hasLegalMoves(state.board, opponentColor, state.castlingRights);
+  
+  if (!opponentHasMoves) {
+    state.gameOver = true;
+    if (opponentInCheck) {
+      state.winner = playerId;
+      const winner = state.players.find(p => p.id === playerId);
+      return { winner, checkmate: true };
+    } else {
+      return { draw: true, stalemate: true };
+    }
+  }
+  
+  // Switch turns
+  state.isWhiteTurn = !state.isWhiteTurn;
+  state.currentPlayer = state.isWhiteTurn ? state.whitePlayer : state.blackPlayer;
+  
+  return { moved: true, inCheck: opponentInCheck };
+}
+
+// Process Connect4 move
+function processConnect4MatchMove(state, playerId, moveData) {
+  const { column } = moveData;
+  
+  if (state.currentPlayer !== playerId) return null;
+  if (state.winner) return null;
+  
+  // Find lowest empty row in column
+  let row = -1;
+  for (let r = 5; r >= 0; r--) {
+    if (state.board[r][column] === null) {
+      row = r;
+      break;
+    }
+  }
+  
+  if (row === -1) return null; // Column full
+  
+  const color = playerId === state.redPlayer ? 'red' : 'yellow';
+  state.board[row][column] = color;
+  
+  // Check for winner
+  const winCondition = state.winCondition || 4;
+  if (checkConnect4Win(state.board, row, column, color, winCondition)) {
+    state.winner = playerId;
+    const winner = state.players.find(p => p.id === playerId);
+    return { winner };
+  }
+  
+  // Check for draw
+  const isDraw = state.board[0].every(cell => cell !== null);
+  if (isDraw) {
+    return { draw: true };
+  }
+  
+  // Switch turns
+  state.isRedTurn = !state.isRedTurn;
+  state.currentPlayer = state.isRedTurn ? state.redPlayer : state.yellowPlayer;
+  
+  return { moved: true };
+}
+
+// Check Connect4 win condition
+function checkConnect4Win(board, row, col, color, winCondition) {
+  const directions = [
+    [0, 1],  // Horizontal
+    [1, 0],  // Vertical
+    [1, 1],  // Diagonal down-right
+    [1, -1]  // Diagonal down-left
+  ];
+  
+  for (const [dr, dc] of directions) {
+    let count = 1;
+    
+    // Count in positive direction
+    for (let i = 1; i < winCondition; i++) {
+      const r = row + dr * i;
+      const c = col + dc * i;
+      if (r < 0 || r >= 6 || c < 0 || c >= 7) break;
+      if (board[r][c] !== color) break;
+      count++;
+    }
+    
+    // Count in negative direction
+    for (let i = 1; i < winCondition; i++) {
+      const r = row - dr * i;
+      const c = col - dc * i;
+      if (r < 0 || r >= 6 || c < 0 || c >= 7) break;
+      if (board[r][c] !== color) break;
+      count++;
+    }
+    
+    if (count >= winCondition) return true;
+  }
+  
+  return false;
+}
+
+// End a match and handle spectator rotation
+function endMatch(room, roomId, match, result) {
+  const { winner, draw } = result;
+  
+  // Get all match participants
+  const allRecipients = [...match.players.map(p => p.id), ...match.spectators];
+  
+  // Send match ended event
+  allRecipients.forEach(id => {
+    io.to(id).emit('matchEnded', {
+      matchId: match.matchId,
+      winner: winner ? match.players.find(p => p.id === winner.id || p.id === winner) : null,
+      draw
+    });
+  });
+  
+  // Mark players as no longer in match
+  match.players.forEach(p => {
+    const player = room.players.get(p.id);
+    if (player) {
+      player.inMatch = null;
+    }
+  });
+  
+  // Clear spectator status
+  match.spectators.forEach(specId => {
+    const spec = room.players.get(specId);
+    if (spec) spec.spectating = null;
+  });
+  
+  // Spectator rotation: if there are spectators, loser swaps with first spectator
+  if (winner && match.spectators.length > 0) {
+    const loserId = match.players.find(p => p.id !== winner.id && p.id !== winner)?.id;
+    const firstSpectator = match.spectators[0];
+    
+    if (loserId && firstSpectator) {
+      // Create rematch with winner and first spectator
+      setTimeout(() => {
+        const winnerPlayer = room.players.get(winner.id || winner);
+        const newChallenger = room.players.get(firstSpectator);
+        
+        if (winnerPlayer && newChallenger && !winnerPlayer.inMatch && !newChallenger.inMatch) {
+          // Auto-start new match
+          const newMatchId = uuidv4();
+          
+          winnerPlayer.inMatch = newMatchId;
+          newChallenger.inMatch = newMatchId;
+          
+          const newMatchPlayers = [
+            { id: winnerPlayer.id, name: winnerPlayer.name, color: winnerPlayer.color },
+            { id: newChallenger.id, name: newChallenger.name, color: newChallenger.color }
+          ];
+          
+          const newGameState = initializeMatchGame(match.gameType, newMatchPlayers, match.options);
+          
+          const newMatch = {
+            matchId: newMatchId,
+            gameType: match.gameType,
+            players: newMatchPlayers,
+            spectators: match.spectators.filter(s => s !== firstSpectator),
+            gameState: newGameState,
+            options: match.options
+          };
+          
+          // Add loser to spectators if still in room
+          if (room.players.has(loserId)) {
+            newMatch.spectators.push(loserId);
+          }
+          
+          room.activeMatches.set(newMatchId, newMatch);
+          
+          // Notify players
+          io.to(winnerPlayer.id).emit('matchStarted', {
+            matchId: newMatchId,
+            gameType: match.gameType,
+            players: newMatchPlayers,
+            gameState: newGameState,
+            autoRotation: true
+          });
+          io.to(newChallenger.id).emit('matchStarted', {
+            matchId: newMatchId,
+            gameType: match.gameType,
+            players: newMatchPlayers,
+            gameState: newGameState,
+            autoRotation: true
+          });
+          
+          // Notify spectators (including the loser)
+          newMatch.spectators.forEach(specId => {
+            io.to(specId).emit('matchStarted', {
+              matchId: newMatchId,
+              gameType: match.gameType,
+              players: newMatchPlayers,
+              gameState: newGameState,
+              isSpectator: true,
+              autoRotation: true
+            });
+          });
+          
+          console.log(`🔄 Auto-rotation: ${winnerPlayer.name} vs ${newChallenger.name}`);
+        }
+      }, 2000); // 2 second delay before next match
+    }
+  }
+  
+  // Remove old match
+  room.activeMatches.delete(match.matchId);
+  
+  // Broadcast updated player list (shows who's no longer in games)
+  io.to(roomId).emit('playerJoined', { players: room.getPlayerList() });
+  
+  // Broadcast updated active matches
+  broadcastActiveMatches(room, roomId);
+}
+
+// Broadcast active matches to lobby players
+function broadcastActiveMatches(room, roomId) {
+  if (!room.activeMatches) return;
+  
+  const matches = Array.from(room.activeMatches.values()).map(m => ({
+    matchId: m.matchId,
+    gameType: m.gameType,
+    players: m.players
+  }));
+  
+  // Send to all players not in a match
+  room.players.forEach((player, playerId) => {
+    if (!player.inMatch && !player.spectating) {
+      io.to(playerId).emit('activeMatchesUpdate', { matches });
+    }
+  });
 }
 
 const PORT = process.env.PORT || 3000;

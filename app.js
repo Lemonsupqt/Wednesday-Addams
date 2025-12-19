@@ -97,7 +97,11 @@ let state = {
   players: [],
   currentGame: null,
   gameState: {},
-  votingActive: false
+  votingActive: false,
+  // Challenge/match system state
+  matchId: null,
+  isSpectator: false,
+  activeMatches: []
 };
 
 // Chess state
@@ -961,10 +965,11 @@ function copyRoomCode() {
 function updatePlayersList(players) {
   state.players = players;
   elements.playersList.innerHTML = players.map(p => `
-    <div class="player-item ${p.id === state.playerId ? 'is-me' : ''}">
+    <div class="player-item ${p.id === state.playerId ? 'is-me' : ''} ${p.inMatch ? 'in-game' : ''}">
       <span class="player-color-indicator" style="background: ${p.color || '#e50914'}"></span>
       <span class="player-name" style="color: ${p.color || '#e50914'}">${escapeHtml(p.name)}</span>
       ${p.username ? `<span class="verified-badge" title="Registered">✓</span>` : ''}
+      ${p.inMatch ? '<span class="in-game-badge" title="In a game">🎮</span>' : ''}
       <span class="score" title="Trophies this session">🏆 ${p.trophies || 0}</span>
     </div>
   `).join('');
@@ -1028,23 +1033,182 @@ function updatePlayersList(players) {
   `;
 }
 
-// Handle game selection (legacy - directly starts game without voting)
+// 2-player games that use challenge system
+const TWO_PLAYER_GAMES = ['tictactoe', 'chess', 'connect4'];
+
+// Handle game selection
 function handleGameSelection(gameType) {
-  // If voting is active, this shouldn't be called - use handleVote instead
+  // If voting is active, use voting system
   if (state.votingActive) {
     handleVote(gameType);
     return;
   }
   
-  // Legacy direct start (only if not in voting mode)
+  // For 2-player games, show player selection modal
+  if (TWO_PLAYER_GAMES.includes(gameType)) {
+    showPlayerSelectionModal(gameType);
+    return;
+  }
+  
+  // For multiplayer games, use normal flow
   if (gameType === 'memory') {
     showMemoryDifficultyModal();
   } else if (gameType === 'sudoku') {
     showSudokuDifficultyModal();
-  } else if (gameType === 'connect4') {
-    showConnect4DifficultyModal();
   } else {
     startGame(gameType);
+  }
+}
+
+// Show player selection modal for 2-player games
+function showPlayerSelectionModal(gameType) {
+  const modal = document.getElementById('votingModal');
+  if (!modal) return;
+  
+  // Get other players (not me, not already in a game)
+  const availablePlayers = state.players.filter(p => 
+    p.id !== state.playerId && !p.inGame
+  );
+  
+  const gameNames = {
+    'tictactoe': '⭕❌ Tic-Tac-Toe',
+    'chess': '♟️ Chess',
+    'connect4': '🔴🟡 Connect 4'
+  };
+  
+  if (availablePlayers.length === 0) {
+    showError('No players available to challenge!');
+    return;
+  }
+  
+  modal.innerHTML = `
+    <div class="voting-modal-content player-select-modal">
+      <h3>${gameNames[gameType] || gameType}</h3>
+      <p class="modal-subtitle">Choose your opponent:</p>
+      <div class="player-select-list">
+        ${availablePlayers.map(p => `
+          <button class="player-select-btn" data-player-id="${p.id}">
+            <span class="player-color-dot" style="background: ${p.color || '#e50914'}"></span>
+            <span class="player-select-name">${escapeHtml(p.name)}</span>
+            ${p.username ? '<span class="verified-small">✓</span>' : ''}
+          </button>
+        `).join('')}
+      </div>
+      <button class="btn btn-secondary" style="margin-top: 15px;" id="cancelPlayerSelect">Cancel</button>
+    </div>
+  `;
+  modal.classList.add('active');
+  
+  // Add click handlers
+  modal.querySelectorAll('.player-select-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const targetId = btn.dataset.playerId;
+      modal.classList.remove('active');
+      
+      // For connect4, ask for win condition first
+      if (gameType === 'connect4') {
+        showConnect4OptionsAndChallenge(targetId);
+      } else {
+        sendChallenge(targetId, gameType, {});
+      }
+    });
+  });
+  
+  document.getElementById('cancelPlayerSelect')?.addEventListener('click', () => {
+    modal.classList.remove('active');
+  });
+}
+
+// Show Connect4 options then send challenge
+function showConnect4OptionsAndChallenge(targetPlayerId) {
+  const modal = document.getElementById('votingModal');
+  modal.innerHTML = `
+    <div class="voting-modal-content">
+      <h3>🔴🟡 Choose Mode</h3>
+      <div class="difficulty-options">
+        <button class="difficulty-btn" data-win="4">
+          <span class="diff-icon">4️⃣</span>
+          <div>
+            <span class="diff-name">Connect 4</span>
+            <span class="diff-desc">Classic</span>
+          </div>
+        </button>
+        <button class="difficulty-btn" data-win="5">
+          <span class="diff-icon">5️⃣</span>
+          <div>
+            <span class="diff-name">Connect 5</span>
+            <span class="diff-desc">Harder</span>
+          </div>
+        </button>
+      </div>
+      <button class="btn btn-secondary" style="margin-top: 15px;" id="cancelConnect4">Cancel</button>
+    </div>
+  `;
+  modal.classList.add('active');
+  
+  modal.querySelectorAll('.difficulty-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const winCondition = parseInt(btn.dataset.win);
+      modal.classList.remove('active');
+      sendChallenge(targetPlayerId, 'connect4', { winCondition });
+    });
+  });
+  
+  document.getElementById('cancelConnect4')?.addEventListener('click', () => {
+    modal.classList.remove('active');
+  });
+}
+
+// Send challenge to another player
+function sendChallenge(targetPlayerId, gameType, options) {
+  const targetPlayer = state.players.find(p => p.id === targetPlayerId);
+  socket.emit('challengePlayer', { targetPlayerId, gameType, options });
+  showNotification(`Challenge sent to ${targetPlayer?.name || 'player'}!`, 'info');
+}
+
+// Show incoming challenge popup
+function showIncomingChallenge(data) {
+  const modal = document.getElementById('votingModal');
+  const gameNames = {
+    'tictactoe': '⭕❌ Tic-Tac-Toe',
+    'chess': '♟️ Chess',
+    'connect4': '🔴🟡 Connect 4'
+  };
+  
+  modal.innerHTML = `
+    <div class="voting-modal-content challenge-received">
+      <h3>⚔️ Challenge!</h3>
+      <p class="challenger-info">${escapeHtml(data.challengerName)} wants to play:</p>
+      <div class="challenge-game-name">${gameNames[data.gameType] || data.gameType}</div>
+      <div class="challenge-buttons">
+        <button class="btn btn-primary" id="acceptChallenge">Accept</button>
+        <button class="btn btn-danger" id="declineChallenge">Decline</button>
+      </div>
+    </div>
+  `;
+  modal.classList.add('active');
+  
+  document.getElementById('acceptChallenge')?.addEventListener('click', () => {
+    socket.emit('acceptChallenge', { challengeId: data.challengeId });
+    modal.classList.remove('active');
+  });
+  
+  document.getElementById('declineChallenge')?.addEventListener('click', () => {
+    socket.emit('declineChallenge', { challengeId: data.challengeId });
+    modal.classList.remove('active');
+  });
+}
+
+// Simple notification function
+function showNotification(message, type = 'info') {
+  // Use existing error toast for now, but style differently
+  const toast = document.getElementById('errorToast');
+  if (toast) {
+    toast.textContent = message;
+    toast.className = `toast ${type} active`;
+    setTimeout(() => {
+      toast.classList.remove('active');
+    }, 3000);
   }
 }
 
@@ -1318,11 +1482,17 @@ function initTicTacToe(gameState, players) {
   
   const playerSymbols = new Map(Object.entries(gameState.playerSymbols));
   const mySymbol = playerSymbols.get(state.playerId);
+  const isSpectator = state.isSpectator || !mySymbol;
+  
+  // Add spectator badge if watching
+  if (isSpectator) {
+    addSpectatorBadge();
+  }
   
   elements.gameContent.innerHTML = `
     <div class="ttt-container">
       <div class="ttt-status" id="tttStatus">
-        ${gameState.currentPlayer === state.playerId ? "🔴 Your turn!" : "Waiting for opponent..."}
+        ${isSpectator ? '👁️ Watching...' : (gameState.currentPlayer === state.playerId ? "🔴 Your turn!" : "Waiting for opponent...")}
       </div>
       <div class="ttt-board" id="tttBoard">
         ${gameState.board.map((cell, i) => `
@@ -1330,25 +1500,66 @@ function initTicTacToe(gameState, players) {
         `).join('')}
       </div>
       <div class="ttt-info" style="margin-top: 20px; color: var(--text-secondary);">
-        Your symbol: ${mySymbol || 'Spectating'}
+        ${isSpectator ? '👁️ Spectating' : `Your symbol: ${mySymbol}`}
       </div>
     </div>
   `;
   
-  document.querySelectorAll('.ttt-cell').forEach(cell => {
-    cell.addEventListener('click', () => {
-      if (gameState.currentPlayer !== state.playerId) return;
-      if (cell.classList.contains('taken')) return;
-      socket.emit('tttMove', parseInt(cell.dataset.index));
+  if (!isSpectator) {
+    document.querySelectorAll('.ttt-cell').forEach(cell => {
+      cell.addEventListener('click', () => {
+        if (state.gameState.currentPlayer !== state.playerId) return;
+        if (cell.classList.contains('taken')) return;
+        // Use matchMove for challenge matches, tttMove for regular games
+        if (state.matchId) {
+          socket.emit('matchMove', { matchId: state.matchId, moveData: { cellIndex: parseInt(cell.dataset.index) }});
+        } else {
+          socket.emit('tttMove', parseInt(cell.dataset.index));
+        }
+      });
     });
-  });
+  }
   
   updateScoreBoard(players, gameState.currentPlayer);
+}
+
+// Add spectator badge to screen with leave button
+function addSpectatorBadge() {
+  let badge = document.getElementById('spectatorBadge');
+  if (!badge) {
+    badge = document.createElement('div');
+    badge.id = 'spectatorBadge';
+    badge.className = 'spectator-badge';
+    badge.innerHTML = '👁️ SPECTATING <button class="leave-spectate-btn" onclick="leaveSpectate()">✕ Leave</button>';
+    document.body.appendChild(badge);
+  }
+}
+
+// Remove spectator badge
+function removeSpectatorBadge() {
+  const badge = document.getElementById('spectatorBadge');
+  if (badge) badge.remove();
+}
+
+// Leave spectating mode
+function leaveSpectate() {
+  if (state.matchId && state.isSpectator) {
+    socket.emit('leaveSpectate', { matchId: state.matchId });
+    state.matchId = null;
+    state.isSpectator = false;
+    state.currentGame = null;
+    state.gameState = {};
+    removeSpectatorBadge();
+    showScreen('lobby');
+  }
 }
 
 function updateTicTacToe(data) {
   const board = document.getElementById('tttBoard');
   const status = document.getElementById('tttStatus');
+  const isSpectator = state.isSpectator;
+  
+  if (!board || !status) return;
   
   if (data.board) {
     state.gameState.board = data.board;
@@ -1356,25 +1567,35 @@ function updateTicTacToe(data) {
       <div class="ttt-cell ${cell ? 'taken' : ''}" data-index="${i}">${cell || ''}</div>
     `).join('');
     
-    document.querySelectorAll('.ttt-cell').forEach(cell => {
-      cell.addEventListener('click', () => {
-        if (state.gameState.currentPlayer !== state.playerId) return;
-        if (cell.classList.contains('taken')) return;
-        socket.emit('tttMove', parseInt(cell.dataset.index));
+    if (!isSpectator) {
+      document.querySelectorAll('.ttt-cell').forEach(cell => {
+        cell.addEventListener('click', () => {
+          if (state.gameState.currentPlayer !== state.playerId) return;
+          if (cell.classList.contains('taken')) return;
+          if (state.matchId) {
+            socket.emit('matchMove', { matchId: state.matchId, moveData: { cellIndex: parseInt(cell.dataset.index) }});
+          } else {
+            socket.emit('tttMove', parseInt(cell.dataset.index));
+          }
+        });
       });
-    });
+    }
   }
   
   if (data.winner) {
     status.innerHTML = `🏆 ${escapeHtml(data.winnerName)} wins! 🏆`;
     updateScoreBoard(data.players);
-    showPlayAgainButton('ttt');
+    if (!state.matchId) showPlayAgainButton('ttt');
   } else if (data.draw) {
     status.innerHTML = "🤝 It's a draw! 🤝";
-    showPlayAgainButton('ttt');
+    if (!state.matchId) showPlayAgainButton('ttt');
   } else if (data.currentPlayer) {
     state.gameState.currentPlayer = data.currentPlayer;
-    status.innerHTML = data.currentPlayer === state.playerId ? "🔴 Your turn!" : "Waiting for opponent...";
+    if (isSpectator) {
+      status.innerHTML = '👁️ Watching...';
+    } else {
+      status.innerHTML = data.currentPlayer === state.playerId ? "🔴 Your turn!" : "Waiting for opponent...";
+    }
     updateScoreBoard(state.players, data.currentPlayer);
   }
 }
@@ -1802,10 +2023,17 @@ function handleChessSquareClick(row, col) {
     }
     
     // Try to make the move
-    socket.emit('chessMove', {
-      from: [fromRow, fromCol],
-      to: [row, col]
-    });
+    if (state.matchId) {
+      socket.emit('matchMove', { 
+        matchId: state.matchId, 
+        moveData: { from: [fromRow, fromCol], to: [row, col] }
+      });
+    } else {
+      socket.emit('chessMove', {
+        from: [fromRow, fromCol],
+        to: [row, col]
+      });
+    }
     
     chessState.selectedSquare = null;
     chessState.validMoves = [];
@@ -2288,6 +2516,197 @@ socket.on('error', (data) => {
   showError(data.message);
 });
 
+// Challenge system events
+socket.on('challengeReceived', (data) => {
+  showIncomingChallenge(data);
+});
+
+socket.on('challengeDeclined', (data) => {
+  showNotification(`${data.playerName} declined your challenge`, 'error');
+});
+
+socket.on('challengeCancelled', (data) => {
+  const modal = document.getElementById('votingModal');
+  if (modal) modal.classList.remove('active');
+  showNotification(data.message || 'Challenge was cancelled', 'info');
+});
+
+socket.on('matchStarted', (data) => {
+  // A 2-player match started - could be us or spectating
+  console.log('🎮 Match started:', data);
+  
+  // Remove spectator badge from previous match
+  removeSpectatorBadge();
+  
+  if (data.players.some(p => p.id === state.playerId)) {
+    // We're in the match - start the game
+    state.currentGame = data.gameType;
+    state.matchId = data.matchId;
+    state.isSpectator = false;
+    
+    if (data.autoRotation) {
+      showNotification('🔄 New round! Your turn to play!', 'info');
+    }
+    
+    showScreen('gameScreen');
+    initMatchGame(data);
+  } else if (data.isSpectator) {
+    // We're spectating this match
+    state.currentGame = data.gameType;
+    state.matchId = data.matchId;
+    state.isSpectator = true;
+    
+    if (data.autoRotation) {
+      showNotification('🔄 New round started - you\'re next in queue!', 'info');
+    }
+    
+    showScreen('gameScreen');
+    initMatchGame(data);
+  } else {
+    // We're in the lobby - update to show match in progress
+    updateLobbyWithActiveMatch(data);
+  }
+});
+
+socket.on('matchUpdate', (data) => {
+  // Update match state (for both players and spectators)
+  if (state.matchId === data.matchId) {
+    handleMatchUpdate(data);
+  }
+});
+
+socket.on('matchEnded', (data) => {
+  console.log('🏁 Match ended:', data);
+  const wasMyMatch = state.matchId === data.matchId;
+  state.matchId = null;
+  state.isSpectator = false;
+  
+  // Remove spectator badge if present
+  removeSpectatorBadge();
+  
+  // Show results
+  if (data.winner) {
+    showNotification(`🏆 ${data.winner.name} wins!`, 'success');
+  } else if (data.draw) {
+    showNotification(`🤝 It's a draw!`, 'info');
+  }
+  
+  // If no auto-rotation (new match starting), return to lobby
+  if (wasMyMatch && !data.autoRotation) {
+    setTimeout(() => {
+      state.currentGame = null;
+      state.gameState = {};
+      showScreen('lobby');
+    }, 2000);
+  }
+});
+
+socket.on('activeMatchesUpdate', (data) => {
+  // Update lobby display with current matches
+  updateActiveMatchesDisplay(data.matches);
+});
+
+// Initialize match game based on type
+function initMatchGame(data) {
+  switch (data.gameType) {
+    case 'tictactoe':
+      initTicTacToe(data.gameState, data.players);
+      break;
+    case 'chess':
+      initChessGame(data.gameState, data.players);
+      break;
+    case 'connect4':
+      initConnect4Game(data.gameState, data.players);
+      break;
+    default:
+      console.error('Unknown match game type:', data.gameType);
+  }
+}
+
+// Handle match updates
+function handleMatchUpdate(data) {
+  // Update state with match game state
+  state.gameState = { ...state.gameState, ...data.gameState };
+  
+  switch (data.gameType) {
+    case 'tictactoe':
+      updateTicTacToe(data.gameState);
+      break;
+    case 'chess':
+      handleChessUpdate({ ...data.gameState, players: data.gameState.players || state.players });
+      break;
+    case 'connect4':
+      handleConnect4Update({ ...data.gameState, players: data.gameState.players || state.players });
+      break;
+  }
+}
+
+// Update lobby with active match info
+function updateLobbyWithActiveMatch(matchData) {
+  state.activeMatches = state.activeMatches || [];
+  const existingIdx = state.activeMatches.findIndex(m => m.matchId === matchData.matchId);
+  if (existingIdx >= 0) {
+    state.activeMatches[existingIdx] = matchData;
+  } else {
+    state.activeMatches.push(matchData);
+  }
+  updateActiveMatchesDisplay(state.activeMatches);
+}
+
+// Display active matches in lobby
+function updateActiveMatchesDisplay(matches) {
+  let container = document.getElementById('activeMatchesContainer');
+  
+  if (!matches || matches.length === 0) {
+    if (container) container.remove();
+    return;
+  }
+  
+  if (!container) {
+    container = document.createElement('div');
+    container.id = 'activeMatchesContainer';
+    container.className = 'active-matches-container';
+    // Insert before game cards
+    const gameCards = document.querySelector('.game-cards');
+    if (gameCards) {
+      gameCards.parentNode.insertBefore(container, gameCards);
+    }
+  }
+  
+  const gameNames = {
+    'tictactoe': '⭕❌ Tic-Tac-Toe',
+    'chess': '♟️ Chess',
+    'connect4': '🔴🟡 Connect 4'
+  };
+  
+  container.innerHTML = `
+    <h4 class="active-matches-title">🎮 Games in Progress</h4>
+    <div class="active-matches-list">
+      ${matches.map(m => `
+        <div class="active-match-card" data-match-id="${m.matchId}">
+          <span class="match-game">${gameNames[m.gameType] || m.gameType}</span>
+          <span class="match-players">${m.players.map(p => escapeHtml(p.name)).join(' vs ')}</span>
+          <button class="btn-spectate" onclick="spectateMatch('${m.matchId}')">👁️ Watch</button>
+        </div>
+      `).join('')}
+    </div>
+  `;
+}
+
+// Spectate a match
+function spectateMatch(matchId) {
+  socket.emit('spectateMatch', { matchId });
+  state.isSpectator = true;
+  state.matchId = matchId;
+}
+
+// Spectator joined notification
+socket.on('spectatorJoined', (data) => {
+  if (!state.isSpectator) {
+    showNotification(`👁️ ${data.playerName} is watching`, 'info');
+  }
+});
+
 // Game events
 socket.on('gameStarted', (data) => {
   console.log('🎮 Game started:', data.gameType, data.gameState);
@@ -2346,6 +2765,11 @@ socket.on('returnToLobby', (data) => {
   state.gameState = {};
   state.players = data.players;
   state.votingActive = false;
+  state.matchId = null;
+  state.isSpectator = false;
+  
+  // Remove spectator badge if present
+  removeSpectatorBadge();
   
   // Clean up game-specific listeners
   document.removeEventListener('keydown', handleSudokuKeypress);
@@ -2910,7 +3334,11 @@ function renderConnect4Board(gameState, players) {
     document.querySelectorAll('.c4-cell.empty').forEach(cell => {
       cell.addEventListener('click', () => {
         const col = parseInt(cell.dataset.col);
-        socket.emit('connect4Move', col);
+        if (state.matchId) {
+          socket.emit('matchMove', { matchId: state.matchId, moveData: { column: col } });
+        } else {
+          socket.emit('connect4Move', col);
+        }
       });
     });
   }

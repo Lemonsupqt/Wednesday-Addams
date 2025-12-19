@@ -5163,6 +5163,229 @@ input[type="password"]::placeholder {
 }
 
 /* ============================================
+   CHALLENGE SYSTEM STYLES
+   ============================================ */
+
+/* Player Selection Modal */
+.player-select-modal {
+  max-width: 350px;
+}
+
+.modal-subtitle {
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+  margin-bottom: 15px;
+}
+
+.player-select-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 250px;
+  overflow-y: auto;
+}
+
+.player-select-btn {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 15px;
+  background: rgba(20, 15, 35, 0.8);
+  border: 1px solid rgba(229, 9, 20, 0.3);
+  border-radius: 8px;
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-family: inherit;
+  font-size: 1rem;
+}
+
+.player-select-btn:hover {
+  background: rgba(229, 9, 20, 0.2);
+  border-color: var(--st-red);
+  transform: translateX(5px);
+}
+
+.player-color-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.player-select-name {
+  flex-grow: 1;
+  text-align: left;
+}
+
+.verified-small {
+  font-size: 0.8rem;
+  color: #22c55e;
+  background: rgba(34, 197, 94, 0.2);
+  padding: 2px 6px;
+  border-radius: 10px;
+}
+
+/* Challenge Received Modal */
+.challenge-received {
+  text-align: center;
+}
+
+.challenger-info {
+  color: var(--text-secondary);
+  margin: 10px 0;
+}
+
+.challenge-game-name {
+  font-size: 1.5rem;
+  color: var(--st-neon-pink);
+  margin: 15px 0;
+  padding: 10px;
+  background: rgba(255, 42, 109, 0.1);
+  border-radius: 8px;
+}
+
+.challenge-buttons {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+  margin-top: 20px;
+}
+
+.challenge-buttons .btn {
+  min-width: 100px;
+}
+
+/* Active Matches Display */
+.active-matches-container {
+  background: rgba(20, 15, 35, 0.9);
+  border: 1px solid rgba(147, 51, 234, 0.4);
+  border-radius: 12px;
+  padding: 15px;
+  margin-bottom: 20px;
+}
+
+.active-matches-title {
+  color: var(--st-neon-pink);
+  font-size: 1rem;
+  margin-bottom: 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.active-matches-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.active-match-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 15px;
+  background: rgba(10, 10, 20, 0.8);
+  border: 1px solid rgba(139, 92, 246, 0.3);
+  border-radius: 8px;
+  flex-wrap: wrap;
+}
+
+.match-game {
+  font-weight: bold;
+  color: var(--st-neon-blue);
+  min-width: 120px;
+}
+
+.match-players {
+  flex-grow: 1;
+  color: var(--text-primary);
+}
+
+.btn-spectate {
+  padding: 6px 12px;
+  background: rgba(5, 217, 232, 0.2);
+  border: 1px solid var(--st-neon-blue);
+  border-radius: 6px;
+  color: var(--st-neon-blue);
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 0.85rem;
+  transition: all 0.2s ease;
+}
+
+.btn-spectate:hover {
+  background: rgba(5, 217, 232, 0.4);
+  transform: scale(1.05);
+}
+
+/* Player in-game indicator in lobby */
+.player-item.in-game {
+  opacity: 0.7;
+}
+
+.in-game-badge {
+  font-size: 0.85rem;
+  margin-left: 5px;
+  animation: pulse-game 2s infinite;
+}
+
+@keyframes pulse-game {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+/* Toast notification styles */
+.toast.info {
+  background: rgba(5, 217, 232, 0.9);
+  color: #000;
+}
+
+.toast.success {
+  background: rgba(34, 197, 94, 0.9);
+  color: #fff;
+}
+
+/* Spectator mode indicator */
+.spectator-badge {
+  position: fixed;
+  top: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(5, 217, 232, 0.9);
+  color: #000;
+  padding: 8px 20px;
+  border-radius: 20px;
+  font-weight: bold;
+  z-index: 1000;
+  animation: pulse-badge 2s infinite;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.leave-spectate-btn {
+  background: rgba(0, 0, 0, 0.3);
+  border: none;
+  color: #fff;
+  padding: 4px 10px;
+  border-radius: 12px;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 0.8rem;
+  transition: all 0.2s ease;
+}
+
+.leave-spectate-btn:hover {
+  background: rgba(0, 0, 0, 0.5);
+}
+
+@keyframes pulse-badge {
+  0%, 100% { box-shadow: 0 0 10px var(--st-neon-blue); }
+  50% { box-shadow: 0 0 20px var(--st-neon-blue); }
+}
+
+/* ============================================
    ENHANCED SCORE BOARD
    ============================================ */
 
