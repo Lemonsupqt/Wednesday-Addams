@@ -2,8 +2,18 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Nevermore Games">
+  <meta name="theme-color" content="#050508">
+  <meta name="description" content="Multiplayer party games inspired by Stranger Things & Wednesday">
+  <meta name="format-detection" content="telephone=no">
+  <meta name="msapplication-tap-highlight" content="no">
   <title>⚡ Upside Down Nevermore Games ⚡</title>
+  <link rel="manifest" href="manifest.json">
+  <link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎮</text></svg>">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;700&family=Special+Elite&family=Creepster&display=swap" rel="stylesheet">
@@ -12,8 +22,58 @@
 <body>
   <div class="particles" id="particles"></div>
   
+  <!-- Auth Screen (The Nevermore Archives) -->
+  <div id="authScreen" class="screen active">
+    <div class="container">
+      <div class="logo-container">
+        <h1 class="main-title">
+          <span class="upside-down">UPSIDE DOWN</span>
+          <span class="nevermore">NEVERMORE</span>
+          <span class="games-text">GAMES</span>
+        </h1>
+        <p class="tagline">📜 The Nevermore Archives 📜</p>
+      </div>
+      
+      <div class="auth-card">
+        <div class="auth-tabs">
+          <button class="auth-tab active" data-tab="login">🔓 Login</button>
+          <button class="auth-tab" data-tab="register">📝 Register</button>
+        </div>
+        
+        <div id="loginForm" class="auth-form">
+          <input type="text" id="loginUsername" placeholder="Username" maxlength="20" autocomplete="username">
+          <input type="password" id="loginPassword" placeholder="Password" maxlength="50" autocomplete="current-password">
+          <button id="loginBtn" class="btn btn-primary">
+            <span class="btn-icon">⚡</span> Enter the Archives
+          </button>
+        </div>
+        
+        <div id="registerForm" class="auth-form" style="display: none;">
+          <input type="text" id="registerUsername" placeholder="Username (3-20 chars)" maxlength="20" autocomplete="username">
+          <input type="password" id="registerPassword" placeholder="Password (4+ chars)" maxlength="50" autocomplete="new-password">
+          <input type="text" id="registerDisplayName" placeholder="Display Name (optional)" maxlength="20">
+          <button id="registerBtn" class="btn btn-primary">
+            <span class="btn-icon">🦇</span> Join Nevermore
+          </button>
+        </div>
+        
+        <div class="divider">
+          <span>or</span>
+        </div>
+        
+        <button id="guestBtn" class="btn btn-secondary">
+          <span class="btn-icon">👻</span> Play as Guest
+        </button>
+        
+        <p class="auth-hint">
+          💡 Create an account to save your trophies and appear on the leaderboard!
+        </p>
+      </div>
+    </div>
+  </div>
+  
   <!-- Main Menu -->
-  <div id="mainMenu" class="screen active">
+  <div id="mainMenu" class="screen">
     <div class="container">
       <div class="logo-container">
         <h1 class="main-title">
@@ -24,7 +84,14 @@
         <p class="tagline">👻 For Long-Distance BFFs 👻</p>
       </div>
       
+      <!-- User Info Display -->
+      <div id="userInfoDisplay" class="user-info-display"></div>
+      
       <div class="menu-card">
+        <div id="connectionStatus" class="connection-status connecting">
+          <span class="status-icon">⏳</span>
+          <span class="status-text">Connecting to server...</span>
+        </div>
         <input type="text" id="playerName" placeholder="Enter your name, friend..." maxlength="20">
         <button id="createRoomBtn" class="btn btn-primary">
           <span class="btn-icon">🚪</span> Create Room
@@ -36,11 +103,48 @@
         <button id="joinRoomBtn" class="btn btn-secondary">
           <span class="btn-icon">🔮</span> Join Room
         </button>
+        <div class="divider">
+          <span>solo mode</span>
+        </div>
+        <button id="playAIBtn" class="btn btn-ai">
+          <span class="btn-icon">🤖</span> Play vs AI
+        </button>
+        
+        <div class="menu-extras">
+          <button id="leaderboardBtn" class="btn btn-ghost">
+            <span class="btn-icon">🏆</span> Leaderboard
+          </button>
+          <button id="logoutBtn" class="btn btn-ghost" style="display: none;">
+            <span class="btn-icon">🚪</span> Logout
+          </button>
+        </div>
       </div>
       
       <div class="credits">
         <p>🎬 A tribute to Stranger Things & Wednesday 🦇</p>
       </div>
+    </div>
+  </div>
+  
+  <!-- Leaderboard Screen -->
+  <div id="leaderboardScreen" class="screen">
+    <div class="container">
+      <div class="leaderboard-header">
+        <h2>🏆 Nevermore Rankings 🏆</h2>
+        <p class="leaderboard-subtitle">The greatest outcasts of all time</p>
+      </div>
+      
+      <div id="leaderboardList" class="leaderboard-list"></div>
+      
+      <div class="leaderboard-legend">
+        <div class="legend-item"><span>🏆</span> Trophies (earned by winning sessions)</div>
+        <div class="legend-item"><span>⭐</span> Total Round Wins</div>
+        <div class="legend-item"><span>🎮</span> Games Played</div>
+      </div>
+      
+      <button id="backFromLeaderboardBtn" class="btn btn-secondary">
+        <span class="btn-icon">⬅️</span> Back to Menu
+      </button>
     </div>
   </div>
 
@@ -63,49 +167,46 @@
         </div>
 
         <div class="chat-section">
-          <h3>💬 The Séance Circle</h3>
-          <div id="chatMessages" class="chat-messages"></div>
+          <div class="chat-header">
+            <h3>💬 The Séance Circle</h3>
+            <div class="chat-header-actions">
+              <span id="typingIndicator" class="typing-indicator"></span>
+              <button id="chatSoundToggle" class="chat-sound-btn" title="Toggle Sound">🔔</button>
+            </div>
+          </div>
+          <div class="chat-messages-wrapper">
+            <div id="chatMessages" class="chat-messages"></div>
+            <button id="scrollToBottomBtn" class="scroll-to-bottom-btn" style="display: none;">
+              <span>↓</span> New messages
+            </button>
+          </div>
+          <div id="replyPreview" class="reply-preview" style="display: none;">
+            <span class="reply-to">↩ <strong id="replyToName"></strong>:</span>
+            <span class="reply-text" id="replyToText"></span>
+            <button id="cancelReplyBtn" class="cancel-reply-btn">✕</button>
+          </div>
           <div class="chat-input-container">
-            <input type="text" id="chatInput" placeholder="Whisper into the void..." maxlength="200">
+            <button id="wednesdayBtn" class="wednesday-btn" title="Talk to Wednesday">🖤</button>
+            <input type="text" id="chatInput" placeholder="Type a message..." maxlength="200">
             <button id="sendChatBtn" class="btn-small">📨</button>
           </div>
+          <div class="chat-hint">💡 Click message to reply • Replying to Wednesday continues the chat</div>
+        </div>
+      </div>
+
+      <div class="voting-section">
+        <div class="voting-header">
+          <h3>🎮 Choose Your Game</h3>
+          <p class="voting-instructions">Everyone votes - most popular game wins!</p>
+          <button id="startVotingBtn" class="btn btn-primary">
+            <span class="btn-icon">🗳️</span> Start Voting
+          </button>
+          <span id="voteProgress" class="vote-progress"></span>
         </div>
       </div>
 
       <div class="game-selection" id="gameSelection">
-        <h3>⚔️ Choose Your Battle ⚔️</h3>
-        <div class="games-grid">
-          <button class="game-card" data-game="tictactoe">
-            <span class="game-icon">⭕❌</span>
-            <span class="game-name">Upside Down<br>Tic-Tac-Toe</span>
-            <span class="game-players">2 players</span>
-          </button>
-          <button class="game-card" data-game="memory">
-            <span class="game-icon">🃏</span>
-            <span class="game-name">Vecna's<br>Memory Match</span>
-            <span class="game-players">2+ players</span>
-          </button>
-          <button class="game-card" data-game="drawing">
-            <span class="game-icon">🖐️✏️</span>
-            <span class="game-name">Thing's<br>Drawing Duel</span>
-            <span class="game-players">3+ players</span>
-          </button>
-          <button class="game-card" data-game="psychic">
-            <span class="game-icon">🔮⚡</span>
-            <span class="game-name">Psychic<br>Showdown</span>
-            <span class="game-players">2+ players</span>
-          </button>
-          <button class="game-card" data-game="trivia">
-            <span class="game-icon">🧠📺</span>
-            <span class="game-name">Nevermore<br>Trivia</span>
-            <span class="game-players">2+ players</span>
-          </button>
-          <button class="game-card" data-game="chess">
-            <span class="game-icon">♟️♔</span>
-            <span class="game-name">Nevermore<br>Chess</span>
-            <span class="game-players">2 players</span>
-          </button>
-        </div>
+        <!-- Game selection is dynamically populated by app.js -->
       </div>
 
       <div class="lobby-actions">
@@ -122,8 +223,10 @@
       <div class="game-header">
         <div class="game-title-bar">
           <h2 id="gameTitle">Game</h2>
+          <button id="toggleScoreBtn" class="score-toggle-btn" title="Toggle Scoreboard">📊</button>
           <div class="score-board" id="scoreBoard"></div>
         </div>
+        <div id="nowPlayingDisplay" class="now-playing-display"></div>
         <button id="backToLobbyBtn" class="btn-small btn-danger">✖ End Game</button>
       </div>
 
@@ -132,9 +235,21 @@
       </div>
 
       <div class="game-chat">
-        <div id="gameChatMessages" class="chat-messages small"></div>
+        <div class="game-chat-header">
+          <span id="gameTypingIndicator" class="typing-indicator"></span>
+        </div>
+        <div class="game-chat-wrapper">
+          <div id="gameChatMessages" class="chat-messages small"></div>
+          <button id="gameScrollToBottomBtn" class="scroll-to-bottom-btn small" style="display: none;">↓</button>
+        </div>
+        <div id="gameReplyPreview" class="reply-preview small" style="display: none;">
+          <span class="reply-to">↩ <strong id="gameReplyToName"></strong>:</span>
+          <span class="reply-text" id="gameReplyToText"></span>
+          <button id="gameCancelReplyBtn" class="cancel-reply-btn">✕</button>
+        </div>
         <div class="chat-input-container">
-          <input type="text" id="gameChatInput" placeholder="Chat or guess..." maxlength="200">
+          <button id="gameWednesdayBtn" class="wednesday-btn small" title="Talk to Wednesday">🖤</button>
+          <input type="text" id="gameChatInput" placeholder="Chat..." maxlength="200">
           <button id="sendGameChatBtn" class="btn-small">📨</button>
         </div>
       </div>
@@ -150,10 +265,43 @@
     </div>
   </div>
 
+  <!-- Voting Modal (for difficulty selection) -->
+  <div id="votingModal" class="modal voting-modal"></div>
+
   <!-- Error Toast -->
   <div id="errorToast" class="toast error"></div>
 
-  <script src="/socket.io/socket.io.js"></script>
+  <!-- Fullscreen Toggle Button (Mobile) -->
+  <button id="fullscreenToggle" class="fullscreen-toggle" title="Toggle Fullscreen">
+    <span id="fullscreenIcon">⛶</span>
+  </button>
+
+  <!-- Mobile Chat Toggle Button -->
+  <button id="chatToggleBtn" class="chat-toggle-btn" title="Open Chat">💬</button>
+
+  <!-- Mobile Chat Overlay -->
+  <div id="gameChatOverlay" class="game-chat-overlay">
+    <div class="chat-header">
+      <span>💬 Game Chat</span>
+      <button class="chat-close-btn" id="closeChatOverlay">✕</button>
+    </div>
+    <div class="mobile-chat-wrapper">
+      <div id="mobileChatMessages" class="chat-messages"></div>
+      <button id="mobileScrollToBottomBtn" class="scroll-to-bottom-btn" style="display: none;">↓ New</button>
+    </div>
+    <div id="mobileReplyPreview" class="reply-preview" style="display: none;">
+      <span class="reply-to">↩ <strong id="mobileReplyToName"></strong>:</span>
+      <span class="reply-text" id="mobileReplyToText"></span>
+      <button id="mobileCancelReplyBtn" class="cancel-reply-btn">✕</button>
+    </div>
+    <div class="chat-input-area">
+      <button id="mobileWednesdayBtn" class="wednesday-btn" title="Talk to Wednesday">🖤</button>
+      <input type="text" id="mobileChatInput" placeholder="Type a message..." maxlength="200">
+      <button id="sendMobileChatBtn" class="btn-small btn-primary">Send</button>
+    </div>
+  </div>
+
+  <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
