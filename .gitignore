@@ -8,6 +8,9 @@ node_modules/
 # Core dumps
 core
 
+# Test files
+test-*.js
+
 # OS files
 .DS_Store
 Thumbs.db
