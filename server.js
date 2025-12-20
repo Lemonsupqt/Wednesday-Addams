@@ -1,8 +1,10 @@
+require('dotenv').config();
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
 const { v4: uuidv4 } = require('uuid');
 const path = require('path');
+const OpenAI = require('openai');
 
 const app = express();
 const server = http.createServer(app);
@@ -14,6 +16,39 @@ const io = new Server(server, {
 });
 
 app.use(express.static(path.join(__dirname, 'public')));
+
+// OpenAI Configuration
+let openai = null;
+let wednesdayAIEnabled = false;
+
+try {
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (apiKey && apiKey !== 'your_openai_api_key_here') {
+    openai = new OpenAI({ apiKey });
+    wednesdayAIEnabled = true;
+    console.log('✅ Wednesday AI: ENABLED (OpenAI)');
+  } else {
+    console.log('⚠️  Wednesday AI: DISABLED (No API key)');
+  }
+} catch (error) {
+  console.log('⚠️  Wednesday AI: DISABLED (Configuration error)');
+  console.error('OpenAI initialization error:', error.message);
+}
+
+// Wednesday AI personality prompt
+const WEDNESDAY_SYSTEM_PROMPT = `You are Wednesday Addams, the darkly sardonic and morbidly curious character from the Addams Family. You are participating in a gaming chat room where friends play various games together.
+
+Personality traits to embody:
+- Deadpan, dry humor with a dark twist
+- Highly intelligent and articulate
+- Fascinated by the macabre and morbid
+- Minimal emotional expression but deeply observant
+- Sarcastic but not mean-spirited
+- Enjoys wordplay and dark metaphors
+- Speaks in a formal, precise manner
+- References death, torture, and the macabre casually
+
+Keep responses concise (1-3 sentences typically). React to user messages as Wednesday would, with dark humor and sardonic wit. If users are playing games, you might comment on the competition, strategies, or outcomes with your characteristic darkness. Never break character.`;
 
 // Game state storage
 const rooms = new Map();
@@ -138,7 +173,7 @@ io.on('connection', (socket) => {
   });
 
   // Chat message
-  socket.on('chatMessage', (message) => {
+  socket.on('chatMessage', async (message) => {
     const roomId = players.get(socket.id);
     const room = rooms.get(roomId);
     if (!room) return;
@@ -153,6 +188,50 @@ io.on('connection', (socket) => {
     };
     room.chat.push(chatMsg);
     io.to(roomId).emit('chatMessage', chatMsg);
+
+    // Check if message mentions Wednesday or is a question directed at AI
+    const shouldRespond = wednesdayAIEnabled && (
+      message.toLowerCase().includes('wednesday') ||
+      message.toLowerCase().includes('@ai') ||
+      message.toLowerCase().includes('hey ai')
+    );
+
+    if (shouldRespond) {
+      try {
+        const aiResponse = await generateWednesdayResponse(message, room.chat.slice(-10));
+        
+        const aiMsg = {
+          id: uuidv4(),
+          playerId: 'wednesday-ai',
+          playerName: '🖤 Wednesday AI',
+          message: aiResponse,
+          timestamp: Date.now(),
+          isAI: true
+        };
+        room.chat.push(aiMsg);
+        io.to(roomId).emit('chatMessage', aiMsg);
+      } catch (error) {
+        console.error('Wednesday AI error:', error.message);
+        // Send error as Wednesday would
+        const errorMsg = {
+          id: uuidv4(),
+          playerId: 'wednesday-ai',
+          playerName: '🖤 Wednesday AI',
+          message: "My connection to the spirit world seems... interrupted. How unfortunate.",
+          timestamp: Date.now(),
+          isAI: true
+        };
+        io.to(roomId).emit('chatMessage', errorMsg);
+      }
+    }
+  });
+
+  // Get AI status
+  socket.on('getAIStatus', () => {
+    socket.emit('aiStatus', { 
+      enabled: wednesdayAIEnabled,
+      status: wednesdayAIEnabled ? 'ENABLED (OpenAI)' : 'DISABLED'
+    });
   });
 
   // Start game
@@ -1005,6 +1084,61 @@ function endGame(room, roomId) {
     players
   });
   room.currentGame = null;
+}
+
+// ============================================
+// WEDNESDAY AI CHATBOT
+// ============================================
+
+async function generateWednesdayResponse(userMessage, chatHistory) {
+  if (!openai || !wednesdayAIEnabled) {
+    return "I would respond, but the darkness has consumed my connection.";
+  }
+
+  try {
+    // Build conversation context from recent chat history
+    const messages = [
+      { role: 'system', content: WEDNESDAY_SYSTEM_PROMPT }
+    ];
+
+    // Add recent chat context (last few messages)
+    if (chatHistory && chatHistory.length > 0) {
+      chatHistory.slice(-5).forEach(msg => {
+        if (msg.isAI) {
+          messages.push({ role: 'assistant', content: msg.message });
+        } else {
+          messages.push({ role: 'user', content: `${msg.playerName}: ${msg.message}` });
+        }
+      });
+    }
+
+    // Add the current message
+    messages.push({ role: 'user', content: userMessage });
+
+    const response = await openai.chat.completions.create({
+      model: 'gpt-3.5-turbo',
+      messages: messages,
+      max_tokens: 150,
+      temperature: 0.8,
+      presence_penalty: 0.6,
+      frequency_penalty: 0.3
+    });
+
+    return response.choices[0].message.content.trim();
+  } catch (error) {
+    console.error('OpenAI API error:', error.message);
+    
+    // Check for specific error types
+    if (error.status === 401) {
+      throw new Error('Invalid API key');
+    } else if (error.status === 429) {
+      throw new Error('Rate limit exceeded');
+    } else if (error.code === 'ENOTFOUND' || error.code === 'ECONNREFUSED') {
+      throw new Error('Network connectivity issue');
+    }
+    
+    throw error;
+  }
 }
 
 // Trivia timer

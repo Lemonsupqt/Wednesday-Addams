@@ -289,7 +289,10 @@ function sendGameChat() {
 
 function addChatMessage(msg, container = elements.chatMessages) {
   const div = document.createElement('div');
-  div.className = 'chat-message' + (msg.isGuess ? ' guess' : '') + (msg.system ? ' system' : '');
+  div.className = 'chat-message' + 
+    (msg.isGuess ? ' guess' : '') + 
+    (msg.system ? ' system' : '') +
+    (msg.isAI ? ' ai' : '');
   
   if (msg.system) {
     div.innerHTML = `<span class="message">${escapeHtml(msg.message)}</span>`;
@@ -1528,6 +1531,8 @@ socket.on('roomCreated', (data) => {
   elements.displayRoomCode.textContent = data.roomId;
   updatePlayersList(data.players);
   showScreen('lobby');
+  // Request AI status when room is created
+  socket.emit('getAIStatus');
 });
 
 socket.on('roomJoined', (data) => {
@@ -1537,6 +1542,8 @@ socket.on('roomJoined', (data) => {
   elements.displayRoomCode.textContent = data.roomId;
   updatePlayersList(data.players);
   showScreen('lobby');
+  // Request AI status when joining room
+  socket.emit('getAIStatus');
 });
 
 socket.on('playerJoined', (data) => {
@@ -1556,6 +1563,16 @@ socket.on('playerLeft', (data) => {
 socket.on('chatMessage', (msg) => {
   addChatMessage(msg, elements.chatMessages);
   addChatMessage(msg, elements.gameChatMessages);
+});
+
+socket.on('aiStatus', (data) => {
+  const statusElement = document.getElementById('aiStatusText');
+  const statusContainer = document.getElementById('aiStatus');
+  
+  if (statusElement && statusContainer) {
+    statusElement.textContent = data.status;
+    statusContainer.className = 'ai-status ' + (data.enabled ? 'enabled' : 'disabled');
+  }
 });
 
 socket.on('error', (data) => {

@@ -26,8 +26,16 @@
 - **WebSocket-powered** instant synchronization
 - **Room-based** system with shareable codes
 - **Live chat** - The Séance Circle for trash talking your BFF
+- **Wednesday AI Chatbot** - Chat with Wednesday Addams herself (OpenAI integration)
 - **Score tracking** across all games
 - Up to **8 players** per room
+
+### Wednesday AI Chatbot 🖤
+- Chat with an AI-powered Wednesday Addams in your game room
+- Responds with her signature dark humor and sardonic wit
+- Mention 'wednesday' or '@ai' in your chat messages to summon her
+- Powered by OpenAI GPT-3.5
+- Optional feature - works without API key (shows as disabled)
 
 ### Dark Gothic UI
 - 🔴 Stranger Things neon red glow aesthetic
@@ -52,6 +60,13 @@ cd upside-down-nevermore-games
 # Install dependencies
 npm install
 
+# (Optional) Setup Wednesday AI Chatbot
+# Copy the example environment file
+cp .env.example .env
+
+# Edit .env and add your OpenAI API key
+# OPENAI_API_KEY=your_actual_api_key_here
+
 # Start the server
 npm start
 ```
@@ -63,6 +78,7 @@ npm start
 3. **Create a room** or **Join** with a code
 4. Share the room code with your BFF
 5. Choose a game and start playing!
+6. **Chat with Wednesday AI** (if enabled) by mentioning 'wednesday' or '@ai' in your messages!
 
 ---
 
