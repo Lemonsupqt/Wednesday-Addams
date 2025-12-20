@@ -8,9 +8,15 @@ const crypto = require('crypto');
 const { MongoClient } = require('mongodb');
 
 // ============================================
-// OPENAI API CONFIGURATION FOR WEDNESDAY AI CHATBOT
+// AI API CONFIGURATION FOR WEDNESDAY AI CHATBOT
+// Supports both OpenAI and Groq (free alternative)
 // ============================================
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+const GROQ_API_KEY = process.env.GROQ_API_KEY;
+
+// Determine which AI service to use (prefer Groq as it's free)
+const AI_SERVICE = GROQ_API_KEY ? 'groq' : (OPENAI_API_KEY ? 'openai' : 'fallback');
+const AI_API_KEY = GROQ_API_KEY || OPENAI_API_KEY;
 const WEDNESDAY_SYSTEM_PROMPT = `You are Wednesday Addams from the Netflix series "Wednesday". You are a dark, sardonic, and highly intelligent teenage girl at Nevermore Academy. 
 
 Character traits:
@@ -1601,15 +1607,15 @@ io.on('connection', (socket) => {
       aiChatRateLimit.set(roomId, rateData);
     }
     
-    // Try OpenAI API if configured
-    if (OPENAI_API_KEY) {
+    // Try AI API if configured (Groq or OpenAI)
+    if (AI_API_KEY) {
       try {
-        const aiResponse = await callOpenAI(userMessage, isReply);
+        const aiResponse = await callAI(userMessage, isReply);
         if (aiResponse) {
           return aiResponse;
         }
       } catch (error) {
-        console.error('OpenAI API error:', error.message);
+        console.error(`${AI_SERVICE.toUpperCase()} API error:`, error.message);
         // Fall through to static responses
       }
     }
@@ -1618,8 +1624,8 @@ io.on('connection', (socket) => {
     return getFallbackResponse(msg, isReply);
   }
   
-  // Call OpenAI API for Wednesday responses
-  async function callOpenAI(userMessage, isReply) {
+  // Call AI API for Wednesday responses (supports OpenAI and Groq)
+  async function callAI(userMessage, isReply) {
     const messages = [
       { role: 'system', content: WEDNESDAY_SYSTEM_PROMPT },
       { 
@@ -1630,24 +1636,39 @@ io.on('connection', (socket) => {
       }
     ];
     
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+    // Determine API endpoint and model based on service
+    const apiConfig = AI_SERVICE === 'groq' 
+      ? {
+          url: 'https://api.groq.com/openai/v1/chat/completions',
+          model: 'llama-3.3-70b-versatile', // Free and powerful
+          apiKey: GROQ_API_KEY
+        }
+      : {
+          url: 'https://api.openai.com/v1/chat/completions',
+          model: 'gpt-4o-mini', // Cost-effective
+          apiKey: OPENAI_API_KEY
+        };
+    
+    const response = await fetch(apiConfig.url, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${OPENAI_API_KEY}`
+        'Authorization': `Bearer ${apiConfig.apiKey}`
       },
       body: JSON.stringify({
-        model: 'gpt-4o-mini', // Cost-effective and fast
+        model: apiConfig.model,
         messages: messages,
         max_tokens: 150,
         temperature: 0.9, // More creative responses
-        presence_penalty: 0.6,
-        frequency_penalty: 0.3
+        ...(AI_SERVICE === 'openai' && {
+          presence_penalty: 0.6,
+          frequency_penalty: 0.3
+        })
       })
     });
     
     if (!response.ok) {
-      throw new Error(`OpenAI API returned ${response.status}`);
+      throw new Error(`${AI_SERVICE.toUpperCase()} API returned ${response.status}`);
     }
     
     const data = await response.json();
@@ -1897,8 +1918,9 @@ io.on('connection', (socket) => {
     switch (gameType) {
       case 'tictactoe': {
         const symbols = new Map();
-        symbols.set(playerId, 'X');
-        symbols.set(AI_PLAYER_ID, 'O');
+        // Use themed emojis instead of X/O
+        symbols.set(playerId, '🔴');
+        symbols.set(AI_PLAYER_ID, '💀');
         return {
           board: Array(9).fill(null),
           currentPlayer: playerId, // Player goes first
@@ -5854,7 +5876,11 @@ function broadcastActiveMatches(room, roomId) {
 
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
-  const aiStatus = OPENAI_API_KEY ? '🤖 Wednesday AI: ENABLED (OpenAI)' : '🤖 Wednesday AI: Fallback mode (static responses)';
+  const aiStatus = AI_SERVICE === 'groq' 
+    ? '🤖 Wednesday AI: ENABLED (Groq - Free)' 
+    : (AI_SERVICE === 'openai' 
+      ? '🤖 Wednesday AI: ENABLED (OpenAI)' 
+      : '🤖 Wednesday AI: Fallback mode (static responses)');
   console.log(`
   ⚡️ THE UPSIDE DOWN NEVERMORE GAMES ⚡️
   =====================================

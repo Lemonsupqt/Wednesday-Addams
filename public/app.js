@@ -5308,6 +5308,7 @@ function escapeHtml(text) {
 }
 
 
+
 // ============================================
 // GAME STATE MANAGEMENT FIXES
 // Enhanced cleanup and state management
