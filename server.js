@@ -508,7 +508,7 @@ io.on('connection', (socket) => {
     if (state.board[cellIndex] !== null) return;
     if (state.winner) return;
 
-    const playerSymbol = state.playerSymbols.get(socket.id);
+    const playerSymbol = state.playerSymbols[socket.id];
     state.board[cellIndex] = playerSymbol;
 
     const winner = checkTTTWinner(state.board);
@@ -529,7 +529,7 @@ io.on('connection', (socket) => {
       });
     } else {
       // Next player
-      const playerIds = Array.from(state.playerSymbols.keys());
+      const playerIds = Object.keys(state.playerSymbols);
       const currentIndex = playerIds.indexOf(state.currentPlayer);
       state.currentPlayer = playerIds[(currentIndex + 1) % playerIds.length];
 
@@ -606,7 +606,7 @@ function initializeGame(gameType, room) {
       return {
         board: Array(9).fill(null),
         currentPlayer: playerIds[0],
-        playerSymbols: symbolMap,
+        playerSymbols: Object.fromEntries(symbolMap),
         winner: null
       };
 
