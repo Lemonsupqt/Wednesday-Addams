@@ -18,13 +18,27 @@ const socket = io(BACKEND_URL, {
   transports: ['websocket', 'polling']
 });
 
+// Register new game socket handlers if available
+if (typeof window !== 'undefined' && typeof window.setupNewGameSocketHandlers === 'function') {
+  try {
+    window.setupNewGameSocketHandlers();
+  } catch (err) {
+    console.error('⚠️ Error setting up new game socket handlers:', err);
+  }
+} else {
+  console.warn('⚠️ setupNewGameSocketHandlers is not available. New game socket handlers were not registered.');
+}
+
 // DOM Elements
 const screens = {
   authScreen: document.getElementById('authScreen'),
   mainMenu: document.getElementById('mainMenu'),
   lobby: document.getElementById('lobby'),
   gameScreen: document.getElementById('gameScreen'),
-  leaderboardScreen: document.getElementById('leaderboardScreen')
+  leaderboardScreen: document.getElementById('leaderboardScreen'),
+  profileScreen: document.getElementById('profileScreen'),
+  achievementsScreen: document.getElementById('achievementsScreen'),
+  settingsScreen: document.getElementById('settingsScreen')
 };
 
 const elements = {
@@ -120,6 +134,13 @@ let chessState = {
   myColor: null
 };
 
+// FIX Bug 8: Drawing state for drawing/guessing games
+let drawingState = {
+  canvas: null,
+  ctx: null,
+  isDrawing: false
+};
+
 // ============================================
 // INITIALIZATION
 // ============================================
@@ -202,16 +223,38 @@ document.addEventListener('DOMContentLoaded', () => {
 
 function setupAuthListeners() {
   // Tab switching
+  // Auth tab switching with mobile support
+  function switchAuthTab(tab) {
+    document.querySelectorAll('.auth-tab').forEach(t => t.classList.remove('active'));
+    tab.classList.add('active');
+    
+    const formType = tab.dataset.tab;
+    const loginForm = document.getElementById('loginForm');
+    const registerForm = document.getElementById('registerForm');
+    
+    if (loginForm) loginForm.style.display = formType === 'login' ? 'block' : 'none';
+    if (registerForm) registerForm.style.display = formType === 'register' ? 'block' : 'none';
+    
+    console.log('📋 Switched to', formType, 'form');
+  }
+  
   document.querySelectorAll('.auth-tab').forEach(tab => {
-    tab.addEventListener('click', () => {
-      document.querySelectorAll('.auth-tab').forEach(t => t.classList.remove('active'));
-      tab.classList.add('active');
-      
-      const formType = tab.dataset.tab;
-      document.getElementById('loginForm').style.display = formType === 'login' ? 'block' : 'none';
-      document.getElementById('registerForm').style.display = formType === 'register' ? 'block' : 'none';
+    // Click event for desktop
+    tab.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      switchAuthTab(tab);
+    });
+    
+    // Touch event for mobile
+    tab.addEventListener('touchend', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      switchAuthTab(tab);
     });
   });
+  
+  console.log('✅ Auth tab listeners attached to', document.querySelectorAll('.auth-tab').length, 'tabs');
   
   // Login
   document.getElementById('loginBtn')?.addEventListener('click', () => {
@@ -223,22 +266,88 @@ function setupAuthListeners() {
       return;
     }
     
+    // Check socket connection
+    if (!socket.connected) {
+      showError('Connecting to server... Please try again in a moment.');
+      console.log('⚠️ Socket not connected, attempting reconnect...');
+      socket.connect();
+      return;
+    }
+    
+    console.log('📤 Sending login request for:', username);
     socket.emit('login', { username, password });
   });
   
-  // Register
-  document.getElementById('registerBtn')?.addEventListener('click', () => {
-    const username = document.getElementById('registerUsername').value.trim();
-    const password = document.getElementById('registerPassword').value;
-    const displayName = document.getElementById('registerDisplayName').value.trim();
+  // Register - handle the registration process
+  function handleRegister() {
+    const username = document.getElementById('registerUsername')?.value?.trim();
+    const password = document.getElementById('registerPassword')?.value;
+    const displayName = document.getElementById('registerDisplayName')?.value?.trim();
+    
+    console.log('🔐 Register attempt:', { username, hasPassword: !!password });
     
     if (!username || !password) {
       showError('Enter username and password');
       return;
     }
     
+    if (username.length < 3) {
+      showError('Username must be at least 3 characters');
+      return;
+    }
+    
+    if (password.length < 4) {
+      showError('Password must be at least 4 characters');
+      return;
+    }
+    
+    // Check socket connection
+    if (!socket || !socket.connected) {
+      showError('Connecting to server... Please try again in a moment.');
+      console.log('⚠️ Socket not connected, attempting reconnect...');
+      if (socket) socket.connect();
+      return;
+    }
+    
+    // Disable button during registration
+    const registerBtn = document.getElementById('registerBtn');
+    if (registerBtn) {
+      registerBtn.innerHTML = '<span class="btn-icon">⏳</span> Creating account...';
+      registerBtn.disabled = true;
+    }
+    
+    console.log('📤 Sending register request for:', username);
     socket.emit('register', { username, password, displayName: displayName || username });
-  });
+    
+    // Timeout to reset button if no response
+    setTimeout(() => {
+      const btn = document.getElementById('registerBtn');
+      if (btn && btn.disabled) {
+        btn.innerHTML = '<span class="btn-icon">🦇</span> Join Nevermore';
+        btn.disabled = false;
+        showError('Server not responding. Please try again.');
+      }
+    }, 10000); // 10 second timeout
+  }
+  
+  // Add click event for register button
+  const registerBtn = document.getElementById('registerBtn');
+  if (registerBtn) {
+    registerBtn.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      handleRegister();
+    });
+    // Also add touchend for mobile
+    registerBtn.addEventListener('touchend', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      handleRegister();
+    });
+    console.log('✅ Register button event listeners attached');
+  } else {
+    console.error('❌ Register button not found in DOM');
+  }
   
   // Guest mode
   document.getElementById('guestBtn')?.addEventListener('click', () => {
@@ -336,10 +445,19 @@ socket.on('authSuccess', (data) => {
   // Save session (for auto-login) - only if manually logging in (not auto-login)
   const loginUsername = document.getElementById('loginUsername')?.value.trim();
   const loginPassword = document.getElementById('loginPassword')?.value;
+  const registerUsername = document.getElementById('registerUsername')?.value.trim();
+  const registerPassword = document.getElementById('registerPassword')?.value;
+  
   if (loginUsername && loginPassword) {
     localStorage.setItem('authSession', JSON.stringify({ 
       username: loginUsername, 
       password: loginPassword 
+    }));
+  } else if (registerUsername && registerPassword) {
+    // Save newly registered account for auto-login
+    localStorage.setItem('authSession', JSON.stringify({ 
+      username: registerUsername, 
+      password: registerPassword 
     }));
   }
   // Note: During auto-login, the saved session is preserved (not overwritten)
@@ -356,15 +474,31 @@ socket.on('authSuccess', (data) => {
     loginBtn.disabled = false;
   }
   
+  // Reset register button state
+  const registerBtn = document.getElementById('registerBtn');
+  if (registerBtn) {
+    registerBtn.innerHTML = '<span class="btn-icon">🦇</span> Join Nevermore';
+    registerBtn.disabled = false;
+  }
+  
   // Reset password placeholder
   const loginPasswordEl = document.getElementById('loginPassword');
   if (loginPasswordEl) {
     loginPasswordEl.placeholder = 'Password';
   }
   
+  // Clear registration fields
+  const regUsername = document.getElementById('registerUsername');
+  const regPassword = document.getElementById('registerPassword');
+  const regDisplayName = document.getElementById('registerDisplayName');
+  if (regUsername) regUsername.value = '';
+  if (regPassword) regPassword.value = '';
+  if (regDisplayName) regDisplayName.value = '';
+  
   showScreen('mainMenu');
   updateUserInfoDisplay();
-  showNotification(`Welcome back, ${data.displayName}! ${data.title}`, 'success');
+  const welcomeMsg = data.gamesPlayed === 0 ? `Welcome to Nevermore, ${data.displayName}! ${data.title}` : `Welcome back, ${data.displayName}! ${data.title}`;
+  showNotification(welcomeMsg, 'success');
 });
 
 socket.on('authError', (data) => {
@@ -377,11 +511,24 @@ socket.on('authError', (data) => {
     loginBtn.disabled = false;
   }
   
+  // Reset register button state
+  const registerBtn = document.getElementById('registerBtn');
+  if (registerBtn) {
+    registerBtn.innerHTML = '<span class="btn-icon">🦇</span> Join Nevermore';
+    registerBtn.disabled = false;
+  }
+  
   // Clear password field and reset placeholder
   const loginPassword = document.getElementById('loginPassword');
   if (loginPassword) {
     loginPassword.value = '';
     loginPassword.placeholder = 'Password';
+  }
+  
+  // Clear register password field
+  const registerPassword = document.getElementById('registerPassword');
+  if (registerPassword) {
+    registerPassword.value = '';
   }
   
   // Clear invalid saved session
@@ -1343,6 +1490,30 @@ function updatePlayersList(players) {
         <span class="game-name">Upside Down<br>Ludo</span>
         <span class="game-players">2-4 players</span>
       </button>
+      <button class="game-card new-game" data-game="hangman">
+        <span class="game-icon">🎯💀</span>
+        <span class="game-name">Hangman<br>Nevermore</span>
+        <span class="game-players">2+ players</span>
+        <span class="new-badge">NEW</span>
+      </button>
+      <button class="game-card new-game" data-game="wordchain">
+        <span class="game-icon">⛓️📝</span>
+        <span class="game-name">Word<br>Chain</span>
+        <span class="game-players">2+ players</span>
+        <span class="new-badge">NEW</span>
+      </button>
+      <button class="game-card new-game" data-game="reaction">
+        <span class="game-icon">🎮🧠</span>
+        <span class="game-name">Pattern<br>Memory</span>
+        <span class="game-players">2+ players</span>
+        <span class="new-badge">NEW</span>
+      </button>
+      <button class="game-card new-game" data-game="battleship">
+        <span class="game-icon">🚢💥</span>
+        <span class="game-name">Battleship<br>Hawkins</span>
+        <span class="game-players">2 players</span>
+        <span class="new-badge">NEW</span>
+      </button>
     </div>
     <p class="voting-hint">💡 Click "Start Voting" then everyone picks a game. Most votes wins!</p>
   `;
@@ -1400,14 +1571,7 @@ function showPlayerSelectionModal(gameType) {
     </button>
   `).join('');
   
-  // Always add Wednesday as an option
-  const wednesdayOption = `
-    <button class="player-select-btn wednesday-select" data-player-id="WEDNESDAY_AI">
-      <span class="player-color-dot wednesday-dot">🖤</span>
-      <span class="player-select-name">Wednesday AI</span>
-      <span class="ai-badge">🤖</span>
-    </button>
-  `;
+  // Wednesday AI option removed - use dedicated AI mode instead
   
   modal.innerHTML = `
     <div class="voting-modal-content player-select-modal">
@@ -1415,7 +1579,6 @@ function showPlayerSelectionModal(gameType) {
       <p class="modal-subtitle">Choose your opponent:</p>
       <div class="player-select-list">
         ${playerListHtml}
-        ${wednesdayOption}
       </div>
       <button class="btn btn-secondary" style="margin-top: 15px;" id="cancelPlayerSelect">Cancel</button>
     </div>
@@ -1428,22 +1591,11 @@ function showPlayerSelectionModal(gameType) {
       const targetId = btn.dataset.playerId;
       modal.classList.remove('active');
       
-      // Check if challenging Wednesday AI
-      if (targetId === 'WEDNESDAY_AI') {
-        // For connect4, ask for win condition first
-        if (gameType === 'connect4') {
-          showConnect4AIOptions(gameType);
-        } else {
-          // Show difficulty selection for AI game
-          showAIDifficultyForChallenge(gameType);
-        }
+      // Regular player challenge
+      if (gameType === 'connect4') {
+        showConnect4OptionsAndChallenge(targetId);
       } else {
-        // Regular player challenge
-        if (gameType === 'connect4') {
-          showConnect4OptionsAndChallenge(targetId);
-        } else {
-          sendChallenge(targetId, gameType, {});
-        }
+        sendChallenge(targetId, gameType, {});
       }
     });
   });
@@ -1454,7 +1606,8 @@ function showPlayerSelectionModal(gameType) {
 }
 
 // Show AI difficulty selection for challenge from lobby
-function showAIDifficultyForChallenge(gameType, options = {}) {
+// REMOVED: Challenge Wednesday from rooms - use dedicated AI mode instead
+/* function showAIDifficultyForChallenge(gameType, options = {}) {
   const modal = document.getElementById('votingModal');
   if (!modal) return;
   
@@ -1509,7 +1662,7 @@ function showAIDifficultyForChallenge(gameType, options = {}) {
   document.getElementById('cancelAIDiff')?.addEventListener('click', () => {
     modal.classList.remove('active');
   });
-}
+} */
 
 // Show Connect4 options for AI game
 function showConnect4AIOptions(gameType) {
@@ -2356,6 +2509,12 @@ function startGame(gameType) {
   socket.emit('startGame', gameType);
 }
 
+// FIX Bug 9: Define backToLobby function
+function backToLobby() {
+  console.log('🔙 Returning to lobby');
+  endGame();
+}
+
 function endGame() {
   // Clean up any game-specific listeners
   document.removeEventListener('keydown', handleSudokuKeypress);
@@ -2589,6 +2748,11 @@ function updateTicTacToe(data) {
   
   if (!board || !status) return;
   
+  // FIX Bug 5: Update playerSymbols if provided
+  if (data.playerSymbols) {
+    state.gameState.playerSymbols = data.playerSymbols;
+  }
+  
   if (data.board) {
     state.gameState.board = data.board;
     board.innerHTML = data.board.map((cell, i) => `
@@ -2623,17 +2787,20 @@ function updateTicTacToe(data) {
     status.innerHTML = "🤝 It's a draw! 🤝";
     if (!state.matchId) showPlayAgainButton('ttt');
   } else if (data.currentPlayer) {
-    state.gameState.currentPlayer = data.currentPlayer;
-    if (isSpectator) {
-      status.innerHTML = '👁️ Watching...';
-    } else if (data.currentPlayer === state.playerId) {
-      status.innerHTML = '🔴 Your turn!';
-    } else if (state.isAIGame && data.currentPlayer === AI_PLAYER_ID) {
-      status.innerHTML = '<span class="ai-thinking">🤖 Wednesday is thinking...</span>';
-    } else {
-      status.innerHTML = 'Waiting for opponent...';
-    }
-    updateScoreBoard(players, data.currentPlayer);
+    // FIX Bug 6: Delay currentPlayer update to prevent race condition
+    setTimeout(() => {
+      state.gameState.currentPlayer = data.currentPlayer;
+      if (isSpectator) {
+        status.innerHTML = '👁️ Watching...';
+      } else if (data.currentPlayer === state.playerId) {
+        status.innerHTML = '🔴 Your turn!';
+      } else if (state.isAIGame && data.currentPlayer === AI_PLAYER_ID) {
+        status.innerHTML = '<span class="ai-thinking">🤖 Wednesday is thinking...</span>';
+      } else {
+        status.innerHTML = 'Waiting for opponent...';
+      }
+      updateScoreBoard(players, data.currentPlayer);
+    }, 50); // Small delay to ensure board renders first
   }
 }
 
@@ -3577,7 +3744,7 @@ socket.on('connect', () => {
 
 socket.on('connect_error', (error) => {
   console.error('❌ Connection error:', error);
-  updateConnectionStatus('disconnected', '❌', 'Server offline - <a href="https://render.com/deploy" target="_blank">Deploy backend first</a>');
+  updateConnectionStatus('disconnected', '❌', 'Server offline - Please wait, connecting to Railway...');
 });
 
 socket.on('disconnect', () => {
@@ -3798,6 +3965,9 @@ function showAIMatchEndOptions(gameType) {
     return;
   }
   
+  // FIX Bug 4: Capture winCondition immediately before state is cleared
+  const savedWinCondition = state.gameState?.winCondition || 4;
+  
   const gameNames = {
     'tictactoe': '⭕❌ Tic-Tac-Toe',
     'chess': '♟️ Chess',
@@ -3825,11 +3995,11 @@ function showAIMatchEndOptions(gameType) {
   
   document.getElementById('aiRematchBtn')?.addEventListener('click', () => {
     modal.classList.remove('active');
-    // Rechallenge Wednesday with same difficulty
+    // Rechallenge Wednesday with same difficulty using saved winCondition
     socket.emit('challengeWednesday', { 
       gameType: gameType, 
       difficulty: state.aiDifficulty || 'medium',
-      options: gameType === 'connect4' ? { winCondition: state.gameState?.winCondition || 4 } : {}
+      options: gameType === 'connect4' ? { winCondition: savedWinCondition } : {}
     });
   });
   
@@ -4033,6 +4203,32 @@ socket.on('gameStarted', (data) => {
       case 'ludo':
         initLudoGame(gameState, data.players);
         break;
+      case 'hangman':
+        initHangman(gameState, data.players);
+        break;
+      case 'wordchain':
+        initWordChain(gameState, data.players);
+        break;
+      case 'reaction':
+        initReactionTest(gameState, data.players);
+        break;
+      case 'battleship':
+        // For battleship, we need to transform the game state to player-specific view
+        const battleshipState = {
+          phase: gameState.phase,
+          currentPlayer: gameState.currentPlayer,
+          myBoard: gameState.boards?.[state.playerId] || Array(10).fill(null).map(() => Array(10).fill(null)),
+          enemyShots: [],
+          myShots: [],
+          placedShips: gameState.ships?.[state.playerId]?.map(s => s.index) || [],
+          allShipsPlaced: false,
+          isReady: gameState.placementReady?.[state.playerId] || false
+        };
+        initBattleship(battleshipState, data.players);
+        break;
+      case 'drawing':
+        initDrawingGuess(gameState, data.players);
+        break;
       default:
         console.error('Unknown game type:', gameType);
         elements.gameContent.innerHTML = '<div style="text-align:center;color:red;">Unknown game type: ' + gameType + '</div>';
@@ -4159,6 +4355,33 @@ socket.on('ludoUpdate', handleLudoUpdate);
 socket.on('ludoDiceRoll', handleLudoDiceRoll);
 socket.on('ludoTokenMoved', handleLudoTokenMoved);
 socket.on('ludoTurnChange', handleLudoTurnChange);
+
+// Hangman
+socket.on('hangmanUpdate', updateHangman);
+
+// Word Chain
+socket.on('wordChainUpdate', updateWordChain);
+
+// Reaction Test
+socket.on('reactionUpdate', updateReactionTest);
+socket.on('reactionCountdown', (data) => {
+  if (typeof updateReactionTest === 'function') {
+    updateReactionTest({ status: 'countdown', ...data });
+  }
+});
+socket.on('reactionTarget', (data) => {
+  if (typeof updateReactionTest === 'function') {
+    updateReactionTest({ status: 'react', ...data });
+  }
+});
+socket.on('reactionResults', (data) => {
+  if (typeof updateReactionTest === 'function') {
+    updateReactionTest({ status: 'results', ...data });
+  }
+});
+
+// Battleship
+socket.on('battleshipUpdate', updateBattleship);
 
 // Player color changed
 socket.on('playerColorChanged', (data) => {
@@ -4293,6 +4516,32 @@ socket.on('gameRestarted', (data) => {
         break;
       case 'ludo':
         initLudoGame(data.gameState, data.players);
+        break;
+      case 'hangman':
+        initHangman(data.gameState, data.players);
+        break;
+      case 'wordchain':
+        initWordChain(data.gameState, data.players);
+        break;
+      case 'reaction':
+        initReactionTest(data.gameState, data.players);
+        break;
+      case 'battleship':
+        // For battleship, transform the game state to player-specific view
+        const bsState = {
+          phase: data.gameState.phase,
+          currentPlayer: data.gameState.currentPlayer,
+          myBoard: data.gameState.boards?.[state.playerId] || Array(10).fill(null).map(() => Array(10).fill(null)),
+          enemyShots: [],
+          myShots: [],
+          placedShips: data.gameState.ships?.[state.playerId]?.map(s => s.index) || [],
+          allShipsPlaced: false,
+          isReady: data.gameState.placementReady?.[state.playerId] || false
+        };
+        initBattleship(bsState, data.players);
+        break;
+      case 'drawing':
+        initDrawingGuess(data.gameState, data.players);
         break;
       default:
         console.error('Unknown game type:', data.gameType);
@@ -4670,8 +4919,9 @@ function renderConnect4Board(gameState, players) {
     });
   }
   
-  // Only show play again button for non-match mode (match mode uses showAIMatchEndOptions via matchEnded event)
-  if ((gameState.winner || gameState.isDraw) && !state.matchId) {
+  // FIX Bug 3: Only show play again button for non-match mode and non-AI game
+  // (match mode uses showAIMatchEndOptions via matchEnded event)
+  if ((gameState.winner || gameState.isDraw) && !state.matchId && !state.isAIGame) {
     showPlayAgainButton('connect4');
   }
 }
@@ -4681,10 +4931,29 @@ function handleConnect4Update(data) {
   state.gameState.currentPlayer = data.currentPlayer;
   state.gameState.winner = data.winner;
   state.gameState.winningCells = data.winningCells;
-  state.gameState.isDraw = data.isDraw;
+  state.gameState.isDraw = data.draw || data.isDraw; // Support both 'draw' and 'isDraw'
   
-  renderConnect4Board(state.gameState, data.players);
-  updateScoreBoard(data.players, data.currentPlayer);
+  // FIX Bug 2: Preserve or update winCondition
+  if (data.winCondition) {
+    state.gameState.winCondition = data.winCondition;
+  }
+  
+  // FIX Bug 1: Use provided players or fall back to cached players with proper colors
+  const players = data.players || state.players || [
+    { 
+      id: state.gameState.player1, 
+      name: state.gameState.player1 === AI_PLAYER_ID ? AI_PLAYER_NAME : 'Player 1',
+      color: '#e50914' // Red for player 1
+    },
+    { 
+      id: state.gameState.player2, 
+      name: state.gameState.player2 === AI_PLAYER_ID ? AI_PLAYER_NAME : 'Player 2',
+      color: '#f59e0b' // Yellow for player 2/AI
+    }
+  ];
+  
+  renderConnect4Board(state.gameState, players);
+  updateScoreBoard(players, data.currentPlayer);
 }
 
 // ============================================
@@ -5306,3 +5575,197 @@ function escapeHtml(text) {
   div.textContent = text;
   return div.innerHTML;
 }
+
+
+// ============================================
+// GAME STATE MANAGEMENT FIXES
+// Enhanced cleanup and state management
+// ============================================
+
+/**
+ * Clean up game state when ending a game
+ */
+function cleanupGameState() {
+  console.log('🧹 Cleaning up game state...');
+  
+  // Clear game-specific state
+  state.gameState = {};
+  state.currentGame = null;
+  state.matchId = null;
+  state.isSpectator = false;
+  
+  // Clear drawing state
+  if (drawingState.canvas) {
+    const ctx = drawingState.ctx;
+    if (ctx) {
+      ctx.clearRect(0, 0, drawingState.canvas.width, drawingState.canvas.height);
+    }
+    drawingState.isDrawing = false;
+    drawingState.canvas = null;
+    drawingState.ctx = null;
+  }
+  
+  // Clear chess state
+  if (typeof chessState !== 'undefined') {
+    chessState.selectedSquare = null;
+    chessState.legalMoves = [];
+    chessState.draggedPiece = null;
+  }
+  
+  // Clear any game-specific timers
+  if (typeof gameTimer !== 'undefined' && gameTimer) {
+    clearInterval(gameTimer);
+  }
+  
+  // Clear game content
+  if (elements.gameContent) {
+    elements.gameContent.innerHTML = '';
+  }
+  
+  clearNowPlayingDisplay();
+  console.log('✅ Game state cleaned up');
+}
+
+/**
+ * Enhanced backToLobby with proper cleanup
+ */
+const originalBackToLobby = backToLobby;
+backToLobby = function() {
+  console.log('🔙 Enhanced back to lobby with cleanup');
+  cleanupGameState();
+  if (originalBackToLobby) {
+    originalBackToLobby();
+  }
+};
+
+/**
+ * Fix canvas touch events for mobile
+ */
+function fixCanvasTouchEvents(canvas) {
+  if (!canvas) return;
+  
+  console.log('📱 Fixing canvas touch events...');
+  canvas.style.touchAction = 'none';
+  
+  function getCanvasCoordinates(e, canvas) {
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+    
+    let clientX, clientY;
+    if (e.touches && e.touches.length > 0) {
+      clientX = e.touches[0].clientX;
+      clientY = e.touches[0].clientY;
+    } else if (e.changedTouches && e.changedTouches.length > 0) {
+      clientX = e.changedTouches[0].clientX;
+      clientY = e.changedTouches[0].clientY;
+    } else {
+      clientX = e.clientX;
+      clientY = e.clientY;
+    }
+    
+    return {
+      x: (clientX - rect.left) * scaleX,
+      y: (clientY - rect.top) * scaleY
+    };
+  }
+  
+  canvas.addEventListener('touchstart', (e) => {
+    e.preventDefault();
+    const coords = getCanvasCoordinates(e, canvas);
+    const mouseEvent = new MouseEvent('mousedown', {
+      clientX: coords.x,
+      clientY: coords.y,
+      bubbles: true
+    });
+    canvas.dispatchEvent(mouseEvent);
+  }, { passive: false });
+  
+  canvas.addEventListener('touchmove', (e) => {
+    e.preventDefault();
+    const coords = getCanvasCoordinates(e, canvas);
+    const mouseEvent = new MouseEvent('mousemove', {
+      clientX: coords.x,
+      clientY: coords.y,
+      bubbles: true
+    });
+    canvas.dispatchEvent(mouseEvent);
+  }, { passive: false });
+  
+  canvas.addEventListener('touchend', (e) => {
+    e.preventDefault();
+    const coords = getCanvasCoordinates(e, canvas);
+    const mouseEvent = new MouseEvent('mouseup', {
+      clientX: coords.x,
+      clientY: coords.y,
+      bubbles: true
+    });
+    canvas.dispatchEvent(mouseEvent);
+  }, { passive: false });
+  
+  console.log('✅ Canvas touch events fixed');
+}
+
+/**
+ * Fix canvas aspect ratio
+ */
+function fixCanvasAspectRatio(canvas, aspectRatio = 4/3) {
+  if (!canvas) return;
+  
+  console.log('📐 Fixing canvas aspect ratio...');
+  const container = canvas.parentElement;
+  if (!container) return;
+  
+  function resizeCanvas() {
+    const containerWidth = container.clientWidth;
+    const containerHeight = container.clientHeight;
+    
+    let width, height;
+    if (containerWidth / containerHeight > aspectRatio) {
+      height = containerHeight;
+      width = height * aspectRatio;
+    } else {
+      width = containerWidth;
+      height = width / aspectRatio;
+    }
+    
+    canvas.style.width = width + 'px';
+    canvas.style.height = height + 'px';
+    
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = width * dpr;
+    canvas.height = height * dpr;
+    
+    const ctx = canvas.getContext('2d');
+    if (ctx) {
+      ctx.scale(dpr, dpr);
+    }
+  }
+  
+  resizeCanvas();
+  window.addEventListener('resize', resizeCanvas);
+  window.addEventListener('orientationchange', () => {
+    setTimeout(resizeCanvas, 100);
+  });
+  
+  console.log('✅ Canvas aspect ratio fixed');
+}
+
+// Apply fixes to existing drawing game initialization
+const originalInitDrawingGame = initDrawingGame;
+initDrawingGame = function(gameState, players) {
+  originalInitDrawingGame(gameState, players);
+  
+  // Apply canvas fixes after initialization
+  setTimeout(() => {
+    const canvas = document.getElementById('drawingCanvas');
+    if (canvas) {
+      fixCanvasTouchEvents(canvas);
+      fixCanvasAspectRatio(canvas, 4/3);
+      drawingState.canvas = canvas;
+      drawingState.ctx = canvas.getContext('2d');
+    }
+  }, 100);
+};
+
+console.log('✅ Game state management fixes loaded');

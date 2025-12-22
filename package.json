@@ -1,7 +1,7 @@
 {
   "name": "upside-down-nevermore-games",
-  "version": "1.0.0",
-  "description": "Real-time multiplayer games for long-distance BFFs - Stranger Things x Wednesday Addams themed",
+  "version": "2.0.0",
+  "description": "Real-time multiplayer games for long-distance BFFs - Stranger Things x Wednesday Addams themed - MAX Edition with Manus UI",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
@@ -10,10 +10,11 @@
   "dependencies": {
     "express": "^4.18.2",
     "mongodb": "^7.0.0",
+    "node-fetch": "^2.7.0",
     "socket.io": "^4.7.2",
     "uuid": "^9.0.0"
   },
   "engines": {
-    "node": ">=16.0.0"
+    "node": ">=18.0.0"
   }
 }

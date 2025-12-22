@@ -1,0 +1,437 @@
+/* ============================================
+   🎨 THEME SYSTEM - Multiple Themes
+   ============================================ */
+
+/* ============================================
+   DEFAULT THEME (Purple/Red Blend)
+   ============================================ */
+:root,
+[data-theme="default"] {
+  --bg-primary: #0a0a0f;
+  --bg-secondary: #12121a;
+  --bg-tertiary: #1a1a2e;
+  
+  --card-bg: rgba(26, 26, 46, 0.8);
+  --card-hover: rgba(26, 26, 46, 0.95);
+  
+  --accent-purple: #9333ea;
+  --accent-purple-light: #a855f7;
+  --accent-purple-dark: #7c3aed;
+  
+  --accent-red: #e50914;
+  --accent-red-light: #ff1a1a;
+  --accent-red-dark: #b91c1c;
+  
+  --text-primary: #ffffff;
+  --text-secondary: #a1a1aa;
+  --text-muted: #71717a;
+  
+  --border-color: rgba(147, 51, 234, 0.3);
+  --border-hover: rgba(147, 51, 234, 0.6);
+  
+  --glow-purple: 0 0 20px rgba(147, 51, 234, 0.5);
+  --glow-red: 0 0 20px rgba(229, 9, 20, 0.5);
+  
+  --gradient-primary: linear-gradient(135deg, var(--accent-purple), var(--accent-red));
+  --gradient-bg: linear-gradient(180deg, #0a0a0f 0%, #1a1a2e 50%, #0a0a0f 100%);
+  
+  --success: #22c55e;
+  --warning: #f59e0b;
+  --error: #ef4444;
+  --info: #3b82f6;
+}
+
+/* ============================================
+   STRANGER THINGS THEME (80s Red/Black)
+   ============================================ */
+[data-theme="strangerthings"] {
+  --bg-primary: #0d0d0d;
+  --bg-secondary: #1a0a0a;
+  --bg-tertiary: #2d1515;
+  
+  --card-bg: rgba(45, 21, 21, 0.8);
+  --card-hover: rgba(45, 21, 21, 0.95);
+  
+  --accent-purple: #e50914;
+  --accent-purple-light: #ff3333;
+  --accent-purple-dark: #b91c1c;
+  
+  --accent-red: #ff0000;
+  --accent-red-light: #ff4444;
+  --accent-red-dark: #cc0000;
+  
+  --text-primary: #ffffff;
+  --text-secondary: #ffcccc;
+  --text-muted: #aa8888;
+  
+  --border-color: rgba(229, 9, 20, 0.4);
+  --border-hover: rgba(229, 9, 20, 0.7);
+  
+  --glow-purple: 0 0 30px rgba(229, 9, 20, 0.6);
+  --glow-red: 0 0 30px rgba(255, 0, 0, 0.6);
+  
+  --gradient-primary: linear-gradient(135deg, #e50914, #ff0000);
+  --gradient-bg: linear-gradient(180deg, #0d0d0d 0%, #2d1515 50%, #0d0d0d 100%);
+}
+
+[data-theme="strangerthings"] body::before {
+  content: '';
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: 
+    radial-gradient(ellipse at 20% 80%, rgba(229, 9, 20, 0.15) 0%, transparent 50%),
+    radial-gradient(ellipse at 80% 20%, rgba(255, 0, 0, 0.1) 0%, transparent 50%);
+  pointer-events: none;
+  z-index: -1;
+}
+
+[data-theme="strangerthings"] .logo-text {
+  font-family: 'ITC Benguiat', 'Times New Roman', serif;
+  text-shadow: 
+    0 0 10px #e50914,
+    0 0 20px #e50914,
+    0 0 40px #e50914,
+    0 0 80px #ff0000;
+  animation: strangerFlicker 3s infinite;
+}
+
+@keyframes strangerFlicker {
+  0%, 100% { opacity: 1; }
+  92% { opacity: 1; }
+  93% { opacity: 0.8; }
+  94% { opacity: 1; }
+  95% { opacity: 0.9; }
+  96% { opacity: 1; }
+}
+
+/* ============================================
+   WEDNESDAY THEME (Gothic Purple/Black)
+   ============================================ */
+[data-theme="wednesday"] {
+  --bg-primary: #050508;
+  --bg-secondary: #0a0a12;
+  --bg-tertiary: #15151f;
+  
+  --card-bg: rgba(21, 21, 31, 0.9);
+  --card-hover: rgba(21, 21, 31, 0.98);
+  
+  --accent-purple: #6b21a8;
+  --accent-purple-light: #7c3aed;
+  --accent-purple-dark: #581c87;
+  
+  --accent-red: #4c1d95;
+  --accent-red-light: #5b21b6;
+  --accent-red-dark: #3b0764;
+  
+  --text-primary: #e4e4e7;
+  --text-secondary: #a1a1aa;
+  --text-muted: #52525b;
+  
+  --border-color: rgba(107, 33, 168, 0.4);
+  --border-hover: rgba(107, 33, 168, 0.7);
+  
+  --glow-purple: 0 0 25px rgba(107, 33, 168, 0.5);
+  --glow-red: 0 0 25px rgba(76, 29, 149, 0.5);
+  
+  --gradient-primary: linear-gradient(135deg, #6b21a8, #4c1d95);
+  --gradient-bg: linear-gradient(180deg, #050508 0%, #15151f 50%, #050508 100%);
+}
+
+[data-theme="wednesday"] body::before {
+  content: '';
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: 
+    radial-gradient(ellipse at 30% 70%, rgba(107, 33, 168, 0.1) 0%, transparent 50%),
+    radial-gradient(ellipse at 70% 30%, rgba(76, 29, 149, 0.08) 0%, transparent 50%);
+  pointer-events: none;
+  z-index: -1;
+}
+
+[data-theme="wednesday"] .logo-text {
+  font-family: 'Playfair Display', 'Georgia', serif;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+}
+
+/* ============================================
+   UPSIDE DOWN THEME (Inverted Dark)
+   ============================================ */
+[data-theme="upsidedown"] {
+  --bg-primary: #0f1419;
+  --bg-secondary: #192734;
+  --bg-tertiary: #22303c;
+  
+  --card-bg: rgba(34, 48, 60, 0.8);
+  --card-hover: rgba(34, 48, 60, 0.95);
+  
+  --accent-purple: #1d9bf0;
+  --accent-purple-light: #4db5f9;
+  --accent-purple-dark: #1a8cd8;
+  
+  --accent-red: #00ff88;
+  --accent-red-light: #33ff9f;
+  --accent-red-dark: #00cc6a;
+  
+  --text-primary: #e7e9ea;
+  --text-secondary: #8899a6;
+  --text-muted: #536471;
+  
+  --border-color: rgba(29, 155, 240, 0.3);
+  --border-hover: rgba(29, 155, 240, 0.6);
+  
+  --glow-purple: 0 0 20px rgba(29, 155, 240, 0.4);
+  --glow-red: 0 0 20px rgba(0, 255, 136, 0.4);
+  
+  --gradient-primary: linear-gradient(135deg, #1d9bf0, #00ff88);
+  --gradient-bg: linear-gradient(180deg, #0f1419 0%, #22303c 50%, #0f1419 100%);
+}
+
+[data-theme="upsidedown"] body {
+  transform: rotate(180deg);
+}
+
+[data-theme="upsidedown"] body > * {
+  transform: rotate(180deg);
+}
+
+[data-theme="upsidedown"] body::before {
+  content: '';
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: 
+    url("data:image/svg+xml,%3Csvg viewBox='0 0 100 100' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
+  opacity: 0.03;
+  pointer-events: none;
+  z-index: -1;
+  animation: upsideDownFloat 20s linear infinite;
+}
+
+@keyframes upsideDownFloat {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-20px); }
+}
+
+/* ============================================
+   NEVERMORE ACADEMY THEME (School Colors)
+   ============================================ */
+[data-theme="nevermore"] {
+  --bg-primary: #1a1a2e;
+  --bg-secondary: #16213e;
+  --bg-tertiary: #0f3460;
+  
+  --card-bg: rgba(15, 52, 96, 0.8);
+  --card-hover: rgba(15, 52, 96, 0.95);
+  
+  --accent-purple: #e94560;
+  --accent-purple-light: #ff6b6b;
+  --accent-purple-dark: #c73e54;
+  
+  --accent-red: #533483;
+  --accent-red-light: #6b4799;
+  --accent-red-dark: #3d2566;
+  
+  --text-primary: #ffffff;
+  --text-secondary: #b8c5d6;
+  --text-muted: #7a8ca0;
+  
+  --border-color: rgba(233, 69, 96, 0.3);
+  --border-hover: rgba(233, 69, 96, 0.6);
+  
+  --glow-purple: 0 0 20px rgba(233, 69, 96, 0.4);
+  --glow-red: 0 0 20px rgba(83, 52, 131, 0.4);
+  
+  --gradient-primary: linear-gradient(135deg, #e94560, #533483);
+  --gradient-bg: linear-gradient(180deg, #1a1a2e 0%, #0f3460 50%, #1a1a2e 100%);
+}
+
+[data-theme="nevermore"] .logo-text::after {
+  content: ' Academy';
+  font-size: 0.5em;
+  opacity: 0.7;
+}
+
+/* ============================================
+   HAWKINS LAB THEME (Sci-Fi Green)
+   ============================================ */
+[data-theme="hawkinslab"] {
+  --bg-primary: #0a0f0a;
+  --bg-secondary: #0f1a0f;
+  --bg-tertiary: #152815;
+  
+  --card-bg: rgba(21, 40, 21, 0.8);
+  --card-hover: rgba(21, 40, 21, 0.95);
+  
+  --accent-purple: #00ff00;
+  --accent-purple-light: #33ff33;
+  --accent-purple-dark: #00cc00;
+  
+  --accent-red: #00aa00;
+  --accent-red-light: #00dd00;
+  --accent-red-dark: #008800;
+  
+  --text-primary: #00ff00;
+  --text-secondary: #88ff88;
+  --text-muted: #448844;
+  
+  --border-color: rgba(0, 255, 0, 0.3);
+  --border-hover: rgba(0, 255, 0, 0.6);
+  
+  --glow-purple: 0 0 20px rgba(0, 255, 0, 0.5);
+  --glow-red: 0 0 20px rgba(0, 170, 0, 0.5);
+  
+  --gradient-primary: linear-gradient(135deg, #00ff00, #00aa00);
+  --gradient-bg: linear-gradient(180deg, #0a0f0a 0%, #152815 50%, #0a0f0a 100%);
+}
+
+[data-theme="hawkinslab"] * {
+  font-family: 'Courier New', monospace !important;
+}
+
+[data-theme="hawkinslab"] body::before {
+  content: '';
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: 
+    repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 2px,
+      rgba(0, 255, 0, 0.03) 2px,
+      rgba(0, 255, 0, 0.03) 4px
+    );
+  pointer-events: none;
+  z-index: 9999;
+  animation: scanline 8s linear infinite;
+}
+
+@keyframes scanline {
+  0% { transform: translateY(0); }
+  100% { transform: translateY(100%); }
+}
+
+/* ============================================
+   THEME SELECTOR UI
+   ============================================ */
+.theme-selector {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 15px;
+  background: var(--card-bg);
+  border-radius: 15px;
+  border: 1px solid var(--border-color);
+}
+
+.theme-option {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 15px;
+  background: rgba(0, 0, 0, 0.3);
+  border: 2px solid transparent;
+  border-radius: 12px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  min-width: 100px;
+}
+
+.theme-option:hover {
+  border-color: var(--accent-purple);
+  transform: translateY(-3px);
+}
+
+.theme-option.active {
+  border-color: var(--accent-purple);
+  background: rgba(147, 51, 234, 0.2);
+}
+
+.theme-preview {
+  width: 60px;
+  height: 40px;
+  border-radius: 8px;
+  overflow: hidden;
+  display: flex;
+}
+
+.theme-preview-half {
+  flex: 1;
+}
+
+.theme-name {
+  font-size: 0.85rem;
+  color: var(--text-primary);
+  text-align: center;
+}
+
+/* Theme preview colors */
+.theme-option[data-theme="default"] .theme-preview-half:first-child { background: #9333ea; }
+.theme-option[data-theme="default"] .theme-preview-half:last-child { background: #e50914; }
+
+.theme-option[data-theme="strangerthings"] .theme-preview-half:first-child { background: #e50914; }
+.theme-option[data-theme="strangerthings"] .theme-preview-half:last-child { background: #0d0d0d; }
+
+.theme-option[data-theme="wednesday"] .theme-preview-half:first-child { background: #6b21a8; }
+.theme-option[data-theme="wednesday"] .theme-preview-half:last-child { background: #050508; }
+
+.theme-option[data-theme="upsidedown"] .theme-preview-half:first-child { background: #1d9bf0; }
+.theme-option[data-theme="upsidedown"] .theme-preview-half:last-child { background: #00ff88; }
+
+.theme-option[data-theme="nevermore"] .theme-preview-half:first-child { background: #e94560; }
+.theme-option[data-theme="nevermore"] .theme-preview-half:last-child { background: #533483; }
+
+.theme-option[data-theme="hawkinslab"] .theme-preview-half:first-child { background: #00ff00; }
+.theme-option[data-theme="hawkinslab"] .theme-preview-half:last-child { background: #0a0f0a; }
+
+/* ============================================
+   THEME TRANSITION ANIMATION
+   ============================================ */
+body {
+  transition: 
+    background-color 0.5s ease,
+    color 0.3s ease;
+}
+
+body * {
+  transition: 
+    background-color 0.3s ease,
+    border-color 0.3s ease,
+    color 0.3s ease,
+    box-shadow 0.3s ease;
+}
+
+/* ============================================
+   RESPONSIVE THEME SELECTOR
+   ============================================ */
+@media (max-width: 768px) {
+  .theme-selector {
+    justify-content: center;
+  }
+  
+  .theme-option {
+    min-width: 80px;
+    padding: 10px;
+  }
+  
+  .theme-preview {
+    width: 50px;
+    height: 35px;
+  }
+  
+  .theme-name {
+    font-size: 0.75rem;
+  }
+}

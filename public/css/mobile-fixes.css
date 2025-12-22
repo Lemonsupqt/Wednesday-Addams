@@ -1,0 +1,612 @@
+/* ============================================
+   MOBILE RESPONSIVENESS FIXES
+   Wednesday Addams WebApp
+   ============================================ */
+
+/* ============================================
+   GLOBAL MOBILE FIXES
+   ============================================ */
+
+/* Ensure proper viewport handling */
+html {
+  -webkit-text-size-adjust: 100%;
+  -ms-text-size-adjust: 100%;
+  touch-action: manipulation;
+}
+
+body {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Prevent zoom on input focus (iOS) */
+@media screen and (max-width: 768px) {
+  input[type="text"],
+  input[type="password"],
+  textarea {
+    font-size: 16px !important;
+  }
+}
+
+/* ============================================
+   BUTTON OVERLAP FIXES
+   ============================================ */
+
+@media (max-width: 768px) {
+  /* Main menu buttons */
+  .menu-card {
+    padding: 25px 20px;
+  }
+  
+  .btn {
+    padding: 12px 20px;
+    font-size: 0.95rem;
+    min-height: 44px; /* iOS touch target minimum */
+  }
+  
+  .btn-small {
+    padding: 8px 15px;
+    font-size: 0.85rem;
+    min-height: 40px;
+  }
+  
+  /* Game header - prevent button overlap */
+  .game-header {
+    padding: 15px;
+    gap: 10px;
+  }
+  
+  .game-title-bar {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
+    width: 100%;
+  }
+  
+  #gameTitle {
+    font-size: 1.3rem;
+  }
+  
+  #backToLobbyBtn {
+    position: static;
+    width: 100%;
+    margin-top: 10px;
+  }
+  
+  /* Lobby header - fix code display */
+  .lobby-header {
+    flex-direction: column;
+    gap: 15px;
+    align-items: center;
+  }
+  
+  .room-code-display {
+    flex-direction: column;
+    gap: 8px;
+    text-align: center;
+  }
+  
+  /* Chat input container */
+  .chat-input-container {
+    gap: 8px;
+    flex-wrap: nowrap;
+  }
+  
+  .chat-input-container input {
+    min-width: 0;
+    flex: 1;
+  }
+  
+  .chat-input-container .btn-small,
+  .chat-input-container .wednesday-btn {
+    flex-shrink: 0;
+  }
+}
+
+/* ============================================
+   GAME ASPECT RATIO FIXES
+   ============================================ */
+
+/* Tic-Tac-Toe */
+@media (max-width: 768px) {
+  .ttt-board {
+    width: min(90vw, 350px);
+    max-width: 350px;
+    aspect-ratio: 1;
+    padding: 10px;
+    gap: 8px;
+  }
+  
+  .ttt-cell {
+    aspect-ratio: 1;
+    font-size: clamp(2rem, 12vw, 3rem);
+    min-height: 0;
+    height: auto;
+  }
+  
+  .ttt-status {
+    font-size: 1.2rem;
+    margin-bottom: 20px;
+  }
+}
+
+/* Memory Match */
+@media (max-width: 768px) {
+  .memory-grid {
+    width: min(95vw, 400px);
+    grid-template-columns: repeat(4, 1fr);
+    gap: 8px;
+    padding: 10px;
+  }
+  
+  .memory-card {
+    aspect-ratio: 1;
+    height: auto;
+    font-size: clamp(1.5rem, 8vw, 2rem);
+  }
+  
+  .memory-info {
+    flex-direction: column;
+    gap: 10px;
+    font-size: 0.9rem;
+  }
+}
+
+/* Drawing Game */
+@media (max-width: 768px) {
+  .drawing-container {
+    padding: 10px;
+  }
+  
+  .drawing-canvas-wrapper {
+    width: 100%;
+    max-width: 100%;
+    aspect-ratio: 4/3;
+    position: relative;
+  }
+  
+  #drawingCanvas {
+    width: 100% !important;
+    height: 100% !important;
+    max-width: 100%;
+    max-height: 60vh;
+    touch-action: none;
+  }
+  
+  .drawing-controls {
+    flex-wrap: wrap;
+    gap: 10px;
+    padding: 10px;
+  }
+  
+  .color-palette {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  
+  .color-btn {
+    width: 35px;
+    height: 35px;
+    min-width: 35px;
+  }
+  
+  .brush-size-control {
+    width: 100%;
+  }
+  
+  .drawing-word {
+    font-size: 1.3rem;
+  }
+  
+  .drawing-timer {
+    font-size: 1.1rem;
+  }
+}
+
+/* Chess */
+@media (max-width: 768px) {
+  .chess-container {
+    padding: 10px;
+    width: 100%;
+  }
+  
+  .chess-board-wrapper {
+    width: min(95vw, 400px);
+    margin: 0 auto;
+  }
+  
+  .chess-board {
+    width: 100%;
+    aspect-ratio: 1;
+    border-width: 2px;
+  }
+  
+  .chess-square {
+    aspect-ratio: 1;
+  }
+  
+  .chess-piece {
+    font-size: min(10vw, 2.8rem);
+  }
+  
+  .chess-coords-row,
+  .chess-coords-col {
+    font-size: 0.7rem;
+  }
+  
+  .chess-player-top,
+  .chess-player-bottom {
+    padding: 8px;
+    font-size: 0.85rem;
+  }
+  
+  .chess-status {
+    font-size: 1rem;
+    margin-bottom: 10px;
+  }
+  
+  /* Promotion dialog */
+  .promotion-dialog {
+    width: 90vw;
+    max-width: 300px;
+    padding: 20px;
+  }
+  
+  .promotion-pieces {
+    gap: 10px;
+  }
+  
+  .promotion-piece {
+    width: 60px;
+    height: 60px;
+    font-size: 2rem;
+  }
+}
+
+/* Trivia */
+@media (max-width: 768px) {
+  .trivia-container {
+    padding: 15px;
+    width: 100%;
+  }
+  
+  .trivia-question {
+    font-size: 1.1rem;
+    margin-bottom: 20px;
+    line-height: 1.5;
+  }
+  
+  .trivia-answers {
+    gap: 10px;
+  }
+  
+  .trivia-answer {
+    padding: 15px;
+    font-size: 0.95rem;
+    min-height: 50px;
+    word-wrap: break-word;
+  }
+  
+  .trivia-timer {
+    font-size: 1.5rem;
+  }
+  
+  .trivia-progress {
+    font-size: 0.9rem;
+  }
+}
+
+/* Psychic Showdown */
+@media (max-width: 768px) {
+  .psychic-container {
+    padding: 15px;
+  }
+  
+  .psychic-title {
+    font-size: 1.5rem;
+    margin-bottom: 20px;
+  }
+  
+  .psychic-choices {
+    gap: 15px;
+    flex-direction: column;
+    align-items: stretch;
+  }
+  
+  .psychic-choice {
+    padding: 20px;
+    min-width: auto;
+    width: 100%;
+  }
+  
+  .psychic-choice .choice-icon {
+    font-size: 3rem;
+  }
+  
+  .psychic-choice .choice-name {
+    font-size: 1.1rem;
+  }
+}
+
+/* ============================================
+   GAME SCREEN LAYOUT FIXES
+   ============================================ */
+
+@media (max-width: 768px) {
+  .game-container {
+    grid-template-rows: auto 1fr auto;
+    grid-template-columns: 1fr;
+    height: 100vh;
+    max-height: 100vh;
+  }
+  
+  .game-content {
+    padding: 15px;
+    overflow-y: auto;
+    overflow-x: hidden;
+    -webkit-overflow-scrolling: touch;
+  }
+  
+  .game-chat {
+    border-left: none;
+    border-top: 1px solid var(--border-color);
+    max-height: 200px;
+    min-height: 150px;
+  }
+  
+  .game-chat .chat-messages {
+    max-height: 100px;
+  }
+}
+
+/* ============================================
+   LOBBY LAYOUT FIXES
+   ============================================ */
+
+@media (max-width: 768px) {
+  .lobby-content {
+    grid-template-columns: 1fr;
+    gap: 20px;
+  }
+  
+  .players-section,
+  .chat-section {
+    padding: 15px;
+  }
+  
+  .chat-messages {
+    height: 180px;
+  }
+  
+  /* Game selection grid */
+  .games-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 12px;
+  }
+  
+  .game-card {
+    padding: 15px 10px;
+    min-height: 120px;
+  }
+  
+  .game-icon {
+    font-size: 2rem;
+  }
+  
+  .game-name {
+    font-size: 0.85rem;
+  }
+  
+  .game-players {
+    font-size: 0.75rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .games-grid {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+  
+  .game-card {
+    padding: 20px;
+    min-height: auto;
+  }
+}
+
+/* ============================================
+   MODAL FIXES
+   ============================================ */
+
+@media (max-width: 768px) {
+  .modal-content {
+    width: 90vw;
+    max-width: 400px;
+    padding: 25px 20px;
+    margin: 20px;
+  }
+  
+  .modal-content h2 {
+    font-size: 1.5rem;
+    margin-bottom: 20px;
+  }
+  
+  .modal-content .btn {
+    width: 100%;
+    margin-top: 10px;
+  }
+  
+  /* Results modal */
+  #resultsContent {
+    font-size: 0.95rem;
+  }
+  
+  .results-list {
+    gap: 8px;
+  }
+  
+  .result-item {
+    padding: 12px;
+    font-size: 0.9rem;
+  }
+}
+
+/* ============================================
+   SCOREBOARD MOBILE FIXES
+   ============================================ */
+
+@media (max-width: 768px) {
+  .score-board {
+    flex-direction: column;
+    gap: 8px;
+    max-height: 200px;
+    overflow-y: auto;
+  }
+  
+  .score-item {
+    width: 100%;
+    justify-content: space-between;
+    padding: 8px 15px;
+  }
+  
+  .score-toggle-btn {
+    display: block;
+    position: absolute;
+    top: 15px;
+    right: 15px;
+    z-index: 10;
+  }
+}
+
+/* ============================================
+   LANDSCAPE MOBILE FIXES
+   ============================================ */
+
+@media (max-width: 900px) and (orientation: landscape) {
+  .game-container {
+    grid-template-columns: 1fr 250px;
+    grid-template-rows: auto 1fr;
+    height: 100vh;
+  }
+  
+  .game-header {
+    grid-column: 1 / -1;
+  }
+  
+  .game-content {
+    overflow-y: auto;
+    padding: 15px;
+  }
+  
+  .game-chat {
+    border-left: 1px solid var(--border-color);
+    border-top: none;
+    max-height: none;
+  }
+  
+  /* Adjust game sizes for landscape */
+  .ttt-board {
+    max-width: 300px;
+  }
+  
+  .chess-board-wrapper {
+    max-width: 350px;
+  }
+  
+  #drawingCanvas {
+    max-height: 50vh;
+  }
+}
+
+/* ============================================
+   TOUCH IMPROVEMENTS
+   ============================================ */
+
+/* Better touch targets */
+button,
+.game-card,
+.ttt-cell,
+.memory-card,
+.trivia-answer,
+.psychic-choice {
+  -webkit-tap-highlight-color: rgba(229, 9, 20, 0.2);
+  touch-action: manipulation;
+}
+
+/* Prevent double-tap zoom */
+button,
+a,
+input[type="button"],
+input[type="submit"] {
+  touch-action: manipulation;
+}
+
+/* Smooth scrolling on mobile */
+.chat-messages,
+.game-content,
+.players-list {
+  -webkit-overflow-scrolling: touch;
+  scroll-behavior: smooth;
+}
+
+/* ============================================
+   SMALL MOBILE (< 375px)
+   ============================================ */
+
+@media (max-width: 375px) {
+  .main-title {
+    gap: 3px;
+  }
+  
+  .upside-down {
+    font-size: clamp(1.5rem, 7vw, 3rem);
+  }
+  
+  .nevermore {
+    font-size: clamp(2rem, 9vw, 4rem);
+  }
+  
+  .games-text {
+    font-size: clamp(0.8rem, 3vw, 1.5rem);
+    letter-spacing: 8px;
+  }
+  
+  .menu-card {
+    padding: 20px 15px;
+  }
+  
+  .btn {
+    padding: 10px 15px;
+    font-size: 0.9rem;
+  }
+  
+  .ttt-board {
+    width: min(85vw, 300px);
+  }
+  
+  .memory-grid {
+    width: min(90vw, 320px);
+    gap: 6px;
+  }
+}
+
+/* ============================================
+   SAFE AREA INSETS (iPhone X+)
+   ============================================ */
+
+@supports (padding: max(0px)) {
+  body {
+    padding-left: max(0px, env(safe-area-inset-left));
+    padding-right: max(0px, env(safe-area-inset-right));
+  }
+  
+  .game-header,
+  .lobby-header {
+    padding-top: max(15px, env(safe-area-inset-top));
+  }
+  
+  .game-chat,
+  .chat-input-container {
+    padding-bottom: max(15px, env(safe-area-inset-bottom));
+  }
+}

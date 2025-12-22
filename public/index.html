@@ -1,0 +1,521 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="default">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Nevermore Games">
+  <meta name="theme-color" content="#050508">
+  <meta name="description" content="Multiplayer party games inspired by Stranger Things & Wednesday - Play with friends anywhere!">
+  <meta name="format-detection" content="telephone=no">
+  <meta name="msapplication-tap-highlight" content="no">
+  <title>⚡ Upside Down Nevermore Games ⚡</title>
+  <link rel="manifest" href="manifest.json">
+  <link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎮</text></svg>">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;700&family=Special+Elite&family=Creepster&family=Playfair+Display:wght@400;700&display=swap" rel="stylesheet">
+  
+  <!-- Stylesheets -->
+  <link rel="stylesheet" href="css/styles.css?v=2.1.0">
+  <link rel="stylesheet" href="css/themes.css?v=2.1.0">
+  <link rel="stylesheet" href="css/premium-animations.css?v=2.1.0">
+  <link rel="stylesheet" href="css/profile-stats.css?v=2.1.0">
+  <link rel="stylesheet" href="css/new-games-styles.css?v=2.1.0">
+  <link rel="stylesheet" href="css/mobile-responsive.css?v=2.1.0">
+  <link rel="stylesheet" href="css/sudoku-enhanced.css?v=2.1.0">
+</head>
+<body>
+  <!-- Particles Background -->
+  <div class="particles-container" id="particles">
+    <div class="particle"></div>
+    <div class="particle"></div>
+    <div class="particle"></div>
+    <div class="particle"></div>
+    <div class="particle"></div>
+    <div class="particle"></div>
+    <div class="particle"></div>
+    <div class="particle"></div>
+    <div class="particle"></div>
+    <div class="particle"></div>
+  </div>
+  
+  <!-- Auth Screen (The Nevermore Archives) -->
+  <div id="authScreen" class="screen active page-enter">
+    <div class="container">
+      <div class="logo-container">
+        <h1 class="main-title">
+          <span class="upside-down text-glow-red">UPSIDE DOWN</span>
+          <span class="nevermore text-glow">NEVERMORE</span>
+          <span class="games-text">GAMES</span>
+        </h1>
+        <p class="tagline">📜 The Nevermore Archives 📜</p>
+      </div>
+      
+      <div class="auth-card glass card-enter">
+        <div class="auth-tabs">
+          <button class="auth-tab active" data-tab="login" id="loginTab" onclick="showLoginForm()">🔓 Login</button>
+          <button class="auth-tab" data-tab="register" id="registerTab" onclick="showRegisterForm()">📝 Register</button>
+        </div>
+        
+        <div id="loginForm" class="auth-form">
+          <input type="text" id="loginUsername" placeholder="Username" maxlength="20" autocomplete="username">
+          <input type="password" id="loginPassword" placeholder="Password" maxlength="50" autocomplete="current-password">
+          <button onclick="handleLogin()" class="btn btn-primary" id="loginBtn">
+            <span class="btn-icon">⚡</span> Enter the Archives
+          </button>
+        </div>
+        
+        <div id="registerForm" class="auth-form" style="display: none;">
+          <input type="text" id="registerUsername" placeholder="Username (3-20 chars)" maxlength="20" autocomplete="username">
+          <input type="password" id="registerPassword" placeholder="Password (4+ chars)" maxlength="50" autocomplete="new-password">
+          <input type="text" id="registerDisplayName" placeholder="Display Name (optional)" maxlength="20">
+          <button onclick="handleRegister()" class="btn btn-primary" id="registerBtn">
+            <span class="btn-icon">🦇</span> Join Nevermore
+          </button>
+        </div>
+        
+        <div class="divider">
+          <span>or</span>
+        </div>
+        
+        <button id="guestBtn" class="btn btn-secondary">
+          <span class="btn-icon">👻</span> Play as Guest
+        </button>
+        
+        <p class="auth-hint">
+          💡 Create an account to save your trophies, unlock achievements, and appear on the leaderboard!
+        </p>
+      </div>
+    </div>
+  </div>
+  
+  <!-- Main Menu -->
+  <div id="mainMenu" class="screen">
+    <div class="container">
+      <div class="logo-container">
+        <h1 class="main-title logo-text">
+          <span class="upside-down text-glow-red">UPSIDE DOWN</span>
+          <span class="nevermore text-glow">NEVERMORE</span>
+          <span class="games-text">GAMES</span>
+        </h1>
+        <p class="tagline">👻 For Long-Distance BFFs 👻</p>
+      </div>
+      
+      <!-- User Info Display -->
+      <div id="userInfoDisplay" class="user-info-display glass"></div>
+      
+      <div class="menu-card glass card-enter">
+        <div id="connectionStatus" class="connection-status connecting">
+          <span class="status-icon">⏳</span>
+          <span class="status-text">Connecting to server...</span>
+        </div>
+        <input type="text" id="playerName" placeholder="Enter your name, friend..." maxlength="20">
+        <button id="createRoomBtn" class="btn btn-primary hover-lift">
+          <span class="btn-icon">🚪</span> Create Room
+        </button>
+        <div class="divider">
+          <span>or</span>
+        </div>
+        <input type="text" id="roomCode" placeholder="Room code..." maxlength="6">
+        <button id="joinRoomBtn" class="btn btn-secondary hover-lift">
+          <span class="btn-icon">🔮</span> Join Room
+        </button>
+        <div class="divider">
+          <span>solo mode</span>
+        </div>
+        <button id="playAIBtn" class="btn btn-ai hover-lift">
+          <span class="btn-icon">🤖</span> Play vs AI
+        </button>
+        
+        <div class="menu-extras">
+          <button id="profileBtn" class="btn btn-ghost hover-scale">
+            <span class="btn-icon">👤</span> Profile
+          </button>
+          <button id="achievementsBtn" class="btn btn-ghost hover-scale">
+            <span class="btn-icon">🏆</span> Achievements
+          </button>
+          <button id="leaderboardBtn" class="btn btn-ghost hover-scale">
+            <span class="btn-icon">📊</span> Leaderboard
+          </button>
+          <button id="settingsBtn" class="btn btn-ghost hover-scale">
+            <span class="btn-icon">⚙️</span> Settings
+          </button>
+          <button id="logoutBtn" class="btn btn-ghost hover-scale" style="display: none;">
+            <span class="btn-icon">🚪</span> Logout
+          </button>
+        </div>
+      </div>
+      
+      <div class="credits">
+        <p>🎬 A tribute to Stranger Things & Wednesday 🦇</p>
+        <p class="version">v2.0 MAX Edition</p>
+      </div>
+    </div>
+  </div>
+  
+  <!-- Profile Screen -->
+  <div id="profileScreen" class="screen">
+    <div class="container">
+      <div class="screen-header">
+        <h2>👤 Player Profile</h2>
+        <button id="backFromProfileBtn" class="btn btn-ghost">
+          <span class="btn-icon">⬅️</span> Back
+        </button>
+      </div>
+      
+      <div id="profileContent" class="profile-content">
+        <!-- Profile card loaded dynamically -->
+      </div>
+      
+      <div class="profile-tabs">
+        <button class="profile-tab active" data-tab="overview">📊 Overview</button>
+        <button class="profile-tab" data-tab="stats">📈 Statistics</button>
+        <button class="profile-tab" data-tab="avatar">🎭 Avatar</button>
+      </div>
+      
+      <div id="profileTabContent" class="profile-tab-content">
+        <!-- Tab content loaded dynamically -->
+      </div>
+    </div>
+  </div>
+  
+  <!-- Achievements Screen -->
+  <div id="achievementsScreen" class="screen">
+    <div class="container achievements-page">
+      <div class="screen-header">
+        <h2>🏆 Achievements</h2>
+        <button id="backFromAchievementsBtn" class="btn btn-ghost">
+          <span class="btn-icon">⬅️</span> Back
+        </button>
+      </div>
+      
+      <div class="achievements-header-section">
+        <div class="achievements-progress">
+          <div class="progress-item">
+            <div class="progress-value" id="achievementCount">0</div>
+            <div class="progress-label">Unlocked</div>
+          </div>
+          <div class="progress-item">
+            <div class="progress-value" id="achievementPoints">0</div>
+            <div class="progress-label">Points</div>
+          </div>
+          <div class="progress-item">
+            <div class="progress-value" id="achievementPercent">0%</div>
+            <div class="progress-label">Complete</div>
+          </div>
+        </div>
+      </div>
+      
+      <div class="achievements-categories" id="achievementCategories">
+        <button class="category-btn active" data-category="all">All</button>
+        <!-- Categories loaded dynamically -->
+      </div>
+      
+      <div id="achievementsList" class="achievements-grid">
+        <!-- Achievements loaded dynamically -->
+      </div>
+    </div>
+  </div>
+  
+  <!-- Settings Screen -->
+  <div id="settingsScreen" class="screen">
+    <div class="container">
+      <div class="screen-header">
+        <h2>⚙️ Settings</h2>
+        <button id="backFromSettingsBtn" class="btn btn-ghost">
+          <span class="btn-icon">⬅️</span> Back
+        </button>
+      </div>
+      
+      <div class="settings-section glass">
+        <h3>🎨 Theme</h3>
+        <div class="theme-selector" id="themeSelector">
+          <div class="theme-option active" data-theme="default">
+            <div class="theme-preview">
+              <div class="theme-preview-half"></div>
+              <div class="theme-preview-half"></div>
+            </div>
+            <span class="theme-name">Default</span>
+          </div>
+          <div class="theme-option" data-theme="strangerthings">
+            <div class="theme-preview">
+              <div class="theme-preview-half"></div>
+              <div class="theme-preview-half"></div>
+            </div>
+            <span class="theme-name">Stranger Things</span>
+          </div>
+          <div class="theme-option" data-theme="wednesday">
+            <div class="theme-preview">
+              <div class="theme-preview-half"></div>
+              <div class="theme-preview-half"></div>
+            </div>
+            <span class="theme-name">Wednesday</span>
+          </div>
+          <div class="theme-option" data-theme="nevermore">
+            <div class="theme-preview">
+              <div class="theme-preview-half"></div>
+              <div class="theme-preview-half"></div>
+            </div>
+            <span class="theme-name">Nevermore</span>
+          </div>
+          <div class="theme-option" data-theme="hawkinslab">
+            <div class="theme-preview">
+              <div class="theme-preview-half"></div>
+              <div class="theme-preview-half"></div>
+            </div>
+            <span class="theme-name">Hawkins Lab</span>
+          </div>
+        </div>
+      </div>
+      
+      <div class="settings-section glass">
+        <h3>🔊 Sound</h3>
+        <div class="setting-row">
+          <span>Sound Effects</span>
+          <div class="toggle-switch" id="soundToggle"></div>
+        </div>
+        <div class="setting-row">
+          <span>Chat Notifications</span>
+          <div class="toggle-switch active" id="chatSoundToggle"></div>
+        </div>
+      </div>
+      
+      <div class="settings-section glass">
+        <h3>🎮 Gameplay</h3>
+        <div class="setting-row">
+          <span>Show Animations</span>
+          <div class="toggle-switch active" id="animationsToggle"></div>
+        </div>
+        <div class="setting-row">
+          <span>Auto-scroll Chat</span>
+          <div class="toggle-switch active" id="autoScrollToggle"></div>
+        </div>
+      </div>
+      
+      <div class="settings-section glass">
+        <h3>ℹ️ About</h3>
+        <div class="about-info">
+          <p><strong>Upside Down Nevermore Games</strong></p>
+          <p>Version 2.0 MAX Edition</p>
+          <p>A tribute to Stranger Things & Wednesday</p>
+          <p>Made with 🖤 for long-distance BFFs</p>
+        </div>
+      </div>
+    </div>
+  </div>
+  
+  <!-- Leaderboard Screen -->
+  <div id="leaderboardScreen" class="screen">
+    <div class="container">
+      <div class="leaderboard-header">
+        <h2>🏆 Nevermore Rankings 🏆</h2>
+        <p class="leaderboard-subtitle">The greatest outcasts of all time</p>
+      </div>
+      
+      <div id="leaderboardList" class="leaderboard-list"></div>
+      
+      <div class="leaderboard-legend">
+        <div class="legend-item"><span>🏆</span> Trophies (earned by winning sessions)</div>
+        <div class="legend-item"><span>⭐</span> Total Round Wins</div>
+        <div class="legend-item"><span>🎮</span> Games Played</div>
+      </div>
+      
+      <button id="backFromLeaderboardBtn" class="btn btn-secondary">
+        <span class="btn-icon">⬅️</span> Back to Menu
+      </button>
+    </div>
+  </div>
+
+  <!-- Lobby -->
+  <div id="lobby" class="screen">
+    <div class="container">
+      <div class="lobby-header">
+        <h2>🏰 THE WAITING ROOM 🏰</h2>
+        <div class="room-code-display">
+          <span>Room Code:</span>
+          <span id="displayRoomCode" class="code"></span>
+          <button id="copyCodeBtn" class="btn-small hover-scale" title="Copy code">📋</button>
+        </div>
+      </div>
+
+      <div class="lobby-content">
+        <div class="players-section glass">
+          <h3>👥 Outcasts Assembled</h3>
+          <div id="playersList" class="players-list"></div>
+        </div>
+
+        <div class="chat-section glass">
+          <div class="chat-header">
+            <h3>💬 The Séance Circle</h3>
+            <div class="chat-header-actions">
+              <span id="typingIndicator" class="typing-indicator"></span>
+              <button id="chatSoundToggleBtn" class="chat-sound-btn" title="Toggle Sound">🔔</button>
+            </div>
+          </div>
+          <div class="chat-messages-wrapper">
+            <div id="chatMessages" class="chat-messages"></div>
+            <button id="scrollToBottomBtn" class="scroll-to-bottom-btn" style="display: none;">
+              <span>↓</span> New messages
+            </button>
+          </div>
+          <div id="replyPreview" class="reply-preview" style="display: none;">
+            <span class="reply-to">↩ <strong id="replyToName"></strong>:</span>
+            <span class="reply-text" id="replyToText"></span>
+            <button id="cancelReplyBtn" class="cancel-reply-btn">✕</button>
+          </div>
+          <div class="chat-input-container">
+            <button id="wednesdayBtn" class="wednesday-btn hover-scale" title="Talk to Wednesday">🖤</button>
+            <input type="text" id="chatInput" placeholder="Type a message..." maxlength="200">
+            <button id="sendChatBtn" class="btn-small hover-scale">📨</button>
+          </div>
+          <div class="chat-hint">💡 Click message to reply • Replying to Wednesday continues the chat</div>
+        </div>
+      </div>
+
+      <div class="voting-section glass">
+        <div class="voting-header">
+          <h3>🎮 Choose Your Game</h3>
+          <p class="voting-instructions">Everyone votes - most popular game wins!</p>
+          <button id="startVotingBtn" class="btn btn-primary hover-lift">
+            <span class="btn-icon">🗳️</span> Start Voting
+          </button>
+          <span id="voteProgress" class="vote-progress"></span>
+        </div>
+      </div>
+
+      <div class="game-selection" id="gameSelection">
+        <!-- Game selection is dynamically populated by app.js -->
+      </div>
+
+      <div class="lobby-actions">
+        <button id="leaveRoomBtn" class="btn btn-danger hover-lift">
+          <span class="btn-icon">🚪</span> Leave Room
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Game Screen -->
+  <div id="gameScreen" class="screen">
+    <div class="game-container">
+      <div class="game-header glass">
+        <div class="game-title-bar">
+          <h2 id="gameTitle">Game</h2>
+          <button id="toggleScoreBtn" class="score-toggle-btn hover-scale" title="Toggle Scoreboard">📊</button>
+          <div class="score-board" id="scoreBoard"></div>
+        </div>
+        <div id="nowPlayingDisplay" class="now-playing-display"></div>
+        <button id="backToLobbyBtn" class="btn-small btn-danger hover-lift">✖ End Game</button>
+      </div>
+
+      <div id="gameContent" class="game-content">
+        <!-- Game content loaded dynamically -->
+      </div>
+
+      <div class="game-chat glass">
+        <div class="game-chat-header">
+          <span id="gameTypingIndicator" class="typing-indicator"></span>
+        </div>
+        <div class="game-chat-wrapper">
+          <div id="gameChatMessages" class="chat-messages small"></div>
+          <button id="gameScrollToBottomBtn" class="scroll-to-bottom-btn small" style="display: none;">↓</button>
+        </div>
+        <div id="gameReplyPreview" class="reply-preview small" style="display: none;">
+          <span class="reply-to">↩ <strong id="gameReplyToName"></strong>:</span>
+          <span class="reply-text" id="gameReplyToText"></span>
+          <button id="gameCancelReplyBtn" class="cancel-reply-btn">✕</button>
+        </div>
+        <div class="chat-input-container">
+          <button id="gameWednesdayBtn" class="wednesday-btn small hover-scale" title="Talk to Wednesday">🖤</button>
+          <input type="text" id="gameChatInput" placeholder="Chat..." maxlength="200">
+          <button id="sendGameChatBtn" class="btn-small hover-scale">📨</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Results Modal -->
+  <div id="resultsModal" class="modal">
+    <div class="modal-content glass">
+      <h2 id="resultsTitle">🏆 Game Over! 🏆</h2>
+      <div id="resultsContent"></div>
+      <button id="closeResultsBtn" class="btn btn-primary hover-lift">Return to Lobby</button>
+    </div>
+  </div>
+
+  <!-- Voting Modal (for difficulty selection) -->
+  <div id="votingModal" class="modal voting-modal"></div>
+
+  <!-- Achievement Notification Container -->
+  <div id="achievementNotifications"></div>
+
+  <!-- Level Up Overlay -->
+  <div id="levelUpOverlay" class="level-up-overlay" style="display: none;">
+    <div class="level-up-content">
+      <div class="level-up-icon">⬆️</div>
+      <div class="level-up-text">LEVEL UP!</div>
+      <div class="level-up-number" id="newLevel">2</div>
+      <div class="level-up-rewards" id="levelUpRewards"></div>
+    </div>
+  </div>
+
+  <!-- Victory Overlay -->
+  <div id="victoryOverlay" class="victory-overlay" style="display: none;">
+    <div class="victory-content">
+      <div class="victory-trophy">🏆</div>
+      <div class="victory-text">VICTORY!</div>
+    </div>
+  </div>
+
+  <!-- Confetti Container -->
+  <div id="confettiContainer" class="confetti-container"></div>
+
+  <!-- Error Toast -->
+  <div id="errorToast" class="toast error"></div>
+
+  <!-- Success Toast -->
+  <div id="successToast" class="toast success"></div>
+
+  <!-- Fullscreen Toggle Button (Mobile) -->
+  <button id="fullscreenToggle" class="fullscreen-toggle hover-scale" title="Toggle Fullscreen">
+    <span id="fullscreenIcon">⛶</span>
+  </button>
+
+  <!-- Mobile Chat Toggle Button -->
+  <button id="chatToggleBtn" class="chat-toggle-btn hover-scale" title="Open Chat">💬</button>
+
+  <!-- Mobile Chat Overlay -->
+  <div id="gameChatOverlay" class="game-chat-overlay glass-strong">
+    <div class="chat-header">
+      <span>💬 Game Chat</span>
+      <button class="chat-close-btn hover-scale" id="closeChatOverlay">✕</button>
+    </div>
+    <div class="mobile-chat-wrapper">
+      <div id="mobileChatMessages" class="chat-messages"></div>
+      <button id="mobileScrollToBottomBtn" class="scroll-to-bottom-btn" style="display: none;">↓ New</button>
+    </div>
+    <div id="mobileReplyPreview" class="reply-preview" style="display: none;">
+      <span class="reply-to">↩ <strong id="mobileReplyToName"></strong>:</span>
+      <span class="reply-text" id="mobileReplyToText"></span>
+      <button id="mobileCancelReplyBtn" class="cancel-reply-btn">✕</button>
+    </div>
+    <div class="chat-input-area">
+      <button id="mobileWednesdayBtn" class="wednesday-btn hover-scale" title="Talk to Wednesday">🖤</button>
+      <input type="text" id="mobileChatInput" placeholder="Type a message..." maxlength="200">
+      <button id="sendMobileChatBtn" class="btn-small btn-primary hover-scale">Send</button>
+    </div>
+  </div>
+
+  <!-- Scripts -->
+  <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+  <script src="js/auth-simple.js?v=2.1.0"></script>
+  <script src="js/achievements.js?v=2.1.0"></script>
+  <script src="js/profile-stats.js?v=2.1.0"></script>
+  <script src="js/new-games-client.js?v=2.1.0"></script>
+  <script src="js/app.js?v=2.1.0"></script>
+  <script src="js/app-integration.js?v=2.1.0"></script>
+</body>
+</html>
