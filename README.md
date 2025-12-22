@@ -8,6 +8,12 @@
 ![Multiplayer](https://img.shields.io/badge/Multiplayer-Real--time-purple?style=for-the-badge)
 ![Games](https://img.shields.io/badge/Games-5%20Goated-gold?style=for-the-badge)
 
+## 🚀 ONE-CLICK DEPLOY BACKEND
+
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/lemonsupqt/Wednesday-Addams)
+
+👆 **Click this button to deploy the multiplayer server for FREE!**
+
 ---
 
 ## 🎮 Features
@@ -18,7 +24,7 @@
 |------|-------------|---------|
 | ⭕❌ **Upside Down Tic-Tac-Toe** | Classic game with Demogorgon vs Eleven vibes | 2 |
 | 🃏 **Vecna's Memory Match** | Match cards featuring characters & items from both universes | 2+ |
-| 🖐️✏️ **Thing's Drawing Duel** | Draw & guess themed prompts (like Pictionary) | 3+ |
+| ♟️👑 **Vecna's Chess** | Full chess with gothic dark/light board | 2 |
 | 🔮⚡ **Psychic Showdown** | Vision vs Mind vs Power (Rock-Paper-Scissors reimagined) | 2+ |
 | 🧠📺 **Nevermore Trivia** | Test your knowledge of Stranger Things & Wednesday | 2+ |
 
@@ -76,10 +82,8 @@ Flip cards to find matching pairs of iconic items and characters. Take turns - m
 
 **Cards include:** Demogorgon, Eleven, Wednesday, Thing, Eggo Waffles, Cello, Spider, Christmas Lights, and more!
 
-### 🖐️✏️ Thing's Drawing Duel
-One player draws a themed prompt while others guess. Correct guessers and the artist both score points!
-
-**Prompts include:** "Demogorgon", "Wednesday dancing", "Steve's hair", "The Upside Down", "Nevermore Academy", etc.
+### ♟️👑 Vecna's Chess
+Full chess game with a dark gothic aesthetic! Play as White or Black on a beautifully styled board. Standard chess rules apply - capture the opponent's King to win!
 
 ### 🔮⚡ Psychic Showdown
 Choose your power each round:
@@ -152,6 +156,22 @@ For deploying to the cloud:
 
 2. **Environment Variables:**
    - `PORT` - Server port (default: 3000)
+   - `MONGODB_URI` - MongoDB Atlas connection string (optional, for persistent user accounts)
+   - `OPENAI_API_KEY` - OpenAI API key for Wednesday AI chatbot (optional)
+
+### 🖤 Wednesday AI Chatbot
+
+The Wednesday AI chatbot in the chat supports two modes:
+
+1. **With OpenAI API** (recommended): Set the `OPENAI_API_KEY` environment variable to enable GPT-powered responses. Wednesday will have dynamic, contextual conversations.
+
+2. **Fallback Mode**: Without an API key, Wednesday uses curated static responses that still feel in-character.
+
+To enable the AI chatbot:
+```bash
+export OPENAI_API_KEY=your-api-key-here
+npm start
+```
 
 ---
 
