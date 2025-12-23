@@ -67,6 +67,7 @@ const elements = {
   // Lobby
   displayRoomCode: document.getElementById('displayRoomCode'),
   copyCodeBtn: document.getElementById('copyCodeBtn'),
+  copyLinkBtn: document.getElementById('copyLinkBtn'),
   playersList: document.getElementById('playersList'),
   chatMessages: document.getElementById('chatMessages'),
   chatInput: document.getElementById('chatInput'),
@@ -141,11 +142,56 @@ let drawingState = {
   isDrawing: false
 };
 
+// Pending room link from URL parameters
+let pendingRoomLink = null;
+
 // ============================================
 // INITIALIZATION
 // ============================================
 
+// Check for room link in URL parameters
+function checkUrlRoomLink() {
+  const urlParams = new URLSearchParams(window.location.search);
+  const roomCode = urlParams.get('room');
+  if (roomCode) {
+    pendingRoomLink = roomCode.toUpperCase();
+    // Clean the URL without reloading
+    const cleanUrl = window.location.origin + window.location.pathname;
+    window.history.replaceState({}, document.title, cleanUrl);
+    console.log('🔗 Room link detected:', pendingRoomLink);
+  }
+}
+
+// Join room from URL link
+function joinRoomFromLink() {
+  if (pendingRoomLink) {
+    const roomCode = pendingRoomLink;
+    pendingRoomLink = null; // Clear it
+    
+    // Fill in the room code field
+    if (elements.roomCode) {
+      elements.roomCode.value = roomCode;
+    }
+    
+    // Get player name
+    const playerName = elements.playerName?.value?.trim() || localStorage.getItem('playerName') || 'Outcast_' + Math.floor(Math.random() * 1000);
+    
+    // Set player name if not set
+    if (elements.playerName && !elements.playerName.value.trim()) {
+      elements.playerName.value = playerName;
+    }
+    
+    // Emit join room
+    setTimeout(() => {
+      socket.emit('joinRoom', { roomId: roomCode, playerName });
+      showNotification('🔗 Joining room from invite link...', 'info');
+    }, 300); // Small delay to ensure socket is ready
+  }
+}
+
 document.addEventListener('DOMContentLoaded', () => {
+  // Check for room link in URL first
+  checkUrlRoomLink();
   initParticles();
   setupEventListeners();
   setupAuthListeners();
@@ -211,6 +257,8 @@ document.addEventListener('DOMContentLoaded', () => {
     state.userStats = null;
     showScreen('mainMenu');
     updateUserInfoDisplay();
+    // Check for pending room link from URL
+    joinRoomFromLink();
   } else {
     // No saved session - show auth screen
     showScreen('authScreen');
@@ -358,6 +406,8 @@ function setupAuthListeners() {
     localStorage.setItem('guestSession', 'true');
     showScreen('mainMenu');
     updateUserInfoDisplay();
+    // Check for pending room link from URL
+    joinRoomFromLink();
   });
   
   // Logout
@@ -499,6 +549,9 @@ socket.on('authSuccess', (data) => {
   updateUserInfoDisplay();
   const welcomeMsg = data.gamesPlayed === 0 ? `Welcome to Nevermore, ${data.displayName}! ${data.title}` : `Welcome back, ${data.displayName}! ${data.title}`;
   showNotification(welcomeMsg, 'success');
+  
+  // Check for pending room link from URL
+  joinRoomFromLink();
 });
 
 socket.on('authError', (data) => {
@@ -783,6 +836,7 @@ function setupEventListeners() {
   
   // Lobby
   elements.copyCodeBtn.addEventListener('click', copyRoomCode);
+  elements.copyLinkBtn.addEventListener('click', copyRoomLink);
   elements.sendChatBtn.addEventListener('click', sendChat);
   elements.chatInput.addEventListener('keypress', (e) => {
     if (e.key === 'Enter') sendChat();
@@ -1418,10 +1472,27 @@ function leaveRoom() {
 function copyRoomCode() {
   navigator.clipboard.writeText(state.roomId).then(() => {
     elements.copyCodeBtn.textContent = '✓';
+    showNotification('📋 Room code copied!', 'success');
     setTimeout(() => {
       elements.copyCodeBtn.textContent = '📋';
     }, 2000);
   });
+}
+
+function copyRoomLink() {
+  const roomLink = generateRoomLink(state.roomId);
+  navigator.clipboard.writeText(roomLink).then(() => {
+    elements.copyLinkBtn.textContent = '✓';
+    showNotification('🔗 Invite link copied! Share it with friends!', 'success');
+    setTimeout(() => {
+      elements.copyLinkBtn.textContent = '🔗';
+    }, 2000);
+  });
+}
+
+function generateRoomLink(roomId) {
+  const baseUrl = window.location.origin + window.location.pathname;
+  return `${baseUrl}?room=${roomId}`;
 }
 
 function updatePlayersList(players) {
@@ -1492,7 +1563,7 @@ function updatePlayersList(players) {
       </button>
       <button class="game-card new-game" data-game="hangman">
         <span class="game-icon">🎯💀</span>
-        <span class="game-name">Hangman<br>Nevermore</span>
+        <span class="game-name">Hangman<br>Challenge</span>
         <span class="game-players">2+ players</span>
         <span class="new-badge">NEW</span>
       </button>
@@ -1503,8 +1574,8 @@ function updatePlayersList(players) {
         <span class="new-badge">NEW</span>
       </button>
       <button class="game-card new-game" data-game="reaction">
-        <span class="game-icon">🎮🧠</span>
-        <span class="game-name">Pattern<br>Memory</span>
+        <span class="game-icon">🔀✨</span>
+        <span class="game-name">Word<br>Scramble</span>
         <span class="game-players">2+ players</span>
         <span class="new-badge">NEW</span>
       </button>
@@ -1512,6 +1583,24 @@ function updatePlayersList(players) {
         <span class="game-icon">🚢💥</span>
         <span class="game-name">Battleship<br>Hawkins</span>
         <span class="game-players">2 players</span>
+        <span class="new-badge">NEW</span>
+      </button>
+      <button class="game-card new-game" data-game="poker">
+        <span class="game-icon">🃏♠️</span>
+        <span class="game-name">Texas<br>Hold'em</span>
+        <span class="game-players">2-6 players</span>
+        <span class="new-badge">NEW</span>
+      </button>
+      <button class="game-card new-game" data-game="blackjack">
+        <span class="game-icon">🎰🃏</span>
+        <span class="game-name">Blackjack<br>21</span>
+        <span class="game-players">2+ players</span>
+        <span class="new-badge">NEW</span>
+      </button>
+      <button class="game-card new-game" data-game="game24">
+        <span class="game-icon">🔢🎯</span>
+        <span class="game-name">Make<br>24</span>
+        <span class="game-players">2+ players</span>
         <span class="new-badge">NEW</span>
       </button>
     </div>
@@ -2750,7 +2839,9 @@ function updateTicTacToe(data) {
   
   // FIX Bug 5: Update playerSymbols if provided
   if (data.playerSymbols) {
-    state.gameState.playerSymbols = data.playerSymbols;
+    state.gameState.playerSymbols = data.playerSymbols instanceof Map
+      ? data.playerSymbols
+      : new Map(Object.entries(data.playerSymbols));
   }
   
   if (data.board) {
@@ -4229,6 +4320,21 @@ socket.on('gameStarted', (data) => {
       case 'drawing':
         initDrawingGuess(gameState, data.players);
         break;
+      case 'poker':
+        if (typeof initPoker === 'function') {
+          initPoker(gameState, data.players);
+        }
+        break;
+      case 'blackjack':
+        if (typeof initBlackjack === 'function') {
+          initBlackjack(gameState, data.players);
+        }
+        break;
+      case 'game24':
+        if (typeof init24Game === 'function') {
+          init24Game(gameState, data.players);
+        }
+        break;
       default:
         console.error('Unknown game type:', gameType);
         elements.gameContent.innerHTML = '<div style="text-align:center;color:red;">Unknown game type: ' + gameType + '</div>';
@@ -4252,6 +4358,7 @@ socket.on('returnToLobby', (data) => {
     state.roomId = null;
     elements.gameContent.innerHTML = '';
     elements.resultsModal.classList.remove('active');
+    elements.closeResultsBtn.classList.remove('hidden');
     document.getElementById('votingModal')?.classList.remove('active');
     showScreen('mainMenu');
     return;
@@ -4278,6 +4385,7 @@ socket.on('returnToLobby', (data) => {
   elements.gameContent.innerHTML = '';
   // Close any open modals
   elements.resultsModal.classList.remove('active');
+  elements.closeResultsBtn.classList.remove('hidden');
   
   // Reset voting UI
   document.querySelectorAll('.game-card').forEach(card => {
@@ -4442,12 +4550,16 @@ socket.on('gameEnded', (data) => {
     </div>
   `;
   elements.resultsModal.classList.add('active');
+  elements.closeResultsBtn.classList.add('hidden');
   state.players = data.players;
   
   // Add play again handler in modal - any player can trigger
+  // Use cloneNode to remove all old event listeners
   const modalPlayAgainBtn = document.getElementById('modalPlayAgainBtn');
   if (modalPlayAgainBtn) {
-    modalPlayAgainBtn.addEventListener('click', () => {
+    const newPlayAgainBtn = modalPlayAgainBtn.cloneNode(true);
+    modalPlayAgainBtn.parentNode.replaceChild(newPlayAgainBtn, modalPlayAgainBtn);
+    newPlayAgainBtn.addEventListener('click', () => {
       // For memory and sudoku games, preserve the difficulty
       if (state.currentGame === 'memory' && state.gameState.difficulty) {
         socket.emit('restartGame', { type: 'memory', options: { difficulty: state.gameState.difficulty } });
@@ -4460,9 +4572,12 @@ socket.on('gameEnded', (data) => {
   }
   
   // Add back to lobby handler - any player can trigger
+  // Use cloneNode to remove all old event listeners
   const modalBackToLobbyBtn = document.getElementById('modalBackToLobbyBtn');
   if (modalBackToLobbyBtn) {
-    modalBackToLobbyBtn.addEventListener('click', () => {
+    const newBackToLobbyBtn = modalBackToLobbyBtn.cloneNode(true);
+    modalBackToLobbyBtn.parentNode.replaceChild(newBackToLobbyBtn, modalBackToLobbyBtn);
+    newBackToLobbyBtn.addEventListener('click', () => {
       socket.emit('endGame');
     });
   }
@@ -4472,6 +4587,7 @@ socket.on('gameEnded', (data) => {
 socket.on('gameRestarted', (data) => {
   console.log('🔄 Game restarted:', data.gameType, data.gameState);
   elements.resultsModal.classList.remove('active');
+  elements.closeResultsBtn.classList.remove('hidden');
   
   // Close any open modals
   const votingModal = document.getElementById('votingModal');
@@ -4542,6 +4658,21 @@ socket.on('gameRestarted', (data) => {
         break;
       case 'drawing':
         initDrawingGuess(data.gameState, data.players);
+        break;
+      case 'poker':
+        if (typeof initPoker === 'function') {
+          initPoker(data.gameState, data.players);
+        }
+        break;
+      case 'blackjack':
+        if (typeof initBlackjack === 'function') {
+          initBlackjack(data.gameState, data.players);
+        }
+        break;
+      case 'game24':
+        if (typeof init24Game === 'function') {
+          init24Game(data.gameState, data.players);
+        }
         break;
       default:
         console.error('Unknown game type:', data.gameType);

@@ -22,7 +22,7 @@ function escapeHtml(text) {
 function initHangman(gameState, players) {
   console.log('🎯 Initializing Hangman:', gameState);
   state.gameState = gameState;
-  elements.gameTitle.textContent = '🎯 Hangman - Nevermore Edition';
+  elements.gameTitle.textContent = '🎯 Hangman Challenge';
   
   const isMyTurn = gameState.currentGuesser === state.playerId;
   const maskedWord = gameState.maskedWord || '_ '.repeat(gameState.wordLength || 8);
@@ -318,210 +318,230 @@ function updateWordChain(data) {
 }
 
 // ============================================
-// PATTERN MEMORY GAME 🧠 (Simon Says style)
+// WORD SCRAMBLE 🔀 (Unscramble words race)
 // ============================================
 
-const PATTERN_COLORS = [
-  { id: 0, name: 'Eleven Red', color: '#e50914', emoji: '🔴', activeColor: '#ff3333' },
-  { id: 1, name: 'Upside Down Blue', color: '#1e3a8a', emoji: '🔵', activeColor: '#3b82f6' },
-  { id: 2, name: 'Wednesday Purple', color: '#9333ea', emoji: '🟣', activeColor: '#a855f7' },
-  { id: 3, name: 'Demogorgon Green', color: '#22c55e', emoji: '🟢', activeColor: '#4ade80' }
-];
+let wordScrambleState = {
+  canAnswer: true,
+  currentWord: null
+};
 
 function initReactionTest(gameState, players) {
-  console.log('🧠 Initializing Pattern Memory:', gameState);
+  console.log('🔀 Initializing Word Scramble:', gameState);
   state.gameState = gameState;
-  state.patternState = {
-    isShowing: false,
-    canInput: false,
-    inputIndex: 0
+  wordScrambleState = {
+    canAnswer: true,
+    currentWord: null
   };
-  elements.gameTitle.textContent = '🧠 Pattern Memory - Upside Down Sequence';
-  
-  const isMyTurn = gameState.playerOrder?.[gameState.currentPlayerIndex] === state.playerId;
+  elements.gameTitle.textContent = '🔀 Word Scramble Race';
   
   elements.gameContent.innerHTML = `
-    <div class="pattern-container">
-      <div class="pattern-info">
-        <div class="pattern-round">Round ${gameState.round || 1}/${gameState.maxRounds || 10}</div>
-        <div class="pattern-score" id="patternScore">Score: ${gameState.scores?.[state.playerId] || 0}</div>
+    <div class="word-scramble-container">
+      <div class="scramble-info">
+        <div class="scramble-round">Round <span id="scrambleRound">${gameState.round || 1}</span>/${gameState.maxRounds || 8}</div>
+        <div class="scramble-timer" id="scrambleTimer">⏱️ Waiting...</div>
       </div>
       
-      <div class="pattern-status" id="patternStatus">
-        ${isMyTurn ? '👁️ Watch the pattern...' : '⏳ Waiting for other player...'}
+      <div class="scramble-word-display" id="scrambleWord">
+        <div class="scramble-waiting">🎯 Get Ready to Unscramble!</div>
       </div>
       
-      <div class="pattern-board" id="patternBoard">
-        ${PATTERN_COLORS.map(c => `
-          <button class="pattern-btn" data-color="${c.id}" style="--btn-color: ${c.color}; --btn-active: ${c.activeColor}">
-            <span class="pattern-emoji">${c.emoji}</span>
-          </button>
-        `).join('')}
+      <div class="scramble-input">
+        <input type="text" id="scrambleInput" placeholder="Type the word..." autocomplete="off" maxlength="20" disabled>
+        <button class="btn btn-primary" id="scrambleSubmitBtn" disabled>
+          <span class="btn-icon">✨</span> Guess
+        </button>
       </div>
       
-      <div class="pattern-progress" id="patternProgress">
-        <div class="progress-label">Pattern length: <span id="patternLength">${gameState.pattern?.length || 0}</span></div>
-        <div class="progress-dots" id="progressDots"></div>
-      </div>
+      <div class="scramble-feedback" id="scrambleFeedback"></div>
       
-      <div class="pattern-players" id="patternPlayers">
+      <div class="scramble-scores" id="scrambleScores">
         ${players.map(p => `
-          <div class="pattern-player ${p.id === state.playerId ? 'me' : ''} ${p.id === gameState.playerOrder?.[gameState.currentPlayerIndex] ? 'active' : ''}">
+          <div class="scramble-player ${p.id === state.playerId ? 'me' : ''}">
             <span class="player-name">${escapeHtml(p.name)}</span>
-            <span class="player-score">${gameState.scores?.[p.id] || 0} pts</span>
+            <span class="player-score" id="score-${p.id}">${gameState.scores?.[p.id] || 0} pts</span>
+            <span class="round-result" id="result-${p.id}"></span>
           </div>
         `).join('')}
+      </div>
+      
+      <div class="scramble-hint">
+        💡 First to unscramble gets +5 bonus! Longer words = more points!
       </div>
     </div>
   `;
   
-  setupPatternListeners();
+  setupWordScrambleListeners();
   updateScoreBoard(players);
 }
 
-function setupPatternListeners() {
-  document.querySelectorAll('.pattern-btn').forEach(btn => {
-    btn.addEventListener('click', (e) => {
-      e.preventDefault();
-      handlePatternClick(parseInt(btn.dataset.color));
+function setupWordScrambleListeners() {
+  const input = document.getElementById('scrambleInput');
+  const submitBtn = document.getElementById('scrambleSubmitBtn');
+  
+  if (input && submitBtn) {
+    const submitAnswer = () => {
+      const answer = input.value.trim();
+      if (answer === '' || !wordScrambleState.canAnswer) return;
+      
+      if (state.isAIGame) {
+        socket.emit('aiReactionClick', { answer: answer });
+      } else {
+        socket.emit('reactionClick', { answer: answer });
+      }
+    };
+    
+    submitBtn.addEventListener('click', submitAnswer);
+    input.addEventListener('keypress', (e) => {
+      if (e.key === 'Enter') submitAnswer();
     });
-    btn.addEventListener('touchstart', (e) => {
-      e.preventDefault();
-      handlePatternClick(parseInt(btn.dataset.color));
-    }, { passive: false });
-  });
-}
-
-function handlePatternClick(colorId) {
-  if (!state.patternState?.canInput) {
-    return;
-  }
-  
-  // Visual feedback
-  const btn = document.querySelector(`.pattern-btn[data-color="${colorId}"]`);
-  if (btn) {
-    btn.classList.add('pressed');
-    setTimeout(() => btn.classList.remove('pressed'), 200);
-  }
-  
-  if (state.isAIGame) {
-    socket.emit('aiReactionClick', { colorId });
-  } else {
-    socket.emit('reactionClick', { colorId });
-  }
-}
-
-function showPattern(pattern, speed = 800) {
-  state.patternState.isShowing = true;
-  state.patternState.canInput = false;
-  
-  const statusEl = document.getElementById('patternStatus');
-  if (statusEl) statusEl.textContent = '👁️ Watch the pattern...';
-  
-  let i = 0;
-  const showNext = () => {
-    if (i >= pattern.length) {
-      // Done showing, enable input
-      state.patternState.isShowing = false;
-      state.patternState.canInput = true;
-      state.patternState.inputIndex = 0;
-      if (statusEl) statusEl.textContent = '🎯 Your turn! Repeat the pattern!';
-      updateProgressDots(pattern.length, 0);
-      return;
-    }
-    
-    const colorId = pattern[i];
-    const btn = document.querySelector(`.pattern-btn[data-color="${colorId}"]`);
-    if (btn) {
-      btn.classList.add('active');
-      setTimeout(() => btn.classList.remove('active'), speed * 0.7);
-    }
-    
-    i++;
-    setTimeout(showNext, speed);
-  };
-  
-  setTimeout(showNext, 500);
-}
-
-function updateProgressDots(total, completed) {
-  const dotsEl = document.getElementById('progressDots');
-  if (dotsEl) {
-    dotsEl.innerHTML = Array(total).fill(0).map((_, i) => 
-      `<span class="progress-dot ${i < completed ? 'filled' : ''}"></span>`
-    ).join('');
   }
 }
 
 function updateReactionTest(data) {
-  const statusEl = document.getElementById('patternStatus');
+  const wordEl = document.getElementById('scrambleWord');
+  const feedbackEl = document.getElementById('scrambleFeedback');
+  const timerEl = document.getElementById('scrambleTimer');
+  const input = document.getElementById('scrambleInput');
+  const submitBtn = document.getElementById('scrambleSubmitBtn');
+  const roundEl = document.getElementById('scrambleRound');
   
-  // Handle pattern showing
-  if (data.status === 'showing' && data.pattern) {
-    state.gameState.status = 'showing';
-    state.gameState.pattern = data.pattern;
-    showPattern(data.pattern, data.speed || 800);
+  // New scrambled word
+  if (data.scrambledWord) {
+    wordScrambleState.canAnswer = true;
+    wordScrambleState.currentWord = data.scrambledWord;
+    if (input) {
+      input.value = '';
+      input.disabled = false;
+      input.focus();
+    }
+    if (submitBtn) submitBtn.disabled = false;
+    if (feedbackEl) feedbackEl.innerHTML = '';
+    
+    if (wordEl) {
+      wordEl.innerHTML = `
+        <div class="scrambled-letters animate-pop">
+          ${data.scrambledWord.split('').map(letter => `
+            <span class="scramble-letter">${letter}</span>
+          `).join('')}
+        </div>
+        <div class="letter-count">${data.scrambledWord.length} letters</div>
+      `;
+    }
+    
+    // Clear previous round results
+    document.querySelectorAll('.round-result').forEach(el => el.innerHTML = '');
   }
   
-  // Handle input mode
-  if (data.status === 'input') {
-    state.gameState.status = 'input';
-    state.patternState.canInput = true;
-    if (statusEl) statusEl.textContent = '🎯 Your turn! Repeat the pattern!';
+  // Round update
+  if (data.round !== undefined && roundEl) {
+    roundEl.textContent = data.round;
   }
   
-  // Handle correct input
-  if (data.correct !== undefined) {
-    if (data.correct) {
-      state.patternState.inputIndex++;
-      updateProgressDots(state.gameState.pattern?.length || 0, state.patternState.inputIndex);
-      
-      if (data.completed) {
-        state.patternState.canInput = false;
-        if (statusEl) statusEl.textContent = '🎉 Perfect! Pattern complete!';
-        
-        // Update score
-        const scoreEl = document.getElementById('patternScore');
-        if (scoreEl && data.score !== undefined) {
-          scoreEl.textContent = `Score: ${data.score}`;
-        }
-      }
+  // Timer update
+  if (data.timeLeft !== undefined && timerEl) {
+    timerEl.textContent = `⏱️ ${data.timeLeft}s`;
+    if (data.timeLeft <= 5) {
+      timerEl.classList.add('urgent');
     } else {
-      // Wrong!
-      state.patternState.canInput = false;
-      if (statusEl) statusEl.innerHTML = `❌ Wrong! The pattern was: ${data.pattern?.map(c => PATTERN_COLORS[c]?.emoji || '❓').join(' ')}`;
+      timerEl.classList.remove('urgent');
+    }
+  }
+  
+  // Answer result
+  if (data.correct !== undefined) {
+    const resultEl = document.getElementById(`result-${state.playerId}`);
+    
+    if (data.correct) {
+      wordScrambleState.canAnswer = false;
+      if (input) input.disabled = true;
+      if (submitBtn) submitBtn.disabled = true;
       
-      // Flash the correct button
-      if (data.expectedColor !== undefined) {
-        const correctBtn = document.querySelector(`.pattern-btn[data-color="${data.expectedColor}"]`);
-        if (correctBtn) {
-          correctBtn.classList.add('correct-flash');
-          setTimeout(() => correctBtn.classList.remove('correct-flash'), 1000);
-        }
+      if (feedbackEl) {
+        feedbackEl.innerHTML = `
+          <div class="feedback-correct">
+            ✅ "${data.word}" is correct! ${data.isFirst ? '🥇 First!' : ''} +${data.points} points
+            <div class="response-time">⚡ ${(data.responseTime / 1000).toFixed(2)}s</div>
+          </div>
+        `;
+      }
+      if (resultEl) resultEl.innerHTML = `<span class="correct">+${data.points}</span>`;
+    } else {
+      if (feedbackEl) {
+        feedbackEl.innerHTML = `
+          <div class="feedback-wrong">
+            ❌ "${data.guess}" is not correct. ${data.hint || 'Keep trying!'}
+          </div>
+        `;
+      }
+      // Allow trying again
+      if (input) {
+        input.value = '';
+        input.focus();
       }
     }
   }
   
-  // Handle round update
-  if (data.round) {
-    const roundEl = document.querySelector('.pattern-round');
-    if (roundEl) roundEl.textContent = `Round ${data.round}/${data.maxRounds || 10}`;
-    
-    const lengthEl = document.getElementById('patternLength');
-    if (lengthEl) lengthEl.textContent = data.round;
+  // Update scores
+  if (data.scores) {
+    for (const [playerId, score] of Object.entries(data.scores)) {
+      const scoreEl = document.getElementById(`score-${playerId}`);
+      if (scoreEl) scoreEl.textContent = `${score} pts`;
+    }
   }
   
-  // Handle game over
+  // Player solved (not you)
+  if (data.playerAnswered && data.playerAnswered !== state.playerId) {
+    const resultEl = document.getElementById(`result-${data.playerAnswered}`);
+    if (resultEl) {
+      if (data.wasCorrect) {
+        resultEl.innerHTML = `<span class="correct">${data.wasFirst ? '🥇' : '✓'}</span>`;
+      }
+    }
+  }
+  
+  // Time up - reveal answer
+  if (data.timeUp) {
+    wordScrambleState.canAnswer = false;
+    if (input) input.disabled = true;
+    if (submitBtn) submitBtn.disabled = true;
+    
+    if (feedbackEl) {
+      feedbackEl.innerHTML = `
+        <div class="feedback-timeout">
+          ⏰ Time's up! The word was: <strong>${data.correctWord}</strong>
+        </div>
+      `;
+    }
+  }
+  
+  // Waiting for next round
+  if (data.status === 'waiting' || data.nextRound) {
+    if (wordEl) {
+      wordEl.innerHTML = `<div class="scramble-waiting">⏳ Next word coming...</div>`;
+    }
+    wordScrambleState.canAnswer = false;
+    if (input) input.disabled = true;
+    if (submitBtn) submitBtn.disabled = true;
+  }
+  
+  // Game over
   if (data.gameOver || data.status === 'finished') {
-    state.patternState.canInput = false;
-    if (statusEl) statusEl.textContent = '🏆 Game Over!';
+    wordScrambleState.canAnswer = false;
+    if (input) input.disabled = true;
+    if (submitBtn) submitBtn.disabled = true;
+    
+    if (wordEl) {
+      wordEl.innerHTML = `<div class="scramble-waiting">🏆 Game Over!</div>`;
+    }
+    
     showPlayAgainButton('reaction');
     
     if (data.results) {
-      const playersEl = document.getElementById('patternPlayers');
-      if (playersEl) {
-        playersEl.innerHTML = data.results.map((r, i) => `
-          <div class="pattern-player ${r.playerId === state.playerId ? 'me' : ''} ${i === 0 ? 'winner' : ''}">
+      const scoresEl = document.getElementById('scrambleScores');
+      if (scoresEl) {
+        scoresEl.innerHTML = data.results.map((r, i) => `
+          <div class="scramble-player ${r.playerId === state.playerId ? 'me' : ''} ${i === 0 ? 'winner' : ''}">
             <span class="rank">${i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `${i+1}.`}</span>
             <span class="player-name">${escapeHtml(r.playerName || 'Player')}</span>
             <span class="player-score">${r.score} pts</span>
@@ -529,12 +549,6 @@ function updateReactionTest(data) {
         `).join('');
       }
     }
-  }
-  
-  // Update current player indicator
-  if (data.currentPlayer !== undefined) {
-    document.querySelectorAll('.pattern-player').forEach(el => el.classList.remove('active'));
-    // Find and highlight current player
   }
   
   updateScoreBoard(data.players);
@@ -565,7 +579,7 @@ function initBattleship(gameState, players) {
       
       ${isPlacement ? `
         <div class="ship-placement-mobile" id="shipPlacement">
-          <div class="placement-header">Select a ship to place:</div>
+          <div class="placement-header">🚢 Select a ship to place:</div>
           <div class="ships-to-place-mobile">
             ${BATTLESHIP_SHIPS.map((ship, i) => `
               <button class="ship-btn ${gameState.placedShips?.includes(i) ? 'placed' : ''} ${state.battleshipState?.selectedShip === i ? 'selected' : ''}" 
@@ -573,17 +587,23 @@ function initBattleship(gameState, players) {
                 <span class="ship-emoji">${ship.emoji}</span>
                 <span class="ship-info">
                   <span class="ship-name">${ship.name}</span>
-                  <span class="ship-size">${'■'.repeat(ship.size)}</span>
+                  <span class="ship-size">${'🟪'.repeat(ship.size)}</span>
                 </span>
               </button>
             `).join('')}
           </div>
-          <div class="placement-controls-mobile">
-            <button class="btn btn-secondary btn-large" id="rotateShip">🔄 Rotate Ship</button>
-            <button class="btn btn-primary btn-large" id="confirmPlacement" ${(gameState.placedShips?.length || 0) < 5 ? 'disabled' : ''}>✅ Ready to Battle!</button>
-          </div>
           <div class="orientation-indicator" id="orientationIndicator">
-            Placing: <span id="orientationText">Horizontal →</span>
+            <span>📐 Direction:</span>
+            <span id="orientationText">
+              <span class="rotation-preview horizontal" id="rotationPreview">
+                <span></span><span></span><span></span>
+              </span>
+              Horizontal →
+            </span>
+          </div>
+          <div class="placement-controls-mobile">
+            <button class="btn btn-secondary btn-large" id="rotateShip">🔄 Rotate</button>
+            <button class="btn btn-primary btn-large" id="confirmPlacement" ${(gameState.placedShips?.length || 0) < 5 ? 'disabled' : ''}>⚔️ Ready!</button>
           </div>
         </div>
       ` : ''}
@@ -747,8 +767,31 @@ function setupBattleshipMobileListeners(gameState, isPlacement) {
       e.preventDefault();
       state.battleshipState.horizontal = !state.battleshipState.horizontal;
       const orientText = document.getElementById('orientationText');
+      const rotationPreview = document.getElementById('rotationPreview');
+      
       if (orientText) {
-        orientText.textContent = state.battleshipState.horizontal ? 'Horizontal →' : 'Vertical ↓';
+        if (state.battleshipState.horizontal) {
+          orientText.innerHTML = `
+            <span class="rotation-preview horizontal" id="rotationPreview">
+              <span></span><span></span><span></span>
+            </span>
+            Horizontal →
+          `;
+        } else {
+          orientText.innerHTML = `
+            <span class="rotation-preview vertical" id="rotationPreview">
+              <span></span><span></span><span></span>
+            </span>
+            Vertical ↓
+          `;
+        }
+      }
+      
+      // Add animation to the preview, not the button
+      const preview = document.getElementById('rotationPreview');
+      if (preview) {
+        preview.style.transform = 'scale(1.2)';
+        setTimeout(() => preview.style.transform = '', 300);
       }
     });
     
@@ -1219,6 +1262,479 @@ function updateDrawingGuess(data) {
 }
 
 // ============================================
+// POKER GAME 🃏
+// ============================================
+
+function initPoker(gameState, players) {
+  console.log('🃏 Initializing Poker:', gameState);
+  state.gameState = gameState;
+  elements.gameTitle.textContent = '🃏 Texas Hold\'em Poker';
+  
+  const myHand = gameState.hands?.[state.playerId] || [];
+  const myChips = gameState.chips?.[state.playerId] || 1000;
+  
+  elements.gameContent.innerHTML = `
+    <div class="poker-container">
+      <div class="poker-info">
+        <div class="poker-round">Round ${gameState.round || 1}/${gameState.maxRounds || 5}</div>
+        <div class="poker-pot">Pot: 💰 ${gameState.pot || 0}</div>
+        <div class="poker-phase">${getPokerPhaseName(gameState.phase)}</div>
+      </div>
+      
+      <div class="poker-community" id="pokerCommunity">
+        <div class="community-label">Community Cards</div>
+        <div class="community-cards">
+          ${gameState.communityCards?.length > 0 ? 
+            gameState.communityCards.map(card => renderCard(card)).join('') :
+            '<div class="card-placeholder">🂠</div><div class="card-placeholder">🂠</div><div class="card-placeholder">🂠</div><div class="card-placeholder">🂠</div><div class="card-placeholder">🂠</div>'
+          }
+        </div>
+      </div>
+      
+      <div class="poker-hand" id="pokerHand">
+        <div class="hand-label">Your Hand</div>
+        <div class="hand-cards">
+          ${myHand.map(card => renderCard(card)).join('')}
+        </div>
+      </div>
+      
+      <div class="poker-chips">
+        <span>💰 Your Chips: ${myChips}</span>
+      </div>
+      
+      <div class="poker-actions" id="pokerActions">
+        ${gameState.phase !== 'showdown' ? `
+          <button class="btn btn-secondary" id="pokerFold">🚫 Fold</button>
+          <button class="btn btn-primary" id="pokerCall">✅ Call</button>
+          <button class="btn btn-accent" id="pokerRaise">⬆️ Raise</button>
+        ` : ''}
+      </div>
+      
+      <div class="poker-players" id="pokerPlayers">
+        ${players.map(p => `
+          <div class="poker-player ${p.id === state.playerId ? 'me' : ''} ${gameState.folded?.includes(p.id) ? 'folded' : ''}">
+            <span class="player-name">${escapeHtml(p.name)}</span>
+            <span class="player-chips">💰 ${gameState.chips?.[p.id] || 1000}</span>
+            <span class="player-bet">Bet: ${gameState.bets?.[p.id] || 0}</span>
+          </div>
+        `).join('')}
+      </div>
+    </div>
+  `;
+  
+  setupPokerListeners();
+  updateScoreBoard(players);
+}
+
+function getPokerPhaseName(phase) {
+  const phases = {
+    'preflop': '🎴 Pre-Flop',
+    'flop': '🃏 Flop',
+    'turn': '🎯 Turn',
+    'river': '🌊 River',
+    'showdown': '👑 Showdown'
+  };
+  return phases[phase] || phase;
+}
+
+function renderCard(card) {
+  const isRed = card.suit === '♥' || card.suit === '♦';
+  return `<div class="playing-card ${isRed ? 'red' : 'black'}">${card.value}${card.suit}</div>`;
+}
+
+function setupPokerListeners() {
+  document.getElementById('pokerFold')?.addEventListener('click', () => {
+    socket.emit('pokerAction', { action: 'fold' });
+  });
+  
+  document.getElementById('pokerCall')?.addEventListener('click', () => {
+    socket.emit('pokerAction', { action: 'call' });
+  });
+  
+  document.getElementById('pokerRaise')?.addEventListener('click', () => {
+    socket.emit('pokerAction', { action: 'raise', amount: 50 });
+  });
+}
+
+function updatePoker(data) {
+  if (data.communityCards) {
+    const communityEl = document.querySelector('.community-cards');
+    if (communityEl) {
+      communityEl.innerHTML = data.communityCards.map(card => renderCard(card)).join('');
+    }
+  }
+  
+  if (data.phase) {
+    const phaseEl = document.querySelector('.poker-phase');
+    if (phaseEl) phaseEl.textContent = getPokerPhaseName(data.phase);
+  }
+  
+  if (data.pot !== undefined) {
+    const potEl = document.querySelector('.poker-pot');
+    if (potEl) potEl.textContent = `Pot: 💰 ${data.pot}`;
+  }
+  
+  if (data.showdown) {
+    const actionsEl = document.getElementById('pokerActions');
+    if (actionsEl) {
+      actionsEl.innerHTML = `
+        <div class="showdown-result">
+          <div class="winner-name">🏆 ${escapeHtml(data.winnerName)} wins!</div>
+          <div class="winning-hand">${data.handName}</div>
+        </div>
+      `;
+    }
+  }
+  
+  if (data.gameOver) {
+    showPlayAgainButton('poker');
+  }
+  
+  updateScoreBoard(data.players);
+}
+
+// ============================================
+// BLACKJACK GAME 🎰
+// ============================================
+
+function initBlackjack(gameState, players) {
+  console.log('🎰 Initializing Blackjack:', gameState);
+  state.gameState = gameState;
+  elements.gameTitle.textContent = '🎰 Blackjack 21';
+  
+  const myHand = gameState.hands?.[state.playerId] || [];
+  const myValue = calculateHandValue(myHand);
+  const dealerHand = gameState.dealerHand || [];
+  
+  elements.gameContent.innerHTML = `
+    <div class="blackjack-container">
+      <div class="blackjack-info">
+        <div class="bj-round">Round ${gameState.round || 1}/${gameState.maxRounds || 5}</div>
+      </div>
+      
+      <div class="dealer-section">
+        <div class="dealer-label">🎩 Dealer</div>
+        <div class="dealer-cards" id="dealerCards">
+          ${dealerHand.length > 0 ? renderCard(dealerHand[0]) : ''}
+          ${gameState.dealerHidden ? '<div class="playing-card hidden">🂠</div>' : (dealerHand[1] ? renderCard(dealerHand[1]) : '')}
+          ${!gameState.dealerHidden && dealerHand.length > 2 ? dealerHand.slice(2).map(c => renderCard(c)).join('') : ''}
+        </div>
+        <div class="dealer-value" id="dealerValue">
+          ${gameState.dealerHidden ? '?' : calculateHandValue(dealerHand)}
+        </div>
+      </div>
+      
+      <div class="player-section">
+        <div class="player-label">🃏 Your Hand</div>
+        <div class="player-cards" id="playerCards">
+          ${myHand.map(card => renderCard(card)).join('')}
+        </div>
+        <div class="player-value" id="playerValue">${myValue}</div>
+      </div>
+      
+      <div class="blackjack-actions" id="bjActions">
+        ${!gameState.stood?.includes(state.playerId) && !gameState.busted?.includes(state.playerId) ? `
+          <button class="btn btn-primary btn-large" id="bjHit">👊 Hit</button>
+          <button class="btn btn-secondary btn-large" id="bjStand">✋ Stand</button>
+        ` : `<div class="waiting-message">Waiting for other players...</div>`}
+      </div>
+      
+      <div class="blackjack-status" id="bjStatus"></div>
+      
+      <div class="blackjack-scores" id="bjScores">
+        ${players.map(p => `
+          <div class="bj-player ${p.id === state.playerId ? 'me' : ''} ${gameState.busted?.includes(p.id) ? 'busted' : ''} ${gameState.stood?.includes(p.id) ? 'stood' : ''}">
+            <span class="player-name">${escapeHtml(p.name)}</span>
+            <span class="player-score">${gameState.scores?.[p.id] || 0} pts</span>
+            <span class="player-status">${gameState.busted?.includes(p.id) ? '💥' : gameState.stood?.includes(p.id) ? '✋' : '🎴'}</span>
+          </div>
+        `).join('')}
+      </div>
+    </div>
+  `;
+  
+  setupBlackjackListeners();
+  updateScoreBoard(players);
+}
+
+function calculateHandValue(cards) {
+  let value = 0;
+  let aces = 0;
+  
+  for (const card of cards) {
+    if (card.value === 'A') {
+      aces++;
+      value += 11;
+    } else if (['K', 'Q', 'J'].includes(card.value)) {
+      value += 10;
+    } else {
+      value += parseInt(card.value);
+    }
+  }
+  
+  while (value > 21 && aces > 0) {
+    value -= 10;
+    aces--;
+  }
+  
+  return value;
+}
+
+function setupBlackjackListeners() {
+  document.getElementById('bjHit')?.addEventListener('click', () => {
+    socket.emit('blackjackAction', { action: 'hit' });
+  });
+  
+  document.getElementById('bjStand')?.addEventListener('click', () => {
+    socket.emit('blackjackAction', { action: 'stand' });
+  });
+}
+
+function updateBlackjack(data) {
+  // New card dealt to player
+  if (data.newCard && data.playerId === state.playerId) {
+    const cardsEl = document.getElementById('playerCards');
+    if (cardsEl) {
+      cardsEl.innerHTML += renderCard(data.newCard);
+    }
+    const valueEl = document.getElementById('playerValue');
+    if (valueEl) valueEl.textContent = data.handValue;
+    
+    if (data.busted) {
+      const actionsEl = document.getElementById('bjActions');
+      if (actionsEl) actionsEl.innerHTML = '<div class="busted-message">💥 BUSTED!</div>';
+    }
+  }
+  
+  // Stood
+  if (data.stood && data.playerId === state.playerId) {
+    const actionsEl = document.getElementById('bjActions');
+    if (actionsEl) actionsEl.innerHTML = '<div class="stood-message">✋ Standing at ' + data.handValue + '</div>';
+  }
+  
+  // Dealer reveal
+  if (data.dealerReveal) {
+    const dealerCardsEl = document.getElementById('dealerCards');
+    if (dealerCardsEl) {
+      dealerCardsEl.innerHTML = data.dealerHand.map(card => renderCard(card)).join('');
+    }
+    const dealerValueEl = document.getElementById('dealerValue');
+    if (dealerValueEl) dealerValueEl.textContent = data.dealerValue;
+  }
+  
+  // Round results
+  if (data.results) {
+    const statusEl = document.getElementById('bjStatus');
+    const myResult = data.results[state.playerId];
+    if (statusEl && myResult) {
+      const resultClass = myResult.result === 'win' ? 'win' : myResult.result === 'lose' ? 'lose' : 'push';
+      statusEl.innerHTML = `
+        <div class="result-banner ${resultClass}">
+          ${myResult.result === 'win' ? '🎉 You Win!' : myResult.result === 'lose' ? '😢 You Lose' : '🤝 Push'}
+          <div class="result-reason">${myResult.reason}</div>
+        </div>
+      `;
+    }
+  }
+  
+  if (data.gameOver) {
+    showPlayAgainButton('blackjack');
+  }
+  
+  updateScoreBoard(data.players);
+}
+
+// ============================================
+// 24 GAME 🔢
+// ============================================
+
+function init24Game(gameState, players) {
+  console.log('🔢 Initializing 24 Game:', gameState);
+  state.gameState = gameState;
+  elements.gameTitle.textContent = '🔢 Make 24!';
+  
+  elements.gameContent.innerHTML = `
+    <div class="game24-container">
+      <div class="game24-info">
+        <div class="game24-round">Round ${gameState.round || 1}/${gameState.maxRounds || 8}</div>
+        <div class="game24-timer" id="game24Timer">⏱️ ${gameState.timePerRound || 60}s</div>
+      </div>
+      
+      <div class="game24-numbers" id="game24Numbers">
+        ${(gameState.numbers || [1,2,3,4]).map(num => `
+          <div class="number-card">${num}</div>
+        `).join('')}
+      </div>
+      
+      <div class="game24-goal">
+        <span>Use all 4 numbers with + - × ÷ to make</span>
+        <span class="goal-number">24</span>
+      </div>
+      
+      <div class="game24-input">
+        <input type="text" id="game24Input" placeholder="Enter expression like (1+2)*3+4" autocomplete="off">
+        <button class="btn btn-primary" id="game24Submit">
+          <span class="btn-icon">✓</span> Check
+        </button>
+      </div>
+      
+      <div class="game24-feedback" id="game24Feedback"></div>
+      
+      <div class="game24-hint">
+        💡 Use parentheses! Example: (8-4)×(3+3)=24
+      </div>
+      
+      <div class="game24-scores" id="game24Scores">
+        ${players.map(p => `
+          <div class="game24-player ${p.id === state.playerId ? 'me' : ''}">
+            <span class="player-name">${escapeHtml(p.name)}</span>
+            <span class="player-score">${gameState.scores?.[p.id] || 0} pts</span>
+          </div>
+        `).join('')}
+      </div>
+    </div>
+  `;
+  
+  setup24GameListeners();
+  updateScoreBoard(players);
+}
+
+function setup24GameListeners() {
+  const input = document.getElementById('game24Input');
+  const submitBtn = document.getElementById('game24Submit');
+  
+  if (input && submitBtn) {
+    const submitGuess = () => {
+      const expr = input.value.trim();
+      if (!expr) return;
+      socket.emit('game24Guess', { expression: expr });
+    };
+    
+    submitBtn.addEventListener('click', submitGuess);
+    input.addEventListener('keypress', (e) => {
+      if (e.key === 'Enter') submitGuess();
+    });
+    
+    input.focus();
+  }
+}
+
+function update24Game(data) {
+  const feedbackEl = document.getElementById('game24Feedback');
+  const timerEl = document.getElementById('game24Timer');
+  const numbersEl = document.getElementById('game24Numbers');
+  const input = document.getElementById('game24Input');
+  
+  // Timer update
+  if (data.timeLeft !== undefined && timerEl) {
+    timerEl.textContent = `⏱️ ${data.timeLeft}s`;
+    if (data.timeLeft <= 10) {
+      timerEl.classList.add('urgent');
+    }
+  }
+  
+  // Guess result
+  if (data.correct !== undefined) {
+    if (data.correct) {
+      if (feedbackEl) {
+        feedbackEl.innerHTML = `
+          <div class="feedback-correct">
+            ✅ Correct! ${data.expression} = 24 (+${data.points} pts)
+          </div>
+        `;
+      }
+      if (input) input.disabled = true;
+    } else {
+      if (feedbackEl) {
+        feedbackEl.innerHTML = `
+          <div class="feedback-wrong">
+            ❌ ${data.error}
+          </div>
+        `;
+      }
+      if (input) {
+        input.value = '';
+        input.focus();
+      }
+    }
+  }
+  
+  // Someone solved it
+  if (data.solved && data.solvedBy !== state.playerId) {
+    if (feedbackEl) {
+      feedbackEl.innerHTML = `
+        <div class="feedback-info">
+          ${escapeHtml(data.solverName)} solved it! ${data.expression} = 24
+        </div>
+      `;
+    }
+    if (input) input.disabled = true;
+  }
+  
+  // New round
+  if (data.newRound && data.numbers) {
+    if (numbersEl) {
+      numbersEl.innerHTML = data.numbers.map(num => `
+        <div class="number-card animate-pop">${num}</div>
+      `).join('');
+    }
+    if (feedbackEl) feedbackEl.innerHTML = '';
+    if (input) {
+      input.value = '';
+      input.disabled = false;
+      input.focus();
+    }
+    if (timerEl) {
+      timerEl.classList.remove('urgent');
+      timerEl.textContent = `⏱️ ${data.timePerRound || 60}s`;
+    }
+    
+    const roundEl = document.querySelector('.game24-round');
+    if (roundEl) roundEl.textContent = `Round ${data.round}/${data.maxRounds || 8}`;
+  }
+  
+  // Update scores
+  if (data.scores) {
+    for (const [playerId, score] of Object.entries(data.scores)) {
+      const scoreEl = document.querySelector(`.game24-player[data-id="${playerId}"] .player-score`);
+      if (scoreEl) scoreEl.textContent = `${score} pts`;
+    }
+  }
+  
+  // Time up
+  if (data.timeUp) {
+    if (feedbackEl) {
+      feedbackEl.innerHTML = `
+        <div class="feedback-timeout">
+          ⏰ Time's up! No one solved it.
+        </div>
+      `;
+    }
+    if (input) input.disabled = true;
+  }
+  
+  // Game over
+  if (data.gameOver) {
+    showPlayAgainButton('game24');
+    
+    if (data.results) {
+      const scoresEl = document.getElementById('game24Scores');
+      if (scoresEl) {
+        scoresEl.innerHTML = data.results.map((r, i) => `
+          <div class="game24-player ${r.playerId === state.playerId ? 'me' : ''} ${i === 0 ? 'winner' : ''}">
+            <span class="rank">${i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `${i+1}.`}</span>
+            <span class="player-name">${escapeHtml(r.playerName || 'Player')}</span>
+            <span class="player-score">${r.score} pts</span>
+          </div>
+        `).join('');
+      }
+    }
+  }
+  
+  updateScoreBoard(data.players);
+}
+
+// ============================================
 // SOCKET EVENT HANDLERS FOR NEW GAMES
 // ============================================
 
@@ -1232,7 +1748,7 @@ function setupNewGameSocketHandlers() {
   socket.on('wordChainInit', (data) => initWordChain(data.gameState, data.players));
   socket.on('wordChainUpdate', updateWordChain);
   
-  // Reaction Test
+  // Reaction Test / Word Scramble
   socket.on('reactionInit', (data) => initReactionTest(data.gameState, data.players));
   socket.on('reactionUpdate', updateReactionTest);
   
@@ -1243,6 +1759,18 @@ function setupNewGameSocketHandlers() {
   // Drawing Guess
   socket.on('drawingInit', (data) => initDrawingGuess(data.gameState, data.players));
   socket.on('drawingUpdate', updateDrawingGuess);
+  
+  // Poker
+  socket.on('pokerInit', (data) => initPoker(data.gameState, data.players));
+  socket.on('pokerUpdate', updatePoker);
+  
+  // Blackjack
+  socket.on('blackjackInit', (data) => initBlackjack(data.gameState, data.players));
+  socket.on('blackjackUpdate', updateBlackjack);
+  
+  // 24 Game
+  socket.on('game24Init', (data) => init24Game(data.gameState, data.players));
+  socket.on('game24Update', update24Game);
 }
 
 // Export for integration
@@ -1258,6 +1786,12 @@ if (typeof module !== 'undefined' && module.exports) {
     updateBattleship,
     initDrawingGuess,
     updateDrawingGuess,
+    initPoker,
+    updatePoker,
+    initBlackjack,
+    updateBlackjack,
+    init24Game,
+    update24Game,
     setupNewGameSocketHandlers
   };
 }
@@ -1275,4 +1809,10 @@ if (typeof window !== 'undefined') {
   window.updateBattleship = updateBattleship;
   window.initDrawingGuess = initDrawingGuess;
   window.updateDrawingGuess = updateDrawingGuess;
+  window.initPoker = initPoker;
+  window.updatePoker = updatePoker;
+  window.initBlackjack = initBlackjack;
+  window.updateBlackjack = updateBlackjack;
+  window.init24Game = init24Game;
+  window.update24Game = update24Game;
 }
