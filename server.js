@@ -6519,12 +6519,12 @@ function processConnect4MatchMove(state, playerId, moveData) {
   
   if (row === -1) return null; // Column full
   
-  const color = playerId === state.redPlayer ? 'red' : 'yellow';
-  state.board[row][column] = color;
+  const piece = playerId === state.redPlayer ? '🔴' : '🟡';
+  state.board[row][column] = piece;
   
   // Check for winner
   const winCondition = state.winCondition || 4;
-  if (checkConnect4Win(state.board, row, column, color, winCondition)) {
+  if (checkConnect4Win(state.board, row, column, piece, winCondition)) {
     state.winner = playerId;
     const winner = state.players.find(p => p.id === playerId);
     return { winner };
