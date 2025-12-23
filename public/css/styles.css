@@ -291,6 +291,17 @@ input[type="password"]::placeholder {
   background: rgba(255, 255, 255, 0.2);
 }
 
+.btn-small.btn-link {
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.2), rgba(37, 99, 235, 0.2));
+  border-color: rgba(59, 130, 246, 0.4);
+}
+
+.btn-small.btn-link:hover {
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.3), rgba(37, 99, 235, 0.3));
+  border-color: rgba(59, 130, 246, 0.6);
+  box-shadow: 0 0 10px rgba(59, 130, 246, 0.3);
+}
+
 .btn-icon {
   font-size: 1.3rem;
 }

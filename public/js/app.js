@@ -67,6 +67,7 @@ const elements = {
   // Lobby
   displayRoomCode: document.getElementById('displayRoomCode'),
   copyCodeBtn: document.getElementById('copyCodeBtn'),
+  copyLinkBtn: document.getElementById('copyLinkBtn'),
   playersList: document.getElementById('playersList'),
   chatMessages: document.getElementById('chatMessages'),
   chatInput: document.getElementById('chatInput'),
@@ -141,11 +142,56 @@ let drawingState = {
   isDrawing: false
 };
 
+// Pending room link from URL parameters
+let pendingRoomLink = null;
+
 // ============================================
 // INITIALIZATION
 // ============================================
 
+// Check for room link in URL parameters
+function checkUrlRoomLink() {
+  const urlParams = new URLSearchParams(window.location.search);
+  const roomCode = urlParams.get('room');
+  if (roomCode) {
+    pendingRoomLink = roomCode.toUpperCase();
+    // Clean the URL without reloading
+    const cleanUrl = window.location.origin + window.location.pathname;
+    window.history.replaceState({}, document.title, cleanUrl);
+    console.log('🔗 Room link detected:', pendingRoomLink);
+  }
+}
+
+// Join room from URL link
+function joinRoomFromLink() {
+  if (pendingRoomLink) {
+    const roomCode = pendingRoomLink;
+    pendingRoomLink = null; // Clear it
+    
+    // Fill in the room code field
+    if (elements.roomCode) {
+      elements.roomCode.value = roomCode;
+    }
+    
+    // Get player name
+    const playerName = elements.playerName?.value?.trim() || localStorage.getItem('playerName') || 'Outcast_' + Math.floor(Math.random() * 1000);
+    
+    // Set player name if not set
+    if (elements.playerName && !elements.playerName.value.trim()) {
+      elements.playerName.value = playerName;
+    }
+    
+    // Emit join room
+    setTimeout(() => {
+      socket.emit('joinRoom', { roomId: roomCode, playerName });
+      showNotification('🔗 Joining room from invite link...', 'info');
+    }, 300); // Small delay to ensure socket is ready
+  }
+}
+
 document.addEventListener('DOMContentLoaded', () => {
+  // Check for room link in URL first
+  checkUrlRoomLink();
   initParticles();
   setupEventListeners();
   setupAuthListeners();
@@ -211,6 +257,8 @@ document.addEventListener('DOMContentLoaded', () => {
     state.userStats = null;
     showScreen('mainMenu');
     updateUserInfoDisplay();
+    // Check for pending room link from URL
+    joinRoomFromLink();
   } else {
     // No saved session - show auth screen
     showScreen('authScreen');
@@ -358,6 +406,8 @@ function setupAuthListeners() {
     localStorage.setItem('guestSession', 'true');
     showScreen('mainMenu');
     updateUserInfoDisplay();
+    // Check for pending room link from URL
+    joinRoomFromLink();
   });
   
   // Logout
@@ -499,6 +549,9 @@ socket.on('authSuccess', (data) => {
   updateUserInfoDisplay();
   const welcomeMsg = data.gamesPlayed === 0 ? `Welcome to Nevermore, ${data.displayName}! ${data.title}` : `Welcome back, ${data.displayName}! ${data.title}`;
   showNotification(welcomeMsg, 'success');
+  
+  // Check for pending room link from URL
+  joinRoomFromLink();
 });
 
 socket.on('authError', (data) => {
@@ -783,6 +836,7 @@ function setupEventListeners() {
   
   // Lobby
   elements.copyCodeBtn.addEventListener('click', copyRoomCode);
+  elements.copyLinkBtn.addEventListener('click', copyRoomLink);
   elements.sendChatBtn.addEventListener('click', sendChat);
   elements.chatInput.addEventListener('keypress', (e) => {
     if (e.key === 'Enter') sendChat();
@@ -1418,10 +1472,27 @@ function leaveRoom() {
 function copyRoomCode() {
   navigator.clipboard.writeText(state.roomId).then(() => {
     elements.copyCodeBtn.textContent = '✓';
+    showNotification('📋 Room code copied!', 'success');
     setTimeout(() => {
       elements.copyCodeBtn.textContent = '📋';
     }, 2000);
   });
+}
+
+function copyRoomLink() {
+  const roomLink = generateRoomLink(state.roomId);
+  navigator.clipboard.writeText(roomLink).then(() => {
+    elements.copyLinkBtn.textContent = '✓';
+    showNotification('🔗 Invite link copied! Share it with friends!', 'success');
+    setTimeout(() => {
+      elements.copyLinkBtn.textContent = '🔗';
+    }, 2000);
+  });
+}
+
+function generateRoomLink(roomId) {
+  const baseUrl = window.location.origin + window.location.pathname;
+  return `${baseUrl}?room=${roomId}`;
 }
 
 function updatePlayersList(players) {
