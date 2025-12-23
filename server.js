@@ -1,5 +1,8 @@
 const express = require('express');
 const http = require('http');
+
+// Import node-fetch for Node.js < 18 compatibility
+const fetch = globalThis.fetch || require('node-fetch');
 const { Server } = require('socket.io');
 const { v4: uuidv4 } = require('uuid');
 const path = require('path');
@@ -7,16 +10,16 @@ const fs = require('fs');
 const crypto = require('crypto');
 const { MongoClient } = require('mongodb');
 
+// Import new games module
+const newGames = require('./new-games-server');
+
 // ============================================
 // AI API CONFIGURATION FOR WEDNESDAY AI CHATBOT
-// Supports both OpenAI and Groq (free alternative)
 // ============================================
-const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+// Groq API (FREE, FAST, RECOMMENDED) - Get key at https://console.groq.com/keys
 const GROQ_API_KEY = process.env.GROQ_API_KEY;
-
-// Determine which AI service to use (prefer Groq as it's free)
-const AI_SERVICE = GROQ_API_KEY ? 'groq' : (OPENAI_API_KEY ? 'openai' : 'fallback');
-const AI_API_KEY = GROQ_API_KEY || OPENAI_API_KEY;
+// OpenAI API (Paid fallback)
+const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const WEDNESDAY_SYSTEM_PROMPT = `You are Wednesday Addams from the Netflix series "Wednesday". You are a dark, sardonic, and highly intelligent teenage girl at Nevermore Academy. 
 
 Character traits:
@@ -88,7 +91,13 @@ const io = new Server(server, {
   pingInterval: 25000
 });
 
-app.use(express.static(path.join(__dirname)));
+// Serve static files from public folder
+app.use(express.static(path.join(__dirname, 'public')));
+
+// Serve index.html for the root route
+app.get('/', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
 
 // Health check endpoint for Railway
 app.get('/health', (req, res) => {
@@ -1522,6 +1531,36 @@ io.on('connection', (socket) => {
     });
     
     console.log(`👤 ${playerName}${username ? ` (@${username})` : ''} joined room ${roomId}${storedTrophies > 0 ? ` (restored ${storedTrophies} trophies)` : ''}`);
+    
+    // Wednesday AI greeting for new players (only if room has 1-3 players for a more personal feel)
+    if (room.players.size <= 3) {
+      setTimeout(async () => {
+        try {
+          const greetingPrompts = [
+            `A new player named "${playerName}" just joined the room. Give them a brief, sardonic Wednesday Addams-style welcome.`,
+            `Welcome the player "${playerName}" to the game room in your characteristic dark, witty Wednesday Addams style. Keep it brief.`,
+            `"${playerName}" has arrived. Greet them as Wednesday Addams would - darkly humorous and slightly condescending.`
+          ];
+          const prompt = greetingPrompts[Math.floor(Math.random() * greetingPrompts.length)];
+          const aiResponse = await getWednesdayResponse(prompt, false, normalizedRoomId);
+          
+          const aiMsg = {
+            id: uuidv4(),
+            playerId: 'WEDNESDAY_AI',
+            playerName: '🖤 Wednesday',
+            playerColor: '#9333ea',
+            message: aiResponse,
+            timestamp: Date.now(),
+            isAI: true,
+            isGreeting: true
+          };
+          room.chat.push(aiMsg);
+          io.to(normalizedRoomId).emit('chatMessage', aiMsg);
+        } catch (error) {
+          console.error('Error sending Wednesday greeting:', error);
+        }
+      }, 2000 + Math.random() * 2000); // 2-4 second delay
+    }
   });
 
   // Chat message with reply support and @Wednesday AI
@@ -1607,25 +1646,47 @@ io.on('connection', (socket) => {
       aiChatRateLimit.set(roomId, rateData);
     }
     
-    // Try AI API if configured (Groq or OpenAI)
-    if (AI_API_KEY) {
+    // Try Groq API first (FREE and FAST!)
+    console.log(`💬 Wednesday AI request: "${userMessage.substring(0, 50)}..."`);
+    console.log(`   GROQ_API_KEY available: ${!!GROQ_API_KEY}`);
+    
+    if (GROQ_API_KEY) {
       try {
-        const aiResponse = await callAI(userMessage, isReply);
+        console.log('   ➡️ Attempting Groq API call...');
+        const aiResponse = await callGroqAPI(userMessage, isReply);
         if (aiResponse) {
+          console.log('✅ Wednesday response from Groq API:', aiResponse.substring(0, 50) + '...');
           return aiResponse;
         }
       } catch (error) {
-        console.error(`${AI_SERVICE.toUpperCase()} API error:`, error.message);
+        console.error('❌ Groq API error:', error.message);
+        // Fall through to OpenAI
+      }
+    } else {
+      console.log('   ⚠️ GROQ_API_KEY not set, skipping Groq');
+    }
+    
+    // Try OpenAI API as fallback
+    if (OPENAI_API_KEY) {
+      try {
+        const aiResponse = await callOpenAI(userMessage, isReply);
+        if (aiResponse) {
+          console.log('✅ Wednesday response from OpenAI API');
+          return aiResponse;
+        }
+      } catch (error) {
+        console.error('OpenAI API error:', error.message);
         // Fall through to static responses
       }
     }
     
-    // Fallback to static responses
+    // Fallback to enhanced static responses
+    console.log('📝 Wednesday response from static fallback');
     return getFallbackResponse(msg, isReply);
   }
   
-  // Call AI API for Wednesday responses (supports OpenAI and Groq)
-  async function callAI(userMessage, isReply) {
+  // Call Groq API for Wednesday responses (FREE, FAST, RECOMMENDED!)
+  async function callGroqAPI(userMessage, isReply) {
     const messages = [
       { role: 'system', content: WEDNESDAY_SYSTEM_PROMPT },
       { 
@@ -1636,39 +1697,60 @@ io.on('connection', (socket) => {
       }
     ];
     
-    // Determine API endpoint and model based on service
-    const apiConfig = AI_SERVICE === 'groq' 
-      ? {
-          url: 'https://api.groq.com/openai/v1/chat/completions',
-          model: 'llama-3.3-70b-versatile', // Free and powerful
-          apiKey: GROQ_API_KEY
-        }
-      : {
-          url: 'https://api.openai.com/v1/chat/completions',
-          model: 'gpt-4o-mini', // Cost-effective
-          apiKey: OPENAI_API_KEY
-        };
-    
-    const response = await fetch(apiConfig.url, {
+    const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiConfig.apiKey}`
+        'Authorization': `Bearer ${GROQ_API_KEY}`
       },
       body: JSON.stringify({
-        model: apiConfig.model,
+        model: 'llama-3.3-70b-versatile', // FREE 70B model - sounds very human!
         messages: messages,
         max_tokens: 150,
         temperature: 0.9, // More creative responses
-        ...(AI_SERVICE === 'openai' && {
-          presence_penalty: 0.6,
-          frequency_penalty: 0.3
-        })
+        top_p: 0.9
       })
     });
     
     if (!response.ok) {
-      throw new Error(`${AI_SERVICE.toUpperCase()} API returned ${response.status}`);
+      const errorText = await response.text();
+      throw new Error(`Groq API returned ${response.status}: ${errorText}`);
+    }
+    
+    const data = await response.json();
+    return data.choices[0]?.message?.content?.trim() || null;
+  }
+  
+  // Call OpenAI API for Wednesday responses (Paid fallback)
+  async function callOpenAI(userMessage, isReply) {
+    const messages = [
+      { role: 'system', content: WEDNESDAY_SYSTEM_PROMPT },
+      { 
+        role: 'user', 
+        content: isReply 
+          ? `[Continuing conversation] ${userMessage}` 
+          : userMessage.replace(/@wednesday/gi, '').trim() || userMessage
+      }
+    ];
+    
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${OPENAI_API_KEY}`
+      },
+      body: JSON.stringify({
+        model: 'gpt-4o-mini', // Cost-effective and fast
+        messages: messages,
+        max_tokens: 150,
+        temperature: 0.9, // More creative responses
+        presence_penalty: 0.6,
+        frequency_penalty: 0.3
+      })
+    });
+    
+    if (!response.ok) {
+      throw new Error(`OpenAI API returned ${response.status}`);
     }
     
     const data = await response.json();
@@ -1839,7 +1921,8 @@ io.on('connection', (socket) => {
   });
   
   // Challenge Wednesday AI (from within a regular room)
-  socket.on('challengeWednesday', ({ gameType, difficulty, options = {} }) => {
+  // REMOVED: Challenge Wednesday from rooms - use dedicated AI mode instead
+  /* socket.on('challengeWednesday', ({ gameType, difficulty, options = {} }) => {
     const roomId = players.get(socket.id);
     const room = rooms.get(roomId);
     if (!room) return;
@@ -1909,7 +1992,7 @@ io.on('connection', (socket) => {
         makeAIMatchMove(room, matchId, gameType);
       }, 1000);
     }
-  });
+  }); */
   
   // Initialize AI match game state
   function initializeAIMatchGame(gameType, matchPlayers, difficulty, options) {
@@ -1918,9 +2001,8 @@ io.on('connection', (socket) => {
     switch (gameType) {
       case 'tictactoe': {
         const symbols = new Map();
-        // Use themed emojis instead of X/O
-        symbols.set(playerId, '🔴');
-        symbols.set(AI_PLAYER_ID, '💀');
+        symbols.set(playerId, '🔴'); // Red circle for player
+        symbols.set(AI_PLAYER_ID, '💀'); // Skull for Wednesday AI
         return {
           board: Array(9).fill(null),
           currentPlayer: playerId, // Player goes first
@@ -1973,7 +2055,7 @@ io.on('connection', (socket) => {
     switch (gameType) {
       case 'tictactoe': {
         const aiSymbol = state.playerSymbols[AI_PLAYER_ID];
-        const playerSymbol = aiSymbol === 'X' ? 'O' : 'X';
+        const playerSymbol = state.playerSymbols[playerId];
         const move = getAITTTMove(state.board, aiSymbol, playerSymbol, difficulty);
         
         if (move !== null) {
@@ -2621,6 +2703,12 @@ io.on('connection', (socket) => {
       if (winningGame === 'molewhack') {
         startMoleWhackRound(room, roomId);
       }
+      if (winningGame === 'reaction') {
+        setTimeout(() => startReactionRound(room, roomId), 1000);
+      }
+      if (winningGame === 'game24') {
+        setTimeout(() => start24Timer(room, roomId), 1000);
+      }
     }
   });
 
@@ -2659,6 +2747,12 @@ io.on('connection', (socket) => {
     
     if (winningGame === 'molewhack') {
       startMoleWhackRound(room, roomId);
+    }
+    if (winningGame === 'reaction') {
+      setTimeout(() => startReactionRound(room, roomId), 1000);
+    }
+    if (winningGame === 'game24') {
+      setTimeout(() => start24Timer(room, roomId), 1000);
     }
   });
 
@@ -2706,6 +2800,16 @@ io.on('connection', (socket) => {
     // Start mole whack game
     if (gameType === 'molewhack') {
       startMoleWhackRound(room, roomId);
+    }
+    
+    // Start reaction test game
+    if (gameType === 'reaction') {
+      setTimeout(() => startReactionRound(room, roomId), 1000);
+    }
+    
+    // Start 24 game timer
+    if (gameType === 'game24') {
+      setTimeout(() => start24Timer(room, roomId), 1000);
     }
   });
 
@@ -2970,7 +3074,8 @@ io.on('connection', (socket) => {
       // Draw
       io.to(roomId).emit('tttUpdate', {
         board: state.board,
-        draw: true
+        draw: true,
+        players: room.getPlayerList()
       });
     } else {
       // Next player
@@ -2980,7 +3085,8 @@ io.on('connection', (socket) => {
 
       io.to(roomId).emit('tttUpdate', {
         board: state.board,
-        currentPlayer: state.currentPlayer
+        currentPlayer: state.currentPlayer,
+        players: room.getPlayerList()
       });
     }
   });
@@ -3457,7 +3563,11 @@ io.on('connection', (socket) => {
     // Check draw
     const isFull = state.board[0].every(cell => cell !== null);
     if (isFull) {
-      io.to(roomId).emit('connect4Update', { board: state.board, draw: true });
+      io.to(roomId).emit('connect4Update', { 
+        board: state.board, 
+        draw: true, 
+        players: room.getPlayerList() 
+      });
       sendAIGameEndMessage(roomId, 'draw');
       return;
     }
@@ -3466,7 +3576,8 @@ io.on('connection', (socket) => {
     state.currentPlayer = AI_PLAYER_ID;
     io.to(roomId).emit('connect4Update', {
       board: state.board,
-      currentPlayer: AI_PLAYER_ID
+      currentPlayer: AI_PLAYER_ID,
+      players: room.getPlayerList()
     });
     
     // AI move
@@ -3504,7 +3615,11 @@ io.on('connection', (socket) => {
           
           const aiIsFull = state.board[0].every(cell => cell !== null);
           if (aiIsFull) {
-            io.to(roomId).emit('connect4Update', { board: state.board, draw: true });
+            io.to(roomId).emit('connect4Update', { 
+        board: state.board, 
+        draw: true, 
+        players: room.getPlayerList() 
+      });
             sendAIGameEndMessage(roomId, 'draw');
             return;
           }
@@ -3512,7 +3627,8 @@ io.on('connection', (socket) => {
           state.currentPlayer = socket.id;
           io.to(roomId).emit('connect4Update', {
             board: state.board,
-            currentPlayer: socket.id
+            currentPlayer: socket.id,
+            players: room.getPlayerList()
           });
         }
       }
@@ -3619,6 +3735,10 @@ io.on('connection', (socket) => {
     // Start mole whack game
     if (gameType === 'molewhack') {
       startMoleWhackRound(room, roomId);
+    }
+    // Start reaction test game
+    if (gameType === 'reaction') {
+      setTimeout(() => startReactionRound(room, roomId), 1000);
     }
   });
 
@@ -3976,6 +4096,564 @@ io.on('connection', (socket) => {
     }, 1000);
   });
 
+  // ============================================
+  // HANGMAN GAME HANDLERS
+  // ============================================
+  socket.on('hangmanGuess', (letter) => {
+    const roomId = players.get(socket.id);
+    const room = rooms.get(roomId);
+    if (!room || room.currentGame !== 'hangman') return;
+
+    const state = room.gameState;
+    if (state.status !== 'playing') return;
+    
+    // Check if it's this player's turn (if turn-based mode)
+    if (state.currentGuesser && state.currentGuesser !== socket.id) {
+      socket.emit('hangmanUpdate', { error: 'Not your turn!' });
+      return;
+    }
+
+    const result = newGames.processHangmanGuess(state, letter);
+    if (!result.valid) {
+      socket.emit('hangmanUpdate', { error: 'Letter already guessed!' });
+      return;
+    }
+
+    const maskedWord = newGames.getMaskedWord(state.word, state.guessedLetters);
+    
+    // Rotate to next player if game is still playing
+    if (state.status === 'playing' && state.playerOrder && state.playerOrder.length > 1) {
+      const currentIndex = state.playerOrder.indexOf(state.currentGuesser);
+      const nextIndex = (currentIndex + 1) % state.playerOrder.length;
+      state.currentGuesser = state.playerOrder[nextIndex];
+    }
+    
+    io.to(roomId).emit('hangmanUpdate', {
+      maskedWord,
+      guessedLetters: state.guessedLetters,
+      wrongGuesses: state.wrongGuesses,
+      maxWrongs: state.maxWrongs,
+      status: state.status,
+      word: state.status !== 'playing' ? state.word : null,
+      winnerName: result.won ? room.players.get(socket.id)?.name : null,
+      currentGuesser: state.currentGuesser,
+      players: room.getPlayerList()
+    });
+
+    if (state.status !== 'playing') {
+      if (result.won) {
+        room.players.get(socket.id).sessionWins += 1;
+      }
+      setTimeout(() => endGame(room, roomId), 2000);
+    }
+  });
+
+  // ============================================
+  // WORD CHAIN GAME HANDLERS
+  // ============================================
+  socket.on('wordChainWord', (word) => {
+    const roomId = players.get(socket.id);
+    const room = rooms.get(roomId);
+    if (!room || room.currentGame !== 'wordchain') return;
+
+    const state = room.gameState;
+    if (state.playerOrder[state.currentPlayerIndex] !== socket.id) return;
+
+    const result = newGames.processWordChainTurn(state, socket.id, word);
+    
+    if (!result.success) {
+      socket.emit('wordChainUpdate', { error: result.reason });
+      return;
+    }
+
+    const nextPlayer = room.players.get(result.nextPlayer);
+    io.to(roomId).emit('wordChainUpdate', {
+      currentWord: state.currentWord,
+      usedWords: state.usedWords,
+      nextPlayer: result.nextPlayer,
+      nextPlayerName: nextPlayer?.name,
+      points: result.points,
+      scorerId: socket.id,
+      scorerName: room.players.get(socket.id)?.name,
+      gameOver: result.gameOver,
+      players: room.getPlayerList()
+    });
+
+    if (result.gameOver) {
+      // Find winner
+      let maxScore = 0;
+      let winnerId = null;
+      state.scores.forEach((score, playerId) => {
+        if (score > maxScore) {
+          maxScore = score;
+          winnerId = playerId;
+        }
+      });
+      if (winnerId) {
+        room.players.get(winnerId).sessionWins += 1;
+      }
+      setTimeout(() => endGame(room, roomId), 2000);
+    }
+  });
+
+  // ============================================
+  // SPEED MATH DUEL GAME HANDLERS
+  // ============================================
+  // Speed Math - Answer submission
+  socket.on('reactionClick', ({ answer }) => {
+    const roomId = players.get(socket.id);
+    const room = rooms.get(roomId);
+    if (!room || room.currentGame !== 'reaction') return;
+
+    const state = room.gameState;
+    const result = newGames.processReactionClick(state, socket.id, answer);
+
+    if (result.error) {
+      socket.emit('reactionUpdate', { error: result.error });
+      return;
+    }
+
+    const players_list = Array.from(room.players.values());
+    const playerName = players_list.find(p => p.id === socket.id)?.name || 'Player';
+
+    // Send result to the player who answered
+    socket.emit('reactionUpdate', {
+      correct: result.correct,
+      isFirst: result.isFirst,
+      points: result.points,
+      responseTime: result.responseTime,
+      correctAnswer: result.correctAnswer,
+      penalty: result.penalty,
+      scores: state.scores
+    });
+
+    // Notify other players that someone answered
+    socket.to(roomId).emit('reactionUpdate', {
+      playerAnswered: socket.id,
+      playerName,
+      wasCorrect: result.correct,
+      wasFirst: result.isFirst,
+      scores: state.scores
+    });
+
+    // Check if all players answered or game over
+    if (result.allAnswered) {
+      // Short delay then next round
+      setTimeout(() => {
+        if (result.gameOver) {
+          const results = newGames.getReactionResults(state);
+          results.forEach(r => {
+            const player = players_list.find(p => p.id === r.playerId);
+            r.playerName = player?.name || 'Player';
+          });
+          
+          io.to(roomId).emit('reactionUpdate', {
+            gameOver: true,
+            status: 'finished',
+            results,
+            scores: state.scores
+          });
+        } else {
+          // Start next round
+          startReactionRound(room, roomId);
+        }
+      }, 1500);
+    }
+  });
+
+  // AI Word Scramble Handler
+  socket.on('aiReactionClick', ({ answer }) => {
+    const roomId = players.get(socket.id);
+    const room = rooms.get(roomId);
+    if (!room || room.currentGame !== 'reaction') return;
+
+    const state = room.gameState;
+    const result = newGames.processReactionClick(state, socket.id, answer);
+
+    if (result.error) {
+      socket.emit('reactionUpdate', { error: result.error });
+      return;
+    }
+
+    // Send result to the player
+    socket.emit('reactionUpdate', {
+      correct: result.correct,
+      isFirst: result.isFirst,
+      points: result.points,
+      responseTime: result.responseTime,
+      word: result.word,
+      guess: result.guess,
+      hint: result.hint,
+      scores: state.scores
+    });
+
+    // Check if game over or need next round
+    if (result.allAnswered || result.correct) {
+      setTimeout(() => {
+        if (state.status === 'finished' || result.gameOver) {
+          const results = newGames.getReactionResults(state);
+          results.forEach(r => {
+            r.playerName = r.playerId === 'AI_PLAYER' ? 'Wednesday AI' : 'Player';
+          });
+          
+          socket.emit('reactionUpdate', {
+            gameOver: true,
+            status: 'finished',
+            results,
+            scores: state.scores
+          });
+        } else {
+          // AI makes a move with slight delay
+          setTimeout(() => {
+            if (room.currentGame === 'reaction' && state.status === 'active') {
+              // AI guesses with 60% accuracy after some delay
+              if (Math.random() < 0.6) {
+                const aiResult = newGames.processReactionClick(state, 'AI_PLAYER', state.currentWord);
+                
+                socket.emit('reactionUpdate', {
+                  playerAnswered: 'AI_PLAYER',
+                  playerName: 'Wednesday AI',
+                  wasCorrect: aiResult.correct,
+                  wasFirst: aiResult.isFirst,
+                  scores: state.scores
+                });
+              }
+            }
+          }, 3000 + Math.random() * 5000);
+          
+          // Start next round
+          startReactionRound(room, roomId);
+        }
+      }, 2000);
+    }
+  });
+
+  // ============================================
+  // BATTLESHIP GAME HANDLERS
+  // ============================================
+  socket.on('battleshipPlaceShip', ({ shipIndex, row, col, horizontal }) => {
+    const roomId = players.get(socket.id);
+    const room = rooms.get(roomId);
+    if (!room || room.currentGame !== 'battleship') return;
+
+    const state = room.gameState;
+    if (state.phase !== 'placement') return;
+
+    const result = newGames.placeShip(state, socket.id, shipIndex, row, col, horizontal);
+    if (!result.success) {
+      socket.emit('battleshipUpdate', { error: result.reason });
+      return;
+    }
+
+    const allPlaced = state.ships[socket.id].length === newGames.BATTLESHIP_SHIPS.length;
+    socket.emit('battleshipUpdate', {
+      shipPlaced: true,
+      shipIndex,
+      positions: result.positions,
+      allPlaced
+    });
+  });
+
+  socket.on('battleshipReady', () => {
+    const roomId = players.get(socket.id);
+    const room = rooms.get(roomId);
+    if (!room || room.currentGame !== 'battleship') return;
+
+    const state = room.gameState;
+    state.placementReady[socket.id] = true;
+
+    // Check if both players are ready
+    const allReady = Object.values(state.placementReady).every(r => r);
+    if (allReady) {
+      state.phase = 'playing';
+      io.to(roomId).emit('battleshipUpdate', {
+        phase: 'playing',
+        currentPlayer: state.currentPlayer,
+        players: room.getPlayerList()
+      });
+    }
+  });
+
+  socket.on('battleshipFire', ({ row, col }) => {
+    const roomId = players.get(socket.id);
+    const room = rooms.get(roomId);
+    if (!room || room.currentGame !== 'battleship') return;
+
+    const state = room.gameState;
+    if (state.phase !== 'playing' || state.currentPlayer !== socket.id) return;
+
+    const result = newGames.fireShot(state, socket.id, row, col);
+    if (!result.success) {
+      socket.emit('battleshipUpdate', { error: result.reason });
+      return;
+    }
+
+    io.to(roomId).emit('battleshipUpdate', {
+      shotResult: { row, col, hit: result.hit, sunk: result.sunk },
+      shooter: socket.id,
+      currentPlayer: state.currentPlayer,
+      gameOver: result.gameOver,
+      winner: result.winner,
+      players: room.getPlayerList()
+    });
+
+    if (result.gameOver) {
+      room.players.get(result.winner).sessionWins += 1;
+      setTimeout(() => endGame(room, roomId), 2000);
+    }
+  });
+
+  // ============================================
+  // POKER GAME HANDLERS
+  // ============================================
+  socket.on('pokerAction', ({ action, amount }) => {
+    const roomId = players.get(socket.id);
+    const room = rooms.get(roomId);
+    if (!room || room.currentGame !== 'poker') return;
+
+    const state = room.gameState;
+    const playerId = socket.id;
+
+    if (action === 'fold') {
+      state.folded.push(playerId);
+    } else if (action === 'call') {
+      const currentBet = Math.max(...Object.values(state.bets));
+      const callAmount = currentBet - (state.bets[playerId] || 0);
+      state.bets[playerId] = currentBet;
+      state.chips[playerId] -= callAmount;
+      state.pot += callAmount;
+    } else if (action === 'raise') {
+      const raiseAmount = amount || 50;
+      const currentBet = Math.max(...Object.values(state.bets));
+      const totalBet = currentBet + raiseAmount;
+      const addedAmount = totalBet - (state.bets[playerId] || 0);
+      state.bets[playerId] = totalBet;
+      state.chips[playerId] -= addedAmount;
+      state.pot += addedAmount;
+    }
+
+    // Check if all non-folded players have matched the bet
+    const activePlayers = state.playerOrder.filter(id => !state.folded.includes(id));
+    const maxBet = Math.max(...Object.values(state.bets));
+    const allMatched = activePlayers.every(id => state.bets[id] === maxBet);
+
+    if (allMatched || activePlayers.length === 1) {
+      // Advance to next phase
+      if (state.phase === 'river' || activePlayers.length === 1) {
+        // Showdown
+        const result = newGames.determinePokerWinner(state);
+        state.chips[result.winner] += state.pot;
+        state.scores[result.winner] = (state.scores[result.winner] || 0) + 1;
+        
+        const winnerPlayer = room.players.get(result.winner);
+        
+        io.to(roomId).emit('pokerUpdate', {
+          phase: 'showdown',
+          showdown: true,
+          winner: result.winner,
+          winnerName: winnerPlayer?.name || 'Player',
+          handName: result.handName,
+          pot: state.pot,
+          chips: state.chips,
+          communityCards: state.communityCards,
+          hands: state.hands,
+          players: room.getPlayerList()
+        });
+
+        // Start new round after delay
+        setTimeout(() => {
+          state.round++;
+          if (state.round > state.maxRounds) {
+            io.to(roomId).emit('pokerUpdate', { gameOver: true, players: room.getPlayerList() });
+            setTimeout(() => endGame(room, roomId), 2000);
+          } else {
+            // Reset for new round
+            const newState = newGames.createPokerState(room.players);
+            newState.round = state.round;
+            newState.scores = state.scores;
+            newState.chips = state.chips;
+            room.gameState = newState;
+            
+            io.to(roomId).emit('pokerInit', {
+              gameState: newState,
+              players: room.getPlayerList()
+            });
+          }
+        }, 4000);
+      } else {
+        newGames.advancePokerPhase(state);
+        io.to(roomId).emit('pokerUpdate', {
+          phase: state.phase,
+          communityCards: state.communityCards,
+          pot: state.pot,
+          bets: state.bets,
+          chips: state.chips,
+          players: room.getPlayerList()
+        });
+      }
+    } else {
+      io.to(roomId).emit('pokerUpdate', {
+        bets: state.bets,
+        chips: state.chips,
+        pot: state.pot,
+        folded: state.folded,
+        players: room.getPlayerList()
+      });
+    }
+  });
+
+  // ============================================
+  // BLACKJACK GAME HANDLERS
+  // ============================================
+  socket.on('blackjackAction', ({ action }) => {
+    const roomId = players.get(socket.id);
+    const room = rooms.get(roomId);
+    if (!room || room.currentGame !== 'blackjack') return;
+
+    const state = room.gameState;
+    const playerId = socket.id;
+
+    if (action === 'hit') {
+      const result = newGames.blackjackHit(state, playerId);
+      if (result.error) {
+        socket.emit('blackjackUpdate', { error: result.error });
+        return;
+      }
+
+      socket.emit('blackjackUpdate', {
+        newCard: result.card,
+        handValue: result.value,
+        busted: result.busted,
+        playerId
+      });
+
+      if (result.busted) {
+        socket.to(roomId).emit('blackjackUpdate', {
+          playerBusted: playerId,
+          players: room.getPlayerList()
+        });
+      }
+    } else if (action === 'stand') {
+      newGames.blackjackStand(state, playerId);
+      const handValue = newGames.getBlackjackValue(state.hands[playerId]);
+      
+      socket.emit('blackjackUpdate', { stood: true, handValue, playerId });
+      socket.to(roomId).emit('blackjackUpdate', {
+        playerStood: playerId,
+        players: room.getPlayerList()
+      });
+    }
+
+    // Check if all players are done
+    const allDone = state.playerOrder.every(id => 
+      state.stood.includes(id) || state.busted.includes(id)
+    );
+
+    if (allDone) {
+      // Dealer plays
+      const dealerValue = newGames.playDealerHand(state);
+      const results = newGames.determineBlackjackResults(state);
+
+      io.to(roomId).emit('blackjackUpdate', {
+        dealerReveal: true,
+        dealerHand: state.dealerHand,
+        dealerValue,
+        results,
+        scores: state.scores,
+        players: room.getPlayerList()
+      });
+
+      // Start new round
+      setTimeout(() => {
+        state.round++;
+        if (state.round > state.maxRounds) {
+          io.to(roomId).emit('blackjackUpdate', { gameOver: true, players: room.getPlayerList() });
+          setTimeout(() => endGame(room, roomId), 2000);
+        } else {
+          const newState = newGames.createBlackjackState(room.players);
+          newState.round = state.round;
+          newState.scores = state.scores;
+          room.gameState = newState;
+          
+          io.to(roomId).emit('blackjackInit', {
+            gameState: newState,
+            players: room.getPlayerList()
+          });
+        }
+      }, 4000);
+    }
+  });
+
+  // ============================================
+  // 24 GAME HANDLERS
+  // ============================================
+  socket.on('game24Guess', ({ expression }) => {
+    const roomId = players.get(socket.id);
+    const room = rooms.get(roomId);
+    if (!room || room.currentGame !== 'game24') return;
+
+    const state = room.gameState;
+    const result = newGames.process24Guess(state, socket.id, expression);
+
+    if (result.error) {
+      socket.emit('game24Update', { error: result.error });
+      return;
+    }
+
+    if (result.correct) {
+      const solverName = room.players.get(socket.id)?.name || 'Player';
+      
+      io.to(roomId).emit('game24Update', {
+        solved: true,
+        solvedBy: socket.id,
+        solverName,
+        expression,
+        correct: true,
+        points: result.points,
+        scores: state.scores,
+        players: room.getPlayerList()
+      });
+
+      // Start new round
+      setTimeout(() => {
+        newGames.start24NewRound(state);
+        
+        if (state.status === 'finished') {
+          const results = state.playerOrder.map(id => ({
+            playerId: id,
+            playerName: room.players.get(id)?.name || 'Player',
+            score: state.scores[id] || 0
+          })).sort((a, b) => b.score - a.score);
+          
+          io.to(roomId).emit('game24Update', {
+            gameOver: true,
+            results,
+            players: room.getPlayerList()
+          });
+          setTimeout(() => endGame(room, roomId), 2000);
+        } else {
+          io.to(roomId).emit('game24Update', {
+            newRound: true,
+            numbers: state.numbers,
+            round: state.round,
+            maxRounds: state.maxRounds,
+            timePerRound: state.timePerRound,
+            players: room.getPlayerList()
+          });
+          
+          // Start timer
+          start24Timer(room, roomId);
+        }
+      }, 3000);
+    } else {
+      socket.emit('game24Update', {
+        correct: false,
+        error: result.error,
+        expression
+      });
+    }
+  });
+
   // Player color change
   socket.on('changePlayerColor', ({ targetPlayerId, color }) => {
     const roomId = players.get(socket.id);
@@ -4284,6 +4962,28 @@ function initializeGame(gameType, room, options = {}) {
         startPositions: { 0: 0, 1: 13, 2: 26, 3: 39 }
       };
 
+    case 'hangman':
+      return newGames.createHangmanState(null, null, room.players);
+
+    case 'wordchain':
+      return newGames.createWordChainState(null, room.players);
+
+    case 'reaction':
+      return newGames.createReactionTestState(null, room.players);
+
+    case 'battleship':
+      const bsPlayers = playerIds.slice(0, 2);
+      return newGames.createBattleshipState(bsPlayers[0], bsPlayers[1]);
+
+    case 'poker':
+      return newGames.createPokerState(room.players);
+
+    case 'blackjack':
+      return newGames.createBlackjackState(room.players);
+
+    case 'game24':
+      return newGames.create24GameState(room.players);
+
     default:
       return {};
   }
@@ -4442,11 +5142,16 @@ function serializeGameState(state, gameType) {
 // Schedule AI move with thinking delay
 function scheduleAIMove(room, roomId, gameType) {
   const aiState = aiRooms.get(roomId);
-  if (!aiState) return;
+  if (!aiState) {
+    console.log('❌ AI State not found for room:', roomId);
+    return;
+  }
   
   const thinkingTime = 800 + Math.random() * 1200;
+  console.log(`🤖 Scheduling AI move for ${gameType} in ${thinkingTime}ms`);
   
   aiState.thinkingTimeout = setTimeout(() => {
+    console.log(`🤖 Executing AI move for ${gameType}`);
     switch (gameType) {
       case 'tictactoe':
         makeAITTTMove(room, roomId);
@@ -4563,13 +5268,21 @@ function makeAIChessMove(room, roomId) {
 
 // AI Connect 4 move helper
 function makeAIConnect4Move(room, roomId) {
+  console.log('🤖 makeAIConnect4Move called for room:', roomId);
   const state = room.gameState;
+  if (!state) {
+    console.log('❌ No game state found');
+    return;
+  }
   const playerId = Array.from(room.players.keys()).find(id => id !== AI_PLAYER_ID);
+  console.log('🤖 Player ID:', playerId, 'AI is player1:', state.player1 === AI_PLAYER_ID);
   
   const aiPiece = state.player1 === AI_PLAYER_ID ? '🔴' : '🟡';
   const playerPiece = state.player1 === playerId ? '🔴' : '🟡';
+  console.log('🤖 AI piece:', aiPiece, 'Player piece:', playerPiece);
   
   const aiCol = getAIConnect4Move(state.board, aiPiece, playerPiece, state.winCondition, room.aiDifficulty);
+  console.log('🤖 AI chose column:', aiCol);
   
   if (aiCol !== -1) {
     let aiRow = -1;
@@ -4601,7 +5314,11 @@ function makeAIConnect4Move(room, roomId) {
       
       const isFull = state.board[0].every(cell => cell !== null);
       if (isFull) {
-        io.to(roomId).emit('connect4Update', { board: state.board, draw: true });
+        io.to(roomId).emit('connect4Update', { 
+        board: state.board, 
+        draw: true, 
+        players: room.getPlayerList() 
+      });
         sendAIGameEndMessage(roomId, 'draw');
         return;
       }
@@ -5230,6 +5947,127 @@ function passTurnLudo(room, roomId, changePlayer = true) {
   });
 }
 
+// Start a word scramble round
+function startReactionRound(room, roomId) {
+  const state = room.gameState;
+  newGames.startReactionRound(state);
+  
+  // Send countdown first
+  io.to(roomId).emit('reactionUpdate', {
+    status: 'countdown',
+    round: state.round,
+    maxRounds: state.maxRounds
+  });
+  
+  // Show the scrambled word after a brief countdown
+  setTimeout(() => {
+    if (room.currentGame !== 'reaction') return;
+    
+    state.status = 'active';
+    
+    io.to(roomId).emit('reactionUpdate', {
+      status: 'active',
+      scrambledWord: state.scrambledWord,
+      letterCount: state.currentWord.length,
+      round: state.round,
+      scores: state.scores
+    });
+    
+    // Start timer for the round (20 seconds)
+    let timeLeft = state.timePerRound || 20;
+    const timerInterval = setInterval(() => {
+      if (room.currentGame !== 'reaction' || state.status !== 'active') {
+        clearInterval(timerInterval);
+        return;
+      }
+      
+      timeLeft--;
+      io.to(roomId).emit('reactionUpdate', { timeLeft });
+      
+      if (timeLeft <= 0) {
+        clearInterval(timerInterval);
+        // Time's up - reveal answer and move to next round
+        io.to(roomId).emit('reactionUpdate', {
+          timeUp: true,
+          correctWord: state.currentWord
+        });
+        
+        state.round++;
+        if (state.round <= state.maxRounds) {
+          setTimeout(() => startReactionRound(room, roomId), 3000);
+        } else {
+          // Game over
+          const results = newGames.getReactionResults(state);
+          const players = Array.from(room.players.values());
+          results.forEach(r => {
+            const player = players.find(p => p.id === r.playerId);
+            r.playerName = player?.name || 'Player';
+          });
+          
+          io.to(roomId).emit('reactionUpdate', {
+            gameOver: true,
+            status: 'finished',
+            results,
+            scores: state.scores
+          });
+        }
+      }
+    }, 1000);
+  }, 1500);
+}
+
+// Start 24 game timer
+function start24Timer(room, roomId) {
+  const state = room.gameState;
+  let timeLeft = state.timePerRound || 60;
+  
+  const timerInterval = setInterval(() => {
+    if (room.currentGame !== 'game24' || state.solved || state.status !== 'playing') {
+      clearInterval(timerInterval);
+      return;
+    }
+    
+    timeLeft--;
+    io.to(roomId).emit('game24Update', { timeLeft });
+    
+    if (timeLeft <= 0) {
+      clearInterval(timerInterval);
+      
+      // Time's up
+      io.to(roomId).emit('game24Update', { timeUp: true });
+      
+      // Start next round
+      setTimeout(() => {
+        newGames.start24NewRound(state);
+        
+        if (state.status === 'finished') {
+          const results = state.playerOrder.map(id => ({
+            playerId: id,
+            playerName: room.players.get(id)?.name || 'Player',
+            score: state.scores[id] || 0
+          })).sort((a, b) => b.score - a.score);
+          
+          io.to(roomId).emit('game24Update', {
+            gameOver: true,
+            results,
+            players: room.getPlayerList()
+          });
+        } else {
+          io.to(roomId).emit('game24Update', {
+            newRound: true,
+            numbers: state.numbers,
+            round: state.round,
+            maxRounds: state.maxRounds,
+            timePerRound: state.timePerRound
+          });
+          
+          start24Timer(room, roomId);
+        }
+      }, 2000);
+    }
+  }, 1000);
+}
+
 function startMoleWhackRound(room, roomId) {
   const state = room.gameState;
   state.roundActive = true;
@@ -5681,12 +6519,12 @@ function processConnect4MatchMove(state, playerId, moveData) {
   
   if (row === -1) return null; // Column full
   
-  const color = playerId === state.redPlayer ? 'red' : 'yellow';
-  state.board[row][column] = color;
+  const piece = playerId === state.redPlayer ? '🔴' : '🟡';
+  state.board[row][column] = piece;
   
   // Check for winner
   const winCondition = state.winCondition || 4;
-  if (checkConnect4Win(state.board, row, column, color, winCondition)) {
+  if (checkConnect4Win(state.board, row, column, piece, winCondition)) {
     state.winner = playerId;
     const winner = state.players.find(p => p.id === playerId);
     return { winner };
@@ -5876,11 +6714,19 @@ function broadcastActiveMatches(room, roomId) {
 
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
-  const aiStatus = AI_SERVICE === 'groq' 
-    ? '🤖 Wednesday AI: ENABLED (Groq - Free)' 
-    : (AI_SERVICE === 'openai' 
-      ? '🤖 Wednesday AI: ENABLED (OpenAI)' 
-      : '🤖 Wednesday AI: Fallback mode (static responses)');
+  let aiStatus;
+  // Debug: Log which API keys are available
+  console.log('🔑 API Key Status:');
+  console.log(`   GROQ_API_KEY: ${GROQ_API_KEY ? 'SET (✓)' : 'NOT SET'}`);
+  console.log(`   OPENAI_API_KEY: ${OPENAI_API_KEY ? 'SET (✓)' : 'NOT SET'}`);
+  
+  if (GROQ_API_KEY) {
+    aiStatus = '🤖 Wednesday AI: ENABLED (Groq - FREE & FAST!)';
+  } else if (OPENAI_API_KEY) {
+    aiStatus = '🤖 Wednesday AI: ENABLED (OpenAI)';
+  } else {
+    aiStatus = '🤖 Wednesday AI: Fallback mode (static responses)';
+  }
   console.log(`
   ⚡️ THE UPSIDE DOWN NEVERMORE GAMES ⚡️
   =====================================

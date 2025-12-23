@@ -1,0 +1,646 @@
+/* ============================================
+   📱 MOBILE-FIRST RESPONSIVE DESIGN
+   ============================================ */
+
+/* ============================================
+   BASE MOBILE STYLES (320px+)
+   ============================================ */
+
+/* Touch-friendly tap targets */
+button, .btn, .game-card, .auth-tab, input, select, textarea {
+  min-height: 44px;
+  min-width: 44px;
+}
+
+/* Prevent text selection on game elements */
+.game-content, .game-card, .btn {
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+
+/* Safe area insets for notched devices */
+body {
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
+}
+
+.container {
+  padding: 15px;
+  padding-top: calc(15px + env(safe-area-inset-top));
+  padding-bottom: calc(15px + env(safe-area-inset-bottom));
+}
+
+/* ============================================
+   SMALL PHONES (320px - 374px)
+   ============================================ */
+
+@media (max-width: 374px) {
+  .main-title {
+    font-size: 1.5rem;
+  }
+  
+  .main-title .upside-down {
+    font-size: 0.9rem;
+  }
+  
+  .main-title .nevermore {
+    font-size: 1.8rem;
+  }
+  
+  .btn {
+    padding: 12px 20px;
+    font-size: 0.9rem;
+  }
+  
+  .auth-card, .menu-card {
+    padding: 15px;
+  }
+  
+  .auth-tabs {
+    flex-direction: column;
+    gap: 8px;
+  }
+  
+  .auth-tab {
+    width: 100%;
+  }
+  
+  .games-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 8px;
+  }
+  
+  .game-card {
+    padding: 12px 8px;
+  }
+  
+  .game-icon {
+    font-size: 1.5rem;
+  }
+  
+  .game-name {
+    font-size: 0.7rem;
+  }
+  
+  .profile-stats-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 8px;
+  }
+  
+  .stat-value {
+    font-size: 1rem;
+  }
+  
+  .theme-selector {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  
+  .theme-option {
+    padding: 8px;
+    min-width: auto;
+  }
+  
+  .theme-preview {
+    width: 40px;
+    height: 30px;
+  }
+  
+  .theme-name {
+    font-size: 0.65rem;
+  }
+}
+
+/* ============================================
+   STANDARD PHONES (375px - 479px)
+   ============================================ */
+
+@media (min-width: 375px) and (max-width: 479px) {
+  .main-title {
+    font-size: 1.8rem;
+  }
+  
+  .main-title .upside-down {
+    font-size: 1rem;
+  }
+  
+  .main-title .nevermore {
+    font-size: 2.2rem;
+  }
+  
+  .games-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 10px;
+  }
+  
+  .game-card {
+    padding: 15px 10px;
+  }
+  
+  .game-icon {
+    font-size: 1.8rem;
+  }
+  
+  .game-name {
+    font-size: 0.75rem;
+  }
+}
+
+/* ============================================
+   LARGE PHONES (480px - 767px)
+   ============================================ */
+
+@media (min-width: 480px) and (max-width: 767px) {
+  .container {
+    max-width: 450px;
+    margin: 0 auto;
+  }
+  
+  .games-grid {
+    grid-template-columns: repeat(3, 1fr);
+    gap: 12px;
+  }
+  
+  .game-card {
+    padding: 18px 12px;
+  }
+  
+  .game-icon {
+    font-size: 2rem;
+  }
+  
+  .lobby-content {
+    flex-direction: column;
+  }
+  
+  .players-section, .chat-section {
+    width: 100%;
+  }
+}
+
+/* ============================================
+   TABLETS (768px - 1023px)
+   ============================================ */
+
+@media (min-width: 768px) and (max-width: 1023px) {
+  .container {
+    max-width: 720px;
+    padding: 25px;
+  }
+  
+  .main-title {
+    font-size: 2.5rem;
+  }
+  
+  .main-title .nevermore {
+    font-size: 3.5rem;
+  }
+  
+  .games-grid {
+    grid-template-columns: repeat(4, 1fr);
+    gap: 15px;
+  }
+  
+  .game-card {
+    padding: 20px 15px;
+  }
+  
+  .game-icon {
+    font-size: 2.5rem;
+  }
+  
+  .game-name {
+    font-size: 0.9rem;
+  }
+  
+  .lobby-content {
+    flex-direction: row;
+    gap: 20px;
+  }
+  
+  .players-section {
+    width: 35%;
+  }
+  
+  .chat-section {
+    width: 65%;
+  }
+  
+  .profile-stats-grid {
+    grid-template-columns: repeat(4, 1fr);
+  }
+  
+  .achievements-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  
+  .theme-selector {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+/* ============================================
+   DESKTOP (1024px+)
+   ============================================ */
+
+@media (min-width: 1024px) {
+  .container {
+    max-width: 1000px;
+    padding: 30px;
+  }
+  
+  .main-title {
+    font-size: 3rem;
+  }
+  
+  .main-title .nevermore {
+    font-size: 4.5rem;
+  }
+  
+  .games-grid {
+    grid-template-columns: repeat(5, 1fr);
+    gap: 20px;
+  }
+  
+  .game-card {
+    padding: 25px 20px;
+  }
+  
+  .game-icon {
+    font-size: 3rem;
+  }
+  
+  .game-name {
+    font-size: 1rem;
+  }
+  
+  .lobby-content {
+    flex-direction: row;
+    gap: 30px;
+  }
+  
+  .players-section {
+    width: 30%;
+  }
+  
+  .chat-section {
+    width: 70%;
+  }
+  
+  .achievements-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+  
+  .theme-selector {
+    grid-template-columns: repeat(6, 1fr);
+  }
+}
+
+/* ============================================
+   LANDSCAPE MODE FIXES
+   ============================================ */
+
+@media (orientation: landscape) and (max-height: 500px) {
+  .main-title {
+    font-size: 1.5rem;
+    margin-bottom: 10px;
+  }
+  
+  .main-title .nevermore {
+    font-size: 2rem;
+  }
+  
+  .tagline {
+    display: none;
+  }
+  
+  .logo-container {
+    margin-bottom: 10px;
+  }
+  
+  .auth-card, .menu-card {
+    padding: 15px;
+  }
+  
+  .btn {
+    padding: 10px 20px;
+  }
+  
+  .divider {
+    margin: 10px 0;
+  }
+  
+  .menu-extras {
+    flex-direction: row;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+  
+  .credits {
+    display: none;
+  }
+  
+  /* Game screen in landscape */
+  .game-container {
+    flex-direction: row;
+    height: 100vh;
+  }
+  
+  .game-header {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 100;
+  }
+  
+  .game-content {
+    flex: 1;
+    padding-top: 50px;
+  }
+  
+  .game-chat {
+    width: 250px;
+    height: 100%;
+  }
+}
+
+/* ============================================
+   GAME CANVAS RESPONSIVE
+   ============================================ */
+
+/* Tic-Tac-Toe */
+.ttt-board {
+  max-width: min(90vw, 400px);
+  max-height: min(90vw, 400px);
+  margin: 0 auto;
+}
+
+.ttt-cell {
+  font-size: clamp(2rem, 8vw, 4rem);
+}
+
+/* Chess */
+.chess-board {
+  max-width: min(95vw, 500px);
+  margin: 0 auto;
+}
+
+.chess-square {
+  width: calc(100% / 8);
+  padding-bottom: calc(100% / 8);
+}
+
+.chess-piece {
+  font-size: clamp(1.5rem, 5vw, 3rem);
+}
+
+/* Connect 4 */
+.connect4-board {
+  max-width: min(95vw, 450px);
+  margin: 0 auto;
+}
+
+.connect4-cell {
+  width: calc(100% / 7);
+  padding-bottom: calc(100% / 7);
+}
+
+/* Memory Game */
+.memory-grid {
+  max-width: min(95vw, 500px);
+  margin: 0 auto;
+  gap: clamp(5px, 2vw, 15px);
+}
+
+.memory-card {
+  font-size: clamp(1.5rem, 5vw, 3rem);
+}
+
+/* Drawing Canvas */
+.drawing-container {
+  width: 100%;
+  max-width: 600px;
+  margin: 0 auto;
+}
+
+#drawingCanvas {
+  width: 100%;
+  height: auto;
+  aspect-ratio: 4 / 3;
+  touch-action: none;
+}
+
+/* Sudoku */
+.sudoku-grid {
+  max-width: min(95vw, 450px);
+  margin: 0 auto;
+}
+
+.sudoku-cell {
+  font-size: clamp(0.8rem, 3vw, 1.5rem);
+}
+
+/* Battleship */
+.battleship-board {
+  max-width: min(45vw, 300px);
+}
+
+.battleship-cell {
+  font-size: clamp(0.6rem, 2vw, 1rem);
+}
+
+/* Hangman */
+.hangman-container {
+  max-width: min(95vw, 500px);
+  margin: 0 auto;
+}
+
+.hangman-word {
+  font-size: clamp(1.5rem, 5vw, 3rem);
+  letter-spacing: clamp(5px, 2vw, 15px);
+}
+
+.hangman-keyboard {
+  gap: clamp(3px, 1vw, 8px);
+}
+
+.hangman-key {
+  min-width: clamp(25px, 8vw, 40px);
+  min-height: clamp(30px, 10vw, 45px);
+  font-size: clamp(0.8rem, 3vw, 1.2rem);
+}
+
+/* Word Chain */
+.word-chain-container {
+  max-width: min(95vw, 500px);
+  margin: 0 auto;
+}
+
+.word-chain-input {
+  font-size: clamp(1rem, 4vw, 1.5rem);
+}
+
+/* Reaction Test */
+.reaction-container {
+  width: min(90vw, 400px);
+  height: min(90vw, 400px);
+  margin: 0 auto;
+}
+
+.reaction-target {
+  width: clamp(60px, 20vw, 100px);
+  height: clamp(60px, 20vw, 100px);
+}
+
+/* ============================================
+   TOUCH OPTIMIZATIONS
+   ============================================ */
+
+/* Disable double-tap zoom on game elements */
+.game-content {
+  touch-action: manipulation;
+}
+
+/* Prevent pull-to-refresh */
+body.in-game {
+  overscroll-behavior: none;
+}
+
+/* Smooth scrolling */
+.chat-messages, .leaderboard-list, .achievements-grid {
+  -webkit-overflow-scrolling: touch;
+  scroll-behavior: smooth;
+}
+
+/* ============================================
+   KEYBOARD VISIBILITY HANDLING
+   ============================================ */
+
+@media (max-height: 450px) {
+  /* When keyboard is open on mobile */
+  .auth-card, .menu-card {
+    max-height: 80vh;
+    overflow-y: auto;
+  }
+  
+  .logo-container {
+    display: none;
+  }
+}
+
+/* ============================================
+   PRINT STYLES (for sharing)
+   ============================================ */
+
+@media print {
+  .particles-container,
+  .fullscreen-toggle,
+  .chat-toggle-btn,
+  .btn,
+  .chat-section,
+  .game-chat {
+    display: none !important;
+  }
+  
+  body {
+    background: white !important;
+    color: black !important;
+  }
+  
+  .profile-card,
+  .achievement-card,
+  .leaderboard-list {
+    break-inside: avoid;
+  }
+}
+
+/* ============================================
+   ACCESSIBILITY
+   ============================================ */
+
+/* Focus visible for keyboard navigation */
+:focus-visible {
+  outline: 2px solid var(--accent-purple);
+  outline-offset: 2px;
+}
+
+/* High contrast mode support */
+@media (prefers-contrast: high) {
+  .btn {
+    border: 2px solid currentColor;
+  }
+  
+  .card, .glass {
+    border: 2px solid var(--text-primary);
+  }
+}
+
+/* Reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+  
+  .particles-container {
+    display: none;
+  }
+}
+
+/* ============================================
+   DARK MODE ADJUSTMENTS
+   ============================================ */
+
+@media (prefers-color-scheme: light) {
+  /* The app is dark by default, but we can adjust for system light mode if needed */
+  /* Currently keeping dark theme regardless of system preference */
+}
+
+/* ============================================
+   NOTCH/CUTOUT HANDLING
+   ============================================ */
+
+@supports (padding: max(0px)) {
+  .game-header {
+    padding-top: max(10px, env(safe-area-inset-top));
+  }
+  
+  .lobby-actions,
+  .menu-extras {
+    padding-bottom: max(15px, env(safe-area-inset-bottom));
+  }
+  
+  .game-chat-overlay {
+    padding-bottom: max(20px, env(safe-area-inset-bottom));
+  }
+}
+
+/* ============================================
+   FOLDABLE DEVICE SUPPORT
+   ============================================ */
+
+@media (horizontal-viewport-segments: 2) {
+  /* Dual screen devices like Surface Duo */
+  .lobby-content {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: env(viewport-segment-left 1 0) - env(viewport-segment-right 0 0);
+  }
+  
+  .players-section {
+    grid-column: 1;
+  }
+  
+  .chat-section {
+    grid-column: 2;
+  }
+}
