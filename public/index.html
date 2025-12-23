@@ -13,7 +13,11 @@
   <meta name="msapplication-tap-highlight" content="no">
   <title>⚡ Upside Down Nevermore Games ⚡</title>
   <link rel="manifest" href="manifest.json">
-  <link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎮</text></svg>">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <link rel="apple-touch-icon" sizes="180x180" href="icons/apple-touch-icon.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="icons/favicon-16.png">
+  <link rel="shortcut icon" href="favicon.ico">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;700&family=Special+Elite&family=Creepster&family=Playfair+Display:wght@400;700&display=swap" rel="stylesheet">
@@ -26,6 +30,7 @@
   <link rel="stylesheet" href="css/new-games-styles.css?v=2.1.0">
   <link rel="stylesheet" href="css/mobile-responsive.css?v=2.1.0">
   <link rel="stylesheet" href="css/sudoku-enhanced.css?v=2.1.0">
+  <link rel="stylesheet" href="css/ultra-mobile.css?v=2.1.0">
 </head>
 <body>
   <!-- Particles Background -->
@@ -511,6 +516,7 @@
   </div>
 
   <!-- Scripts -->
+  <script src="js/performance-enhancements.js?v=2.1.0"></script>
   <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
   <script src="js/auth-simple.js?v=2.1.0"></script>
   <script src="js/achievements.js?v=2.1.0"></script>
@@ -518,5 +524,16 @@
   <script src="js/new-games-client.js?v=2.1.0"></script>
   <script src="js/app.js?v=2.1.0"></script>
   <script src="js/app-integration.js?v=2.1.0"></script>
+  
+  <!-- Service Worker Registration -->
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('/sw.js')
+          .then(reg => console.log('SW registered:', reg.scope))
+          .catch(err => console.log('SW registration failed:', err));
+      });
+    }
+  </script>
 </body>
 </html>
