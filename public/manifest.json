@@ -85,6 +85,30 @@
   "related_applications": [],
   "handle_links": "preferred",
   "launch_handler": {
-    "client_mode": "navigate-existing"
-  }
+    "client_mode": ["navigate-existing", "auto"]
+  },
+  "url_handlers": [
+    {
+      "origin": "https://*.railway.app"
+    },
+    {
+      "origin": "https://*.up.railway.app"
+    }
+  ],
+  "share_target": {
+    "action": "/",
+    "method": "GET",
+    "params": {
+      "title": "title",
+      "text": "text",
+      "url": "room"
+    }
+  },
+  "capture_links": "existing-client-navigate",
+  "protocol_handlers": [
+    {
+      "protocol": "web+nevermore",
+      "url": "/?room=%s"
+    }
+  ]
 }

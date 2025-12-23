@@ -1,8 +1,8 @@
-// Nevermore Games Service Worker v2.1.0
-// Lightweight caching for PWA support without causing lag
+// Nevermore Games Service Worker v2.2.0
+// PWA support with deep linking for room share links
 
-const CACHE_NAME = 'nevermore-v2.1.0';
-const STATIC_CACHE = 'nevermore-static-v2.1.0';
+const CACHE_NAME = 'nevermore-v2.2.0';
+const STATIC_CACHE = 'nevermore-static-v2.2.0';
 
 // Only cache essential static assets
 const STATIC_ASSETS = [
@@ -15,7 +15,9 @@ const STATIC_ASSETS = [
   '/css/profile-stats.css',
   '/css/new-games-styles.css',
   '/css/sudoku-enhanced.css',
+  '/css/ultra-mobile.css',
   '/js/app.js',
+  '/js/performance-enhancements.js',
   '/icons/icon-192.png',
   '/icons/icon-512.png',
   '/manifest.json'
@@ -64,6 +66,15 @@ self.addEventListener('fetch', (event) => {
   
   // Skip API calls - always go to network
   if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/socket.io/')) {
+    return;
+  }
+  
+  // Handle deep links - room URLs should open in app
+  if (url.searchParams.has('room') || url.searchParams.has('join')) {
+    event.respondWith(
+      fetch(request)
+        .catch(() => caches.match('/'))
+    );
     return;
   }
   
@@ -142,16 +153,65 @@ self.addEventListener('push', (event) => {
   }
 });
 
-// Handle notification clicks
+// Handle notification clicks - open app to specific room if provided
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
+  
+  const urlToOpen = event.notification.data?.url || '/';
+  
   event.waitUntil(
     clients.matchAll({ type: 'window', includeUncontrolled: true })
       .then((clientList) => {
-        if (clientList.length > 0) {
-          return clientList[0].focus();
+        // Check if app is already open
+        for (const client of clientList) {
+          if (client.url.includes(self.registration.scope) && 'focus' in client) {
+            // Navigate existing window to the URL
+            client.navigate(urlToOpen);
+            return client.focus();
+          }
         }
-        return clients.openWindow('/');
+        // Open new window if app not open
+        return clients.openWindow(urlToOpen);
       })
   );
+});
+
+// Handle share target - when users share room links to the app
+self.addEventListener('fetch', (event) => {
+  const url = new URL(event.request.url);
+  
+  // Handle share target
+  if (url.pathname === '/' && url.searchParams.has('share-target')) {
+    event.respondWith(
+      (async () => {
+        const formData = await event.request.formData();
+        const sharedUrl = formData.get('url') || formData.get('text') || '';
+        
+        // Extract room code from shared URL
+        const roomMatch = sharedUrl.match(/[?&]room=([^&]+)/);
+        const roomCode = roomMatch ? roomMatch[1] : '';
+        
+        // Redirect to app with room code
+        const redirectUrl = roomCode ? `/?room=${roomCode}` : '/';
+        return Response.redirect(redirectUrl, 303);
+      })()
+    );
+  }
+});
+
+// Handle launch queue for PWA launch handling
+self.addEventListener('message', (event) => {
+  if (event.data && event.data.type === 'LAUNCH_URL') {
+    const launchUrl = event.data.url;
+    
+    // Notify all clients about the launch URL
+    clients.matchAll({ type: 'window' }).then((clientList) => {
+      clientList.forEach((client) => {
+        client.postMessage({
+          type: 'NAVIGATE_TO',
+          url: launchUrl
+        });
+      });
+    });
+  }
 });
