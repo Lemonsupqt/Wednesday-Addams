@@ -2839,7 +2839,9 @@ function updateTicTacToe(data) {
   
   // FIX Bug 5: Update playerSymbols if provided
   if (data.playerSymbols) {
-    state.gameState.playerSymbols = data.playerSymbols;
+    state.gameState.playerSymbols = data.playerSymbols instanceof Map
+      ? data.playerSymbols
+      : new Map(Object.entries(data.playerSymbols));
   }
   
   if (data.board) {
