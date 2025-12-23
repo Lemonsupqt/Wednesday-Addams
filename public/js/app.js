@@ -1514,6 +1514,24 @@ function updatePlayersList(players) {
         <span class="game-players">2 players</span>
         <span class="new-badge">NEW</span>
       </button>
+      <button class="game-card new-game" data-game="poker">
+        <span class="game-icon">🃏♠️</span>
+        <span class="game-name">Texas<br>Hold'em</span>
+        <span class="game-players">2-6 players</span>
+        <span class="new-badge">NEW</span>
+      </button>
+      <button class="game-card new-game" data-game="blackjack">
+        <span class="game-icon">🎰🃏</span>
+        <span class="game-name">Blackjack<br>21</span>
+        <span class="game-players">2+ players</span>
+        <span class="new-badge">NEW</span>
+      </button>
+      <button class="game-card new-game" data-game="game24">
+        <span class="game-icon">🔢🎯</span>
+        <span class="game-name">Make<br>24</span>
+        <span class="game-players">2+ players</span>
+        <span class="new-badge">NEW</span>
+      </button>
     </div>
     <p class="voting-hint">💡 Click "Start Voting" then everyone picks a game. Most votes wins!</p>
   `;

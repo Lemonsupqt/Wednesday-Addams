@@ -2706,6 +2706,9 @@ io.on('connection', (socket) => {
       if (winningGame === 'reaction') {
         setTimeout(() => startReactionRound(room, roomId), 1000);
       }
+      if (winningGame === 'game24') {
+        setTimeout(() => start24Timer(room, roomId), 1000);
+      }
     }
   });
 
@@ -2747,6 +2750,9 @@ io.on('connection', (socket) => {
     }
     if (winningGame === 'reaction') {
       setTimeout(() => startReactionRound(room, roomId), 1000);
+    }
+    if (winningGame === 'game24') {
+      setTimeout(() => start24Timer(room, roomId), 1000);
     }
   });
 
@@ -2799,6 +2805,11 @@ io.on('connection', (socket) => {
     // Start reaction test game
     if (gameType === 'reaction') {
       setTimeout(() => startReactionRound(room, roomId), 1000);
+    }
+    
+    // Start 24 game timer
+    if (gameType === 'game24') {
+      setTimeout(() => start24Timer(room, roomId), 1000);
     }
   });
 
@@ -4392,6 +4403,257 @@ io.on('connection', (socket) => {
     }
   });
 
+  // ============================================
+  // POKER GAME HANDLERS
+  // ============================================
+  socket.on('pokerAction', ({ action, amount }) => {
+    const roomId = players.get(socket.id);
+    const room = rooms.get(roomId);
+    if (!room || room.currentGame !== 'poker') return;
+
+    const state = room.gameState;
+    const playerId = socket.id;
+
+    if (action === 'fold') {
+      state.folded.push(playerId);
+    } else if (action === 'call') {
+      const currentBet = Math.max(...Object.values(state.bets));
+      const callAmount = currentBet - (state.bets[playerId] || 0);
+      state.bets[playerId] = currentBet;
+      state.chips[playerId] -= callAmount;
+      state.pot += callAmount;
+    } else if (action === 'raise') {
+      const raiseAmount = amount || 50;
+      const currentBet = Math.max(...Object.values(state.bets));
+      const totalBet = currentBet + raiseAmount;
+      const addedAmount = totalBet - (state.bets[playerId] || 0);
+      state.bets[playerId] = totalBet;
+      state.chips[playerId] -= addedAmount;
+      state.pot += addedAmount;
+    }
+
+    // Check if all non-folded players have matched the bet
+    const activePlayers = state.playerOrder.filter(id => !state.folded.includes(id));
+    const maxBet = Math.max(...Object.values(state.bets));
+    const allMatched = activePlayers.every(id => state.bets[id] === maxBet);
+
+    if (allMatched || activePlayers.length === 1) {
+      // Advance to next phase
+      if (state.phase === 'river' || activePlayers.length === 1) {
+        // Showdown
+        const result = newGames.determinePokerWinner(state);
+        state.chips[result.winner] += state.pot;
+        state.scores[result.winner] = (state.scores[result.winner] || 0) + 1;
+        
+        const winnerPlayer = room.players.get(result.winner);
+        
+        io.to(roomId).emit('pokerUpdate', {
+          phase: 'showdown',
+          showdown: true,
+          winner: result.winner,
+          winnerName: winnerPlayer?.name || 'Player',
+          handName: result.handName,
+          pot: state.pot,
+          chips: state.chips,
+          communityCards: state.communityCards,
+          hands: state.hands,
+          players: room.getPlayerList()
+        });
+
+        // Start new round after delay
+        setTimeout(() => {
+          state.round++;
+          if (state.round > state.maxRounds) {
+            io.to(roomId).emit('pokerUpdate', { gameOver: true, players: room.getPlayerList() });
+            setTimeout(() => endGame(room, roomId), 2000);
+          } else {
+            // Reset for new round
+            const newState = newGames.createPokerState(room.players);
+            newState.round = state.round;
+            newState.scores = state.scores;
+            newState.chips = state.chips;
+            room.gameState = newState;
+            
+            io.to(roomId).emit('pokerInit', {
+              gameState: newState,
+              players: room.getPlayerList()
+            });
+          }
+        }, 4000);
+      } else {
+        newGames.advancePokerPhase(state);
+        io.to(roomId).emit('pokerUpdate', {
+          phase: state.phase,
+          communityCards: state.communityCards,
+          pot: state.pot,
+          bets: state.bets,
+          chips: state.chips,
+          players: room.getPlayerList()
+        });
+      }
+    } else {
+      io.to(roomId).emit('pokerUpdate', {
+        bets: state.bets,
+        chips: state.chips,
+        pot: state.pot,
+        folded: state.folded,
+        players: room.getPlayerList()
+      });
+    }
+  });
+
+  // ============================================
+  // BLACKJACK GAME HANDLERS
+  // ============================================
+  socket.on('blackjackAction', ({ action }) => {
+    const roomId = players.get(socket.id);
+    const room = rooms.get(roomId);
+    if (!room || room.currentGame !== 'blackjack') return;
+
+    const state = room.gameState;
+    const playerId = socket.id;
+
+    if (action === 'hit') {
+      const result = newGames.blackjackHit(state, playerId);
+      if (result.error) {
+        socket.emit('blackjackUpdate', { error: result.error });
+        return;
+      }
+
+      socket.emit('blackjackUpdate', {
+        newCard: result.card,
+        handValue: result.value,
+        busted: result.busted,
+        playerId
+      });
+
+      if (result.busted) {
+        socket.to(roomId).emit('blackjackUpdate', {
+          playerBusted: playerId,
+          players: room.getPlayerList()
+        });
+      }
+    } else if (action === 'stand') {
+      newGames.blackjackStand(state, playerId);
+      const handValue = newGames.getBlackjackValue(state.hands[playerId]);
+      
+      socket.emit('blackjackUpdate', { stood: true, handValue, playerId });
+      socket.to(roomId).emit('blackjackUpdate', {
+        playerStood: playerId,
+        players: room.getPlayerList()
+      });
+    }
+
+    // Check if all players are done
+    const allDone = state.playerOrder.every(id => 
+      state.stood.includes(id) || state.busted.includes(id)
+    );
+
+    if (allDone) {
+      // Dealer plays
+      const dealerValue = newGames.playDealerHand(state);
+      const results = newGames.determineBlackjackResults(state);
+
+      io.to(roomId).emit('blackjackUpdate', {
+        dealerReveal: true,
+        dealerHand: state.dealerHand,
+        dealerValue,
+        results,
+        scores: state.scores,
+        players: room.getPlayerList()
+      });
+
+      // Start new round
+      setTimeout(() => {
+        state.round++;
+        if (state.round > state.maxRounds) {
+          io.to(roomId).emit('blackjackUpdate', { gameOver: true, players: room.getPlayerList() });
+          setTimeout(() => endGame(room, roomId), 2000);
+        } else {
+          const newState = newGames.createBlackjackState(room.players);
+          newState.round = state.round;
+          newState.scores = state.scores;
+          room.gameState = newState;
+          
+          io.to(roomId).emit('blackjackInit', {
+            gameState: newState,
+            players: room.getPlayerList()
+          });
+        }
+      }, 4000);
+    }
+  });
+
+  // ============================================
+  // 24 GAME HANDLERS
+  // ============================================
+  socket.on('game24Guess', ({ expression }) => {
+    const roomId = players.get(socket.id);
+    const room = rooms.get(roomId);
+    if (!room || room.currentGame !== 'game24') return;
+
+    const state = room.gameState;
+    const result = newGames.process24Guess(state, socket.id, expression);
+
+    if (result.error) {
+      socket.emit('game24Update', { error: result.error });
+      return;
+    }
+
+    if (result.correct) {
+      const solverName = room.players.get(socket.id)?.name || 'Player';
+      
+      io.to(roomId).emit('game24Update', {
+        solved: true,
+        solvedBy: socket.id,
+        solverName,
+        expression,
+        correct: true,
+        points: result.points,
+        scores: state.scores,
+        players: room.getPlayerList()
+      });
+
+      // Start new round
+      setTimeout(() => {
+        newGames.start24NewRound(state);
+        
+        if (state.status === 'finished') {
+          const results = state.playerOrder.map(id => ({
+            playerId: id,
+            playerName: room.players.get(id)?.name || 'Player',
+            score: state.scores[id] || 0
+          })).sort((a, b) => b.score - a.score);
+          
+          io.to(roomId).emit('game24Update', {
+            gameOver: true,
+            results,
+            players: room.getPlayerList()
+          });
+          setTimeout(() => endGame(room, roomId), 2000);
+        } else {
+          io.to(roomId).emit('game24Update', {
+            newRound: true,
+            numbers: state.numbers,
+            round: state.round,
+            maxRounds: state.maxRounds,
+            timePerRound: state.timePerRound,
+            players: room.getPlayerList()
+          });
+          
+          // Start timer
+          start24Timer(room, roomId);
+        }
+      }, 3000);
+    } else {
+      socket.emit('game24Update', {
+        correct: false,
+        error: result.error,
+        expression
+      });
+    }
+  });
+
   // Player color change
   socket.on('changePlayerColor', ({ targetPlayerId, color }) => {
     const roomId = players.get(socket.id);
@@ -4712,6 +4974,15 @@ function initializeGame(gameType, room, options = {}) {
     case 'battleship':
       const bsPlayers = playerIds.slice(0, 2);
       return newGames.createBattleshipState(bsPlayers[0], bsPlayers[1]);
+
+    case 'poker':
+      return newGames.createPokerState(room.players);
+
+    case 'blackjack':
+      return newGames.createBlackjackState(room.players);
+
+    case 'game24':
+      return newGames.create24GameState(room.players);
 
     default:
       return {};
@@ -5743,6 +6014,58 @@ function startReactionRound(room, roomId) {
       }
     }, 1000);
   }, 1500);
+}
+
+// Start 24 game timer
+function start24Timer(room, roomId) {
+  const state = room.gameState;
+  let timeLeft = state.timePerRound || 60;
+  
+  const timerInterval = setInterval(() => {
+    if (room.currentGame !== 'game24' || state.solved || state.status !== 'playing') {
+      clearInterval(timerInterval);
+      return;
+    }
+    
+    timeLeft--;
+    io.to(roomId).emit('game24Update', { timeLeft });
+    
+    if (timeLeft <= 0) {
+      clearInterval(timerInterval);
+      
+      // Time's up
+      io.to(roomId).emit('game24Update', { timeUp: true });
+      
+      // Start next round
+      setTimeout(() => {
+        newGames.start24NewRound(state);
+        
+        if (state.status === 'finished') {
+          const results = state.playerOrder.map(id => ({
+            playerId: id,
+            playerName: room.players.get(id)?.name || 'Player',
+            score: state.scores[id] || 0
+          })).sort((a, b) => b.score - a.score);
+          
+          io.to(roomId).emit('game24Update', {
+            gameOver: true,
+            results,
+            players: room.getPlayerList()
+          });
+        } else {
+          io.to(roomId).emit('game24Update', {
+            newRound: true,
+            numbers: state.numbers,
+            round: state.round,
+            maxRounds: state.maxRounds,
+            timePerRound: state.timePerRound
+          });
+          
+          start24Timer(room, roomId);
+        }
+      }, 2000);
+    }
+  }, 1000);
 }
 
 function startMoleWhackRound(room, roomId) {

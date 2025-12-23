@@ -1262,6 +1262,479 @@ function updateDrawingGuess(data) {
 }
 
 // ============================================
+// POKER GAME 🃏
+// ============================================
+
+function initPoker(gameState, players) {
+  console.log('🃏 Initializing Poker:', gameState);
+  state.gameState = gameState;
+  elements.gameTitle.textContent = '🃏 Texas Hold\'em Poker';
+  
+  const myHand = gameState.hands?.[state.playerId] || [];
+  const myChips = gameState.chips?.[state.playerId] || 1000;
+  
+  elements.gameContent.innerHTML = `
+    <div class="poker-container">
+      <div class="poker-info">
+        <div class="poker-round">Round ${gameState.round || 1}/${gameState.maxRounds || 5}</div>
+        <div class="poker-pot">Pot: 💰 ${gameState.pot || 0}</div>
+        <div class="poker-phase">${getPokerPhaseName(gameState.phase)}</div>
+      </div>
+      
+      <div class="poker-community" id="pokerCommunity">
+        <div class="community-label">Community Cards</div>
+        <div class="community-cards">
+          ${gameState.communityCards?.length > 0 ? 
+            gameState.communityCards.map(card => renderCard(card)).join('') :
+            '<div class="card-placeholder">🂠</div><div class="card-placeholder">🂠</div><div class="card-placeholder">🂠</div><div class="card-placeholder">🂠</div><div class="card-placeholder">🂠</div>'
+          }
+        </div>
+      </div>
+      
+      <div class="poker-hand" id="pokerHand">
+        <div class="hand-label">Your Hand</div>
+        <div class="hand-cards">
+          ${myHand.map(card => renderCard(card)).join('')}
+        </div>
+      </div>
+      
+      <div class="poker-chips">
+        <span>💰 Your Chips: ${myChips}</span>
+      </div>
+      
+      <div class="poker-actions" id="pokerActions">
+        ${gameState.phase !== 'showdown' ? `
+          <button class="btn btn-secondary" id="pokerFold">🚫 Fold</button>
+          <button class="btn btn-primary" id="pokerCall">✅ Call</button>
+          <button class="btn btn-accent" id="pokerRaise">⬆️ Raise</button>
+        ` : ''}
+      </div>
+      
+      <div class="poker-players" id="pokerPlayers">
+        ${players.map(p => `
+          <div class="poker-player ${p.id === state.playerId ? 'me' : ''} ${gameState.folded?.includes(p.id) ? 'folded' : ''}">
+            <span class="player-name">${escapeHtml(p.name)}</span>
+            <span class="player-chips">💰 ${gameState.chips?.[p.id] || 1000}</span>
+            <span class="player-bet">Bet: ${gameState.bets?.[p.id] || 0}</span>
+          </div>
+        `).join('')}
+      </div>
+    </div>
+  `;
+  
+  setupPokerListeners();
+  updateScoreBoard(players);
+}
+
+function getPokerPhaseName(phase) {
+  const phases = {
+    'preflop': '🎴 Pre-Flop',
+    'flop': '🃏 Flop',
+    'turn': '🎯 Turn',
+    'river': '🌊 River',
+    'showdown': '👑 Showdown'
+  };
+  return phases[phase] || phase;
+}
+
+function renderCard(card) {
+  const isRed = card.suit === '♥' || card.suit === '♦';
+  return `<div class="playing-card ${isRed ? 'red' : 'black'}">${card.value}${card.suit}</div>`;
+}
+
+function setupPokerListeners() {
+  document.getElementById('pokerFold')?.addEventListener('click', () => {
+    socket.emit('pokerAction', { action: 'fold' });
+  });
+  
+  document.getElementById('pokerCall')?.addEventListener('click', () => {
+    socket.emit('pokerAction', { action: 'call' });
+  });
+  
+  document.getElementById('pokerRaise')?.addEventListener('click', () => {
+    socket.emit('pokerAction', { action: 'raise', amount: 50 });
+  });
+}
+
+function updatePoker(data) {
+  if (data.communityCards) {
+    const communityEl = document.querySelector('.community-cards');
+    if (communityEl) {
+      communityEl.innerHTML = data.communityCards.map(card => renderCard(card)).join('');
+    }
+  }
+  
+  if (data.phase) {
+    const phaseEl = document.querySelector('.poker-phase');
+    if (phaseEl) phaseEl.textContent = getPokerPhaseName(data.phase);
+  }
+  
+  if (data.pot !== undefined) {
+    const potEl = document.querySelector('.poker-pot');
+    if (potEl) potEl.textContent = `Pot: 💰 ${data.pot}`;
+  }
+  
+  if (data.showdown) {
+    const actionsEl = document.getElementById('pokerActions');
+    if (actionsEl) {
+      actionsEl.innerHTML = `
+        <div class="showdown-result">
+          <div class="winner-name">🏆 ${escapeHtml(data.winnerName)} wins!</div>
+          <div class="winning-hand">${data.handName}</div>
+        </div>
+      `;
+    }
+  }
+  
+  if (data.gameOver) {
+    showPlayAgainButton('poker');
+  }
+  
+  updateScoreBoard(data.players);
+}
+
+// ============================================
+// BLACKJACK GAME 🎰
+// ============================================
+
+function initBlackjack(gameState, players) {
+  console.log('🎰 Initializing Blackjack:', gameState);
+  state.gameState = gameState;
+  elements.gameTitle.textContent = '🎰 Blackjack 21';
+  
+  const myHand = gameState.hands?.[state.playerId] || [];
+  const myValue = calculateHandValue(myHand);
+  const dealerHand = gameState.dealerHand || [];
+  
+  elements.gameContent.innerHTML = `
+    <div class="blackjack-container">
+      <div class="blackjack-info">
+        <div class="bj-round">Round ${gameState.round || 1}/${gameState.maxRounds || 5}</div>
+      </div>
+      
+      <div class="dealer-section">
+        <div class="dealer-label">🎩 Dealer</div>
+        <div class="dealer-cards" id="dealerCards">
+          ${dealerHand.length > 0 ? renderCard(dealerHand[0]) : ''}
+          ${gameState.dealerHidden ? '<div class="playing-card hidden">🂠</div>' : (dealerHand[1] ? renderCard(dealerHand[1]) : '')}
+          ${!gameState.dealerHidden && dealerHand.length > 2 ? dealerHand.slice(2).map(c => renderCard(c)).join('') : ''}
+        </div>
+        <div class="dealer-value" id="dealerValue">
+          ${gameState.dealerHidden ? '?' : calculateHandValue(dealerHand)}
+        </div>
+      </div>
+      
+      <div class="player-section">
+        <div class="player-label">🃏 Your Hand</div>
+        <div class="player-cards" id="playerCards">
+          ${myHand.map(card => renderCard(card)).join('')}
+        </div>
+        <div class="player-value" id="playerValue">${myValue}</div>
+      </div>
+      
+      <div class="blackjack-actions" id="bjActions">
+        ${!gameState.stood?.includes(state.playerId) && !gameState.busted?.includes(state.playerId) ? `
+          <button class="btn btn-primary btn-large" id="bjHit">👊 Hit</button>
+          <button class="btn btn-secondary btn-large" id="bjStand">✋ Stand</button>
+        ` : `<div class="waiting-message">Waiting for other players...</div>`}
+      </div>
+      
+      <div class="blackjack-status" id="bjStatus"></div>
+      
+      <div class="blackjack-scores" id="bjScores">
+        ${players.map(p => `
+          <div class="bj-player ${p.id === state.playerId ? 'me' : ''} ${gameState.busted?.includes(p.id) ? 'busted' : ''} ${gameState.stood?.includes(p.id) ? 'stood' : ''}">
+            <span class="player-name">${escapeHtml(p.name)}</span>
+            <span class="player-score">${gameState.scores?.[p.id] || 0} pts</span>
+            <span class="player-status">${gameState.busted?.includes(p.id) ? '💥' : gameState.stood?.includes(p.id) ? '✋' : '🎴'}</span>
+          </div>
+        `).join('')}
+      </div>
+    </div>
+  `;
+  
+  setupBlackjackListeners();
+  updateScoreBoard(players);
+}
+
+function calculateHandValue(cards) {
+  let value = 0;
+  let aces = 0;
+  
+  for (const card of cards) {
+    if (card.value === 'A') {
+      aces++;
+      value += 11;
+    } else if (['K', 'Q', 'J'].includes(card.value)) {
+      value += 10;
+    } else {
+      value += parseInt(card.value);
+    }
+  }
+  
+  while (value > 21 && aces > 0) {
+    value -= 10;
+    aces--;
+  }
+  
+  return value;
+}
+
+function setupBlackjackListeners() {
+  document.getElementById('bjHit')?.addEventListener('click', () => {
+    socket.emit('blackjackAction', { action: 'hit' });
+  });
+  
+  document.getElementById('bjStand')?.addEventListener('click', () => {
+    socket.emit('blackjackAction', { action: 'stand' });
+  });
+}
+
+function updateBlackjack(data) {
+  // New card dealt to player
+  if (data.newCard && data.playerId === state.playerId) {
+    const cardsEl = document.getElementById('playerCards');
+    if (cardsEl) {
+      cardsEl.innerHTML += renderCard(data.newCard);
+    }
+    const valueEl = document.getElementById('playerValue');
+    if (valueEl) valueEl.textContent = data.handValue;
+    
+    if (data.busted) {
+      const actionsEl = document.getElementById('bjActions');
+      if (actionsEl) actionsEl.innerHTML = '<div class="busted-message">💥 BUSTED!</div>';
+    }
+  }
+  
+  // Stood
+  if (data.stood && data.playerId === state.playerId) {
+    const actionsEl = document.getElementById('bjActions');
+    if (actionsEl) actionsEl.innerHTML = '<div class="stood-message">✋ Standing at ' + data.handValue + '</div>';
+  }
+  
+  // Dealer reveal
+  if (data.dealerReveal) {
+    const dealerCardsEl = document.getElementById('dealerCards');
+    if (dealerCardsEl) {
+      dealerCardsEl.innerHTML = data.dealerHand.map(card => renderCard(card)).join('');
+    }
+    const dealerValueEl = document.getElementById('dealerValue');
+    if (dealerValueEl) dealerValueEl.textContent = data.dealerValue;
+  }
+  
+  // Round results
+  if (data.results) {
+    const statusEl = document.getElementById('bjStatus');
+    const myResult = data.results[state.playerId];
+    if (statusEl && myResult) {
+      const resultClass = myResult.result === 'win' ? 'win' : myResult.result === 'lose' ? 'lose' : 'push';
+      statusEl.innerHTML = `
+        <div class="result-banner ${resultClass}">
+          ${myResult.result === 'win' ? '🎉 You Win!' : myResult.result === 'lose' ? '😢 You Lose' : '🤝 Push'}
+          <div class="result-reason">${myResult.reason}</div>
+        </div>
+      `;
+    }
+  }
+  
+  if (data.gameOver) {
+    showPlayAgainButton('blackjack');
+  }
+  
+  updateScoreBoard(data.players);
+}
+
+// ============================================
+// 24 GAME 🔢
+// ============================================
+
+function init24Game(gameState, players) {
+  console.log('🔢 Initializing 24 Game:', gameState);
+  state.gameState = gameState;
+  elements.gameTitle.textContent = '🔢 Make 24!';
+  
+  elements.gameContent.innerHTML = `
+    <div class="game24-container">
+      <div class="game24-info">
+        <div class="game24-round">Round ${gameState.round || 1}/${gameState.maxRounds || 8}</div>
+        <div class="game24-timer" id="game24Timer">⏱️ ${gameState.timePerRound || 60}s</div>
+      </div>
+      
+      <div class="game24-numbers" id="game24Numbers">
+        ${(gameState.numbers || [1,2,3,4]).map(num => `
+          <div class="number-card">${num}</div>
+        `).join('')}
+      </div>
+      
+      <div class="game24-goal">
+        <span>Use all 4 numbers with + - × ÷ to make</span>
+        <span class="goal-number">24</span>
+      </div>
+      
+      <div class="game24-input">
+        <input type="text" id="game24Input" placeholder="Enter expression like (1+2)*3+4" autocomplete="off">
+        <button class="btn btn-primary" id="game24Submit">
+          <span class="btn-icon">✓</span> Check
+        </button>
+      </div>
+      
+      <div class="game24-feedback" id="game24Feedback"></div>
+      
+      <div class="game24-hint">
+        💡 Use parentheses! Example: (8-4)×(3+3)=24
+      </div>
+      
+      <div class="game24-scores" id="game24Scores">
+        ${players.map(p => `
+          <div class="game24-player ${p.id === state.playerId ? 'me' : ''}">
+            <span class="player-name">${escapeHtml(p.name)}</span>
+            <span class="player-score">${gameState.scores?.[p.id] || 0} pts</span>
+          </div>
+        `).join('')}
+      </div>
+    </div>
+  `;
+  
+  setup24GameListeners();
+  updateScoreBoard(players);
+}
+
+function setup24GameListeners() {
+  const input = document.getElementById('game24Input');
+  const submitBtn = document.getElementById('game24Submit');
+  
+  if (input && submitBtn) {
+    const submitGuess = () => {
+      const expr = input.value.trim();
+      if (!expr) return;
+      socket.emit('game24Guess', { expression: expr });
+    };
+    
+    submitBtn.addEventListener('click', submitGuess);
+    input.addEventListener('keypress', (e) => {
+      if (e.key === 'Enter') submitGuess();
+    });
+    
+    input.focus();
+  }
+}
+
+function update24Game(data) {
+  const feedbackEl = document.getElementById('game24Feedback');
+  const timerEl = document.getElementById('game24Timer');
+  const numbersEl = document.getElementById('game24Numbers');
+  const input = document.getElementById('game24Input');
+  
+  // Timer update
+  if (data.timeLeft !== undefined && timerEl) {
+    timerEl.textContent = `⏱️ ${data.timeLeft}s`;
+    if (data.timeLeft <= 10) {
+      timerEl.classList.add('urgent');
+    }
+  }
+  
+  // Guess result
+  if (data.correct !== undefined) {
+    if (data.correct) {
+      if (feedbackEl) {
+        feedbackEl.innerHTML = `
+          <div class="feedback-correct">
+            ✅ Correct! ${data.expression} = 24 (+${data.points} pts)
+          </div>
+        `;
+      }
+      if (input) input.disabled = true;
+    } else {
+      if (feedbackEl) {
+        feedbackEl.innerHTML = `
+          <div class="feedback-wrong">
+            ❌ ${data.error}
+          </div>
+        `;
+      }
+      if (input) {
+        input.value = '';
+        input.focus();
+      }
+    }
+  }
+  
+  // Someone solved it
+  if (data.solved && data.solvedBy !== state.playerId) {
+    if (feedbackEl) {
+      feedbackEl.innerHTML = `
+        <div class="feedback-info">
+          ${escapeHtml(data.solverName)} solved it! ${data.expression} = 24
+        </div>
+      `;
+    }
+    if (input) input.disabled = true;
+  }
+  
+  // New round
+  if (data.newRound && data.numbers) {
+    if (numbersEl) {
+      numbersEl.innerHTML = data.numbers.map(num => `
+        <div class="number-card animate-pop">${num}</div>
+      `).join('');
+    }
+    if (feedbackEl) feedbackEl.innerHTML = '';
+    if (input) {
+      input.value = '';
+      input.disabled = false;
+      input.focus();
+    }
+    if (timerEl) {
+      timerEl.classList.remove('urgent');
+      timerEl.textContent = `⏱️ ${data.timePerRound || 60}s`;
+    }
+    
+    const roundEl = document.querySelector('.game24-round');
+    if (roundEl) roundEl.textContent = `Round ${data.round}/${data.maxRounds || 8}`;
+  }
+  
+  // Update scores
+  if (data.scores) {
+    for (const [playerId, score] of Object.entries(data.scores)) {
+      const scoreEl = document.querySelector(`.game24-player[data-id="${playerId}"] .player-score`);
+      if (scoreEl) scoreEl.textContent = `${score} pts`;
+    }
+  }
+  
+  // Time up
+  if (data.timeUp) {
+    if (feedbackEl) {
+      feedbackEl.innerHTML = `
+        <div class="feedback-timeout">
+          ⏰ Time's up! No one solved it.
+        </div>
+      `;
+    }
+    if (input) input.disabled = true;
+  }
+  
+  // Game over
+  if (data.gameOver) {
+    showPlayAgainButton('game24');
+    
+    if (data.results) {
+      const scoresEl = document.getElementById('game24Scores');
+      if (scoresEl) {
+        scoresEl.innerHTML = data.results.map((r, i) => `
+          <div class="game24-player ${r.playerId === state.playerId ? 'me' : ''} ${i === 0 ? 'winner' : ''}">
+            <span class="rank">${i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `${i+1}.`}</span>
+            <span class="player-name">${escapeHtml(r.playerName || 'Player')}</span>
+            <span class="player-score">${r.score} pts</span>
+          </div>
+        `).join('');
+      }
+    }
+  }
+  
+  updateScoreBoard(data.players);
+}
+
+// ============================================
 // SOCKET EVENT HANDLERS FOR NEW GAMES
 // ============================================
 
@@ -1275,7 +1748,7 @@ function setupNewGameSocketHandlers() {
   socket.on('wordChainInit', (data) => initWordChain(data.gameState, data.players));
   socket.on('wordChainUpdate', updateWordChain);
   
-  // Reaction Test
+  // Reaction Test / Word Scramble
   socket.on('reactionInit', (data) => initReactionTest(data.gameState, data.players));
   socket.on('reactionUpdate', updateReactionTest);
   
@@ -1286,6 +1759,18 @@ function setupNewGameSocketHandlers() {
   // Drawing Guess
   socket.on('drawingInit', (data) => initDrawingGuess(data.gameState, data.players));
   socket.on('drawingUpdate', updateDrawingGuess);
+  
+  // Poker
+  socket.on('pokerInit', (data) => initPoker(data.gameState, data.players));
+  socket.on('pokerUpdate', updatePoker);
+  
+  // Blackjack
+  socket.on('blackjackInit', (data) => initBlackjack(data.gameState, data.players));
+  socket.on('blackjackUpdate', updateBlackjack);
+  
+  // 24 Game
+  socket.on('game24Init', (data) => init24Game(data.gameState, data.players));
+  socket.on('game24Update', update24Game);
 }
 
 // Export for integration
@@ -1301,6 +1786,12 @@ if (typeof module !== 'undefined' && module.exports) {
     updateBattleship,
     initDrawingGuess,
     updateDrawingGuess,
+    initPoker,
+    updatePoker,
+    initBlackjack,
+    updateBlackjack,
+    init24Game,
+    update24Game,
     setupNewGameSocketHandlers
   };
 }
@@ -1318,4 +1809,10 @@ if (typeof window !== 'undefined') {
   window.updateBattleship = updateBattleship;
   window.initDrawingGuess = initDrawingGuess;
   window.updateDrawingGuess = updateDrawingGuess;
+  window.initPoker = initPoker;
+  window.updatePoker = updatePoker;
+  window.initBlackjack = initBlackjack;
+  window.updateBlackjack = updateBlackjack;
+  window.init24Game = init24Game;
+  window.update24Game = update24Game;
 }

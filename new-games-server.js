@@ -742,6 +742,473 @@ function getAIBattleshipShot(shots, boardSize = 10) {
   return candidates[Math.floor(Math.random() * candidates.length)];
 }
 
+// ============================================
+// POKER GAME 🃏 (Texas Hold'em style)
+// ============================================
+
+const CARD_SUITS = ['♠', '♥', '♦', '♣'];
+const CARD_VALUES = ['2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A'];
+const HAND_RANKS = {
+  'Royal Flush': 10,
+  'Straight Flush': 9,
+  'Four of a Kind': 8,
+  'Full House': 7,
+  'Flush': 6,
+  'Straight': 5,
+  'Three of a Kind': 4,
+  'Two Pair': 3,
+  'One Pair': 2,
+  'High Card': 1
+};
+
+function createDeck() {
+  const deck = [];
+  for (const suit of CARD_SUITS) {
+    for (const value of CARD_VALUES) {
+      deck.push({ suit, value, display: `${value}${suit}` });
+    }
+  }
+  return shuffleDeck(deck);
+}
+
+function shuffleDeck(deck) {
+  const shuffled = [...deck];
+  for (let i = shuffled.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+  }
+  return shuffled;
+}
+
+function getCardNumericValue(value) {
+  if (value === 'A') return 14;
+  if (value === 'K') return 13;
+  if (value === 'Q') return 12;
+  if (value === 'J') return 11;
+  return parseInt(value);
+}
+
+function evaluatePokerHand(cards) {
+  // Sort by value
+  const sorted = [...cards].sort((a, b) => getCardNumericValue(b.value) - getCardNumericValue(a.value));
+  const values = sorted.map(c => getCardNumericValue(c.value));
+  const suits = sorted.map(c => c.suit);
+  
+  const isFlush = suits.every(s => s === suits[0]);
+  const isStraight = values.every((v, i) => i === 0 || values[i-1] - v === 1) ||
+                     (values[0] === 14 && values[1] === 5); // Ace-low straight
+  
+  // Count values
+  const valueCounts = {};
+  values.forEach(v => valueCounts[v] = (valueCounts[v] || 0) + 1);
+  const counts = Object.values(valueCounts).sort((a, b) => b - a);
+  
+  let rank, handName;
+  
+  if (isFlush && isStraight && values[0] === 14) {
+    rank = HAND_RANKS['Royal Flush'];
+    handName = 'Royal Flush';
+  } else if (isFlush && isStraight) {
+    rank = HAND_RANKS['Straight Flush'];
+    handName = 'Straight Flush';
+  } else if (counts[0] === 4) {
+    rank = HAND_RANKS['Four of a Kind'];
+    handName = 'Four of a Kind';
+  } else if (counts[0] === 3 && counts[1] === 2) {
+    rank = HAND_RANKS['Full House'];
+    handName = 'Full House';
+  } else if (isFlush) {
+    rank = HAND_RANKS['Flush'];
+    handName = 'Flush';
+  } else if (isStraight) {
+    rank = HAND_RANKS['Straight'];
+    handName = 'Straight';
+  } else if (counts[0] === 3) {
+    rank = HAND_RANKS['Three of a Kind'];
+    handName = 'Three of a Kind';
+  } else if (counts[0] === 2 && counts[1] === 2) {
+    rank = HAND_RANKS['Two Pair'];
+    handName = 'Two Pair';
+  } else if (counts[0] === 2) {
+    rank = HAND_RANKS['One Pair'];
+    handName = 'One Pair';
+  } else {
+    rank = HAND_RANKS['High Card'];
+    handName = 'High Card';
+  }
+  
+  return { rank, handName, highCard: values[0], cards: sorted };
+}
+
+function getBestPokerHand(holeCards, communityCards) {
+  const allCards = [...holeCards, ...communityCards];
+  let bestHand = null;
+  
+  // Try all combinations of 5 cards
+  for (let i = 0; i < allCards.length; i++) {
+    for (let j = i + 1; j < allCards.length; j++) {
+      for (let k = j + 1; k < allCards.length; k++) {
+        for (let l = k + 1; l < allCards.length; l++) {
+          for (let m = l + 1; m < allCards.length; m++) {
+            const hand = [allCards[i], allCards[j], allCards[k], allCards[l], allCards[m]];
+            const evaluation = evaluatePokerHand(hand);
+            if (!bestHand || evaluation.rank > bestHand.rank || 
+                (evaluation.rank === bestHand.rank && evaluation.highCard > bestHand.highCard)) {
+              bestHand = evaluation;
+            }
+          }
+        }
+      }
+    }
+  }
+  
+  return bestHand;
+}
+
+function createPokerState(players) {
+  const playerIds = Array.from(players.keys()).filter(id => id !== 'AI_PLAYER');
+  const deck = createDeck();
+  
+  // Deal 2 cards to each player
+  const hands = {};
+  playerIds.forEach(id => {
+    hands[id] = [deck.pop(), deck.pop()];
+  });
+  
+  return {
+    deck,
+    hands,
+    communityCards: [],
+    playerOrder: playerIds,
+    currentPlayerIndex: 0,
+    phase: 'preflop', // preflop, flop, turn, river, showdown
+    pot: 0,
+    bets: Object.fromEntries(playerIds.map(id => [id, 0])),
+    chips: Object.fromEntries(playerIds.map(id => [id, 1000])),
+    folded: [],
+    round: 1,
+    maxRounds: 5,
+    scores: Object.fromEntries(playerIds.map(id => [id, 0])),
+    status: 'betting' // betting, showdown, finished
+  };
+}
+
+function advancePokerPhase(state) {
+  switch (state.phase) {
+    case 'preflop':
+      // Deal flop (3 cards)
+      state.communityCards.push(state.deck.pop(), state.deck.pop(), state.deck.pop());
+      state.phase = 'flop';
+      break;
+    case 'flop':
+      // Deal turn (1 card)
+      state.communityCards.push(state.deck.pop());
+      state.phase = 'turn';
+      break;
+    case 'turn':
+      // Deal river (1 card)
+      state.communityCards.push(state.deck.pop());
+      state.phase = 'river';
+      break;
+    case 'river':
+      state.phase = 'showdown';
+      break;
+  }
+  return state;
+}
+
+function determinePokerWinner(state) {
+  const activePlayers = state.playerOrder.filter(id => !state.folded.includes(id));
+  
+  if (activePlayers.length === 1) {
+    return { winner: activePlayers[0], handName: 'Everyone else folded' };
+  }
+  
+  let bestHand = null;
+  let winner = null;
+  
+  for (const playerId of activePlayers) {
+    const hand = getBestPokerHand(state.hands[playerId], state.communityCards);
+    if (!bestHand || hand.rank > bestHand.rank || 
+        (hand.rank === bestHand.rank && hand.highCard > bestHand.highCard)) {
+      bestHand = hand;
+      winner = playerId;
+    }
+  }
+  
+  return { winner, handName: bestHand.handName, hand: bestHand };
+}
+
+// ============================================
+// BLACKJACK GAME 🎰
+// ============================================
+
+function createBlackjackDeck() {
+  const deck = [];
+  // Use 6 decks like casinos
+  for (let d = 0; d < 6; d++) {
+    for (const suit of CARD_SUITS) {
+      for (const value of CARD_VALUES) {
+        deck.push({ suit, value, display: `${value}${suit}` });
+      }
+    }
+  }
+  return shuffleDeck(deck);
+}
+
+function getBlackjackValue(cards) {
+  let value = 0;
+  let aces = 0;
+  
+  for (const card of cards) {
+    if (card.value === 'A') {
+      aces++;
+      value += 11;
+    } else if (['K', 'Q', 'J'].includes(card.value)) {
+      value += 10;
+    } else {
+      value += parseInt(card.value);
+    }
+  }
+  
+  // Adjust for aces
+  while (value > 21 && aces > 0) {
+    value -= 10;
+    aces--;
+  }
+  
+  return value;
+}
+
+function createBlackjackState(players) {
+  const playerIds = Array.from(players.keys()).filter(id => id !== 'AI_PLAYER');
+  const deck = createBlackjackDeck();
+  
+  // Deal initial cards
+  const hands = {};
+  playerIds.forEach(id => {
+    hands[id] = [deck.pop(), deck.pop()];
+  });
+  
+  // Dealer hand
+  const dealerHand = [deck.pop(), deck.pop()];
+  
+  return {
+    deck,
+    hands,
+    dealerHand,
+    dealerHidden: true, // Second card hidden
+    playerOrder: playerIds,
+    currentPlayerIndex: 0,
+    status: 'playing', // playing, dealerTurn, finished
+    stood: [],
+    busted: [],
+    chips: Object.fromEntries(playerIds.map(id => [id, 1000])),
+    bets: Object.fromEntries(playerIds.map(id => [id, 50])),
+    round: 1,
+    maxRounds: 5,
+    scores: Object.fromEntries(playerIds.map(id => [id, 0])),
+    results: {}
+  };
+}
+
+function blackjackHit(state, playerId) {
+  if (state.busted.includes(playerId) || state.stood.includes(playerId)) {
+    return { error: 'Cannot hit' };
+  }
+  
+  const card = state.deck.pop();
+  state.hands[playerId].push(card);
+  const value = getBlackjackValue(state.hands[playerId]);
+  
+  if (value > 21) {
+    state.busted.push(playerId);
+    return { card, value, busted: true };
+  }
+  
+  if (value === 21) {
+    state.stood.push(playerId);
+    return { card, value, blackjack: true };
+  }
+  
+  return { card, value };
+}
+
+function blackjackStand(state, playerId) {
+  if (!state.stood.includes(playerId)) {
+    state.stood.push(playerId);
+  }
+  return { stood: true };
+}
+
+function playDealerHand(state) {
+  state.dealerHidden = false;
+  
+  // Dealer hits until 17+
+  while (getBlackjackValue(state.dealerHand) < 17) {
+    state.dealerHand.push(state.deck.pop());
+  }
+  
+  return getBlackjackValue(state.dealerHand);
+}
+
+function determineBlackjackResults(state) {
+  const dealerValue = getBlackjackValue(state.dealerHand);
+  const dealerBusted = dealerValue > 21;
+  const results = {};
+  
+  for (const playerId of state.playerOrder) {
+    const playerValue = getBlackjackValue(state.hands[playerId]);
+    const playerBusted = state.busted.includes(playerId);
+    
+    if (playerBusted) {
+      results[playerId] = { result: 'lose', reason: 'Busted' };
+      state.scores[playerId] = (state.scores[playerId] || 0) - 1;
+    } else if (dealerBusted) {
+      results[playerId] = { result: 'win', reason: 'Dealer busted' };
+      state.scores[playerId] = (state.scores[playerId] || 0) + 2;
+    } else if (playerValue > dealerValue) {
+      results[playerId] = { result: 'win', reason: `${playerValue} beats ${dealerValue}` };
+      state.scores[playerId] = (state.scores[playerId] || 0) + 2;
+    } else if (playerValue < dealerValue) {
+      results[playerId] = { result: 'lose', reason: `${dealerValue} beats ${playerValue}` };
+      state.scores[playerId] = (state.scores[playerId] || 0) - 1;
+    } else {
+      results[playerId] = { result: 'push', reason: 'Tie' };
+    }
+  }
+  
+  state.results = results;
+  return results;
+}
+
+// ============================================
+// 24 GAME 🔢 (Make 24 with 4 numbers)
+// ============================================
+
+function generate24Puzzle() {
+  // Pre-defined solvable puzzles
+  const puzzles = [
+    { numbers: [1, 2, 3, 4], solutions: ['(1+2+3)*4', '4*(1+2+3)', '(4-1)*(2+3+1)'] },
+    { numbers: [1, 3, 4, 6], solutions: ['6/(1-3/4)', '(6-4+1)*3'] },
+    { numbers: [2, 3, 4, 6], solutions: ['(6-2)*(4+3-1)', '6*(4-2+3-3)'] },
+    { numbers: [1, 5, 5, 5], solutions: ['(5-1/5)*5'] },
+    { numbers: [3, 3, 8, 8], solutions: ['8/(3-8/3)'] },
+    { numbers: [2, 3, 5, 12], solutions: ['(5-3)*12', '12*(5-3)'] },
+    { numbers: [1, 4, 5, 6], solutions: ['4*(6-1/5)', '(6+1-5)*4'] },
+    { numbers: [2, 4, 6, 8], solutions: ['(8-4)*(6+2-2)', '8+6+4*2+2'] },
+    { numbers: [1, 2, 7, 7], solutions: ['(1+7)*(7-2-2)'] },
+    { numbers: [3, 4, 7, 8], solutions: ['(7-3)*(8-4+2)'] },
+    { numbers: [2, 2, 5, 8], solutions: ['8*(5-2-2+2)'] },
+    { numbers: [1, 6, 6, 8], solutions: ['(6-1-6+8)*6'] },
+    { numbers: [4, 4, 7, 7], solutions: ['(7-4)*(7+4-3)'] },
+    { numbers: [2, 5, 7, 8], solutions: ['(7-5)*8+2*4'] },
+    { numbers: [3, 6, 6, 9], solutions: ['(9-6)*(6+3-1)'] }
+  ];
+  
+  // Shuffle numbers within the puzzle
+  const puzzle = puzzles[Math.floor(Math.random() * puzzles.length)];
+  const shuffledNumbers = [...puzzle.numbers].sort(() => Math.random() - 0.5);
+  
+  return {
+    numbers: shuffledNumbers,
+    originalNumbers: puzzle.numbers
+  };
+}
+
+function evaluate24Expression(expr, numbers) {
+  try {
+    // Sanitize expression - only allow numbers, operators, and parentheses
+    const sanitized = expr.replace(/\s/g, '').replace(/×/g, '*').replace(/÷/g, '/');
+    if (!/^[\d+\-*/().]+$/.test(sanitized)) {
+      return { valid: false, error: 'Invalid characters' };
+    }
+    
+    // Check that all numbers are used exactly once
+    const usedNumbers = sanitized.match(/\d+/g)?.map(n => parseInt(n)) || [];
+    const sortedUsed = [...usedNumbers].sort((a, b) => a - b);
+    const sortedExpected = [...numbers].sort((a, b) => a - b);
+    
+    if (sortedUsed.length !== 4 || sortedUsed.join(',') !== sortedExpected.join(',')) {
+      return { valid: false, error: 'Must use all 4 numbers exactly once' };
+    }
+    
+    // Evaluate
+    const result = Function('"use strict"; return (' + sanitized + ')')();
+    
+    if (Math.abs(result - 24) < 0.0001) {
+      return { valid: true, result: 24 };
+    } else {
+      return { valid: false, error: `= ${result}, not 24` };
+    }
+  } catch (e) {
+    return { valid: false, error: 'Invalid expression' };
+  }
+}
+
+function create24GameState(players) {
+  const playerIds = Array.from(players.keys()).filter(id => id !== 'AI_PLAYER');
+  const puzzle = generate24Puzzle();
+  
+  return {
+    numbers: puzzle.numbers,
+    originalNumbers: puzzle.originalNumbers,
+    playerOrder: playerIds,
+    scores: Object.fromEntries(playerIds.map(id => [id, 0])),
+    round: 1,
+    maxRounds: 8,
+    solved: false,
+    solvedBy: null,
+    timePerRound: 60,
+    roundStartTime: Date.now(),
+    status: 'playing' // playing, solved, timeout, finished
+  };
+}
+
+function process24Guess(state, playerId, expression) {
+  if (state.solved) {
+    return { error: 'Already solved' };
+  }
+  
+  const result = evaluate24Expression(expression, state.numbers);
+  
+  if (result.valid) {
+    state.solved = true;
+    state.solvedBy = playerId;
+    state.scores[playerId] = (state.scores[playerId] || 0) + 10;
+    state.status = 'solved';
+    
+    return {
+      correct: true,
+      expression,
+      points: 10
+    };
+  }
+  
+  return {
+    correct: false,
+    error: result.error,
+    expression
+  };
+}
+
+function start24NewRound(state) {
+  const puzzle = generate24Puzzle();
+  state.numbers = puzzle.numbers;
+  state.originalNumbers = puzzle.originalNumbers;
+  state.solved = false;
+  state.solvedBy = null;
+  state.roundStartTime = Date.now();
+  state.status = 'playing';
+  state.round++;
+  
+  if (state.round > state.maxRounds) {
+    state.status = 'finished';
+  }
+  
+  return state;
+}
+
 // Export all functions
 module.exports = {
   // Hangman
@@ -759,7 +1226,7 @@ module.exports = {
   processWordChainTurn,
   getAIWordChainWord,
   
-  // Reaction Test
+  // Reaction Test / Word Scramble
   createReactionTestState,
   startReactionRound,
   processReactionClick,
@@ -778,5 +1245,29 @@ module.exports = {
   createDrawingGuessState,
   startDrawingRound,
   processDrawingGuess,
-  endDrawingRound
+  endDrawingRound,
+  
+  // Poker
+  createDeck,
+  shuffleDeck,
+  createPokerState,
+  advancePokerPhase,
+  determinePokerWinner,
+  getBestPokerHand,
+  evaluatePokerHand,
+  
+  // Blackjack
+  createBlackjackState,
+  blackjackHit,
+  blackjackStand,
+  playDealerHand,
+  determineBlackjackResults,
+  getBlackjackValue,
+  
+  // 24 Game
+  create24GameState,
+  generate24Puzzle,
+  process24Guess,
+  start24NewRound,
+  evaluate24Expression
 };
