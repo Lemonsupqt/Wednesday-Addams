@@ -561,29 +561,54 @@ function updateReactionTest(data) {
 function initBattleship(gameState, players) {
   console.log('🚢 Initializing Battleship:', gameState);
   state.gameState = gameState;
+  
+  // Extract player-specific data from the raw game state
+  // The server sends boards[playerId], ships[playerId], shots[playerId]
+  const playerId = state.playerId;
+  const myBoard = gameState.boards?.[playerId] || gameState.myBoard || Array(10).fill(null).map(() => Array(10).fill(null));
+  const myShips = gameState.ships?.[playerId] || [];
+  const myShots = gameState.shots?.[playerId] || gameState.myShots || [];
+  const placedShips = myShips.map ? myShips.map(s => s.index) : (gameState.placedShips || []);
+  
   state.battleshipState = {
     selectedShip: null,
     horizontal: true,
-    placedShips: gameState.placedShips || []
+    placedShips: placedShips,
+    myBoard: myBoard,
+    myShots: myShots
   };
   elements.gameTitle.textContent = '🚢 Battleship - Hawkins Naval Warfare';
   
+  renderBattleshipGame(gameState, players);
+}
+
+function renderBattleshipGame(gameState, players) {
   const isMyTurn = gameState.currentPlayer === state.playerId;
   const isPlacement = gameState.phase === 'placement';
+  const isWaiting = gameState.phase === 'waiting';
+  
+  let statusText = '';
+  if (isPlacement) {
+    statusText = '📍 Tap a ship, then tap the board to place it!';
+  } else if (isWaiting) {
+    statusText = '⏳ Waiting for opponent to place ships...';
+  } else if (isMyTurn) {
+    statusText = '🎯 Tap enemy waters to fire!';
+  } else {
+    statusText = '⏳ Opponent\'s turn...';
+  }
   
   elements.gameContent.innerHTML = `
     <div class="battleship-container mobile-friendly">
-      <div class="battleship-status" id="battleshipStatus">
-        ${isPlacement ? '📍 Tap a ship, then tap the board to place it!' : isMyTurn ? '🎯 Tap enemy waters to fire!' : '⏳ Opponent\'s turn...'}
-      </div>
+      <div class="battleship-status" id="battleshipStatus">${statusText}</div>
       
       ${isPlacement ? `
         <div class="ship-placement-mobile" id="shipPlacement">
           <div class="placement-header">🚢 Select a ship to place:</div>
           <div class="ships-to-place-mobile">
             ${BATTLESHIP_SHIPS.map((ship, i) => `
-              <button class="ship-btn ${gameState.placedShips?.includes(i) ? 'placed' : ''} ${state.battleshipState?.selectedShip === i ? 'selected' : ''}" 
-                      data-ship="${i}" ${gameState.placedShips?.includes(i) ? 'disabled' : ''}>
+              <button class="ship-btn ${state.battleshipState.placedShips?.includes(i) ? 'placed' : ''}" 
+                      data-ship="${i}" data-size="${ship.size}" ${state.battleshipState.placedShips?.includes(i) ? 'disabled' : ''}>
                 <span class="ship-emoji">${ship.emoji}</span>
                 <span class="ship-info">
                   <span class="ship-name">${ship.name}</span>
@@ -594,16 +619,11 @@ function initBattleship(gameState, players) {
           </div>
           <div class="orientation-indicator" id="orientationIndicator">
             <span>📐 Direction:</span>
-            <span id="orientationText">
-              <span class="rotation-preview horizontal" id="rotationPreview">
-                <span></span><span></span><span></span>
-              </span>
-              Horizontal →
-            </span>
+            <span id="orientationText">${state.battleshipState.horizontal ? 'Horizontal →' : 'Vertical ↓'}</span>
           </div>
           <div class="placement-controls-mobile">
             <button class="btn btn-secondary btn-large" id="rotateShip">🔄 Rotate</button>
-            <button class="btn btn-primary btn-large" id="confirmPlacement" ${(gameState.placedShips?.length || 0) < 5 ? 'disabled' : ''}>⚔️ Ready!</button>
+            <button class="btn btn-primary btn-large" id="confirmPlacement" ${(state.battleshipState.placedShips?.length || 0) < 5 ? 'disabled' : ''}>⚔️ Ready!</button>
           </div>
         </div>
       ` : ''}
@@ -612,7 +632,7 @@ function initBattleship(gameState, players) {
         <div class="board-section-mobile ${isPlacement ? 'active' : ''}">
           <div class="board-label">🚢 Your Fleet</div>
           <div class="battleship-board my-board mobile-board" id="myBoard">
-            ${renderBattleshipBoardMobile(gameState.myBoard, false, isPlacement)}
+            ${renderBattleshipBoardMobile(state.battleshipState.myBoard, false, isPlacement)}
           </div>
         </div>
         
@@ -620,7 +640,7 @@ function initBattleship(gameState, players) {
         <div class="board-section-mobile ${isMyTurn ? 'active' : ''}">
           <div class="board-label">🎯 Enemy Waters ${isMyTurn ? '(TAP TO FIRE!)' : ''}</div>
           <div class="battleship-board enemy-board mobile-board" id="enemyBoard">
-            ${renderBattleshipBoardMobile(gameState.myShots || [], true, false)}
+            ${renderBattleshipBoardMobile(state.battleshipState.myShots, true, false)}
           </div>
         </div>
         ` : ''}
@@ -757,12 +777,16 @@ function setupBattleshipMobileListeners(gameState, isPlacement) {
         const statusEl = document.getElementById('battleshipStatus');
         if (statusEl) {
           const ship = BATTLESHIP_SHIPS[state.battleshipState.selectedShip];
-          statusEl.textContent = `📍 Tap the board to place ${ship.emoji} ${ship.name} (${ship.size} cells)`;
+          const dir = state.battleshipState.horizontal ? '→' : '↓';
+          statusEl.textContent = `📍 Tap the board to place ${ship.emoji} ${ship.name} (${ship.size} cells) ${dir}`;
         }
+        
+        // Clear any existing preview
+        clearShipPreview();
       });
     });
     
-    // Rotate button - fixed to prevent transform issues
+    // Rotate button - show rotation in real-time
     document.getElementById('rotateShip')?.addEventListener('click', (e) => {
       e.preventDefault();
       e.stopPropagation();
@@ -771,23 +795,14 @@ function setupBattleshipMobileListeners(gameState, isPlacement) {
       state.battleshipState.horizontal = !state.battleshipState.horizontal;
       const isHorizontal = state.battleshipState.horizontal;
       
+      // Update orientation text
       const orientText = document.getElementById('orientationText');
-      const orientIndicator = document.getElementById('orientationIndicator');
-      
       if (orientText) {
-        // Update the orientation text and preview
-        orientText.innerHTML = isHorizontal 
-          ? `<span class="rotation-preview horizontal" id="rotationPreview">
-              <span></span><span></span><span></span>
-            </span>
-            Horizontal →`
-          : `<span class="rotation-preview vertical" id="rotationPreview">
-              <span></span><span></span><span></span>
-            </span>
-            Vertical ↓`;
+        orientText.textContent = isHorizontal ? 'Horizontal →' : 'Vertical ↓';
       }
       
-      // Visual feedback on the indicator container instead of button
+      // Visual feedback
+      const orientIndicator = document.getElementById('orientationIndicator');
       if (orientIndicator) {
         orientIndicator.style.boxShadow = '0 0 15px rgba(147, 51, 234, 0.6)';
         setTimeout(() => {
@@ -795,18 +810,29 @@ function setupBattleshipMobileListeners(gameState, isPlacement) {
         }, 300);
       }
       
-      // Update status to show current direction
+      // Update status
       const statusEl = document.getElementById('battleshipStatus');
       if (statusEl && state.battleshipState.selectedShip !== null) {
         const ship = BATTLESHIP_SHIPS[state.battleshipState.selectedShip];
         statusEl.textContent = `📍 ${ship.emoji} ${ship.name} - ${isHorizontal ? 'Horizontal →' : 'Vertical ↓'}`;
       }
       
+      // Update ship preview on board if hovering
+      updateShipPreviewOnBoard();
+      
       console.log('🔄 Rotation toggled:', isHorizontal ? 'Horizontal' : 'Vertical');
     });
     
-    // Board cell tap for placement
+    // Board cell hover/touch for preview
     document.querySelectorAll('#myBoard .board-cell-mobile').forEach(cell => {
+      // Touch/hover to show preview
+      cell.addEventListener('mouseenter', () => showShipPreviewAt(cell));
+      cell.addEventListener('touchstart', (e) => {
+        e.preventDefault();
+        showShipPreviewAt(cell);
+      }, { passive: false });
+      
+      // Click to place
       cell.addEventListener('click', (e) => {
         e.preventDefault();
         if (state.battleshipState.selectedShip !== null) {
@@ -824,14 +850,92 @@ function setupBattleshipMobileListeners(gameState, isPlacement) {
       });
     });
     
+    // Clear preview when leaving board
+    document.getElementById('myBoard')?.addEventListener('mouseleave', clearShipPreview);
+    
     // Ready button
     document.getElementById('confirmPlacement')?.addEventListener('click', (e) => {
       e.preventDefault();
       socket.emit('battleshipReady');
     });
-  } else if (gameState.phase === 'playing' && gameState.currentPlayer === state.playerId) {
-    // Firing logic
-    document.querySelectorAll('#enemyBoard .board-cell-mobile.unknown').forEach(cell => {
+  } else if (gameState.phase === 'playing') {
+    // Firing logic - set up for current player's turn
+    setupBattleshipFiringListeners();
+  }
+}
+
+// Show ship preview at a specific cell
+function showShipPreviewAt(cell) {
+  if (state.battleshipState.selectedShip === null) return;
+  
+  clearShipPreview();
+  
+  const row = parseInt(cell.dataset.row);
+  const col = parseInt(cell.dataset.col);
+  const ship = BATTLESHIP_SHIPS[state.battleshipState.selectedShip];
+  const isHorizontal = state.battleshipState.horizontal;
+  
+  // Calculate cells the ship would occupy
+  const previewCells = [];
+  let isValid = true;
+  
+  for (let i = 0; i < ship.size; i++) {
+    const r = isHorizontal ? row : row + i;
+    const c = isHorizontal ? col + i : col;
+    
+    // Check bounds
+    if (r >= 10 || c >= 10) {
+      isValid = false;
+      break;
+    }
+    
+    // Check if cell is already occupied
+    const targetCell = document.querySelector(`#myBoard .board-cell-mobile[data-row="${r}"][data-col="${c}"]`);
+    if (targetCell) {
+      if (targetCell.classList.contains('ship')) {
+        isValid = false;
+      }
+      previewCells.push(targetCell);
+    }
+  }
+  
+  // Show preview
+  previewCells.forEach(c => {
+    c.classList.add('ship-preview');
+    if (!isValid) {
+      c.classList.add('invalid');
+    }
+  });
+  
+  state.battleshipState.previewCells = previewCells;
+}
+
+// Clear ship preview
+function clearShipPreview() {
+  document.querySelectorAll('.ship-preview').forEach(cell => {
+    cell.classList.remove('ship-preview', 'invalid');
+  });
+  if (state.battleshipState) {
+    state.battleshipState.previewCells = [];
+  }
+}
+
+// Update ship preview when rotating
+function updateShipPreviewOnBoard() {
+  const previewCells = state.battleshipState?.previewCells;
+  if (previewCells && previewCells.length > 0) {
+    // Get the first cell of current preview
+    const firstCell = previewCells[0];
+    if (firstCell) {
+      showShipPreviewAt(firstCell);
+    }
+  }
+}
+
+// Setup firing listeners for playing phase
+function setupBattleshipFiringListeners() {
+  document.querySelectorAll('#enemyBoard .board-cell-mobile.unknown').forEach(cell => {
+    if (!cell.dataset.listenerAdded) {
       cell.addEventListener('click', (e) => {
         e.preventDefault();
         const row = parseInt(cell.dataset.row);
@@ -842,8 +946,9 @@ function setupBattleshipMobileListeners(gameState, isPlacement) {
           socket.emit('battleshipFire', { row, col });
         }
       });
-    });
-  }
+      cell.dataset.listenerAdded = 'true';
+    }
+  });
 }
 
 function setupBattleshipListeners(gameState) {
@@ -894,6 +999,22 @@ function setupBattleshipListeners(gameState) {
 }
 
 function updateBattleship(data) {
+  console.log('🚢 Battleship update:', data);
+  
+  // Handle phase transition from placement to playing
+  if (data.phase === 'playing' && !document.getElementById('enemyBoard')) {
+    console.log('🚢 Phase changed to playing - re-rendering with enemy board');
+    // Store current game state and re-render
+    const gameState = {
+      phase: 'playing',
+      currentPlayer: data.currentPlayer,
+      myBoard: state.battleshipState?.myBoard || [],
+      myShots: state.battleshipState?.myShots || []
+    };
+    renderBattleshipGame(gameState, data.players);
+    return;
+  }
+  
   if (data.shipPlaced) {
     // Mark ship as placed in both old and new UI
     const option = document.querySelector(`.ship-option[data-ship="${data.shipIndex}"]`);
@@ -909,6 +1030,9 @@ function updateBattleship(data) {
     // Update board (both desktop and mobile)
     const myBoard = document.getElementById('myBoard');
     if (myBoard && data.positions) {
+      // Clear preview first
+      clearShipPreview();
+      
       data.positions.forEach(pos => {
         // Try mobile cell first, then desktop
         let cell = myBoard.querySelector(`.board-cell-mobile[data-row="${pos.row}"][data-col="${pos.col}"]`);
@@ -917,14 +1041,25 @@ function updateBattleship(data) {
         }
         if (cell) {
           cell.classList.add('ship');
+          cell.classList.remove('ship-preview', 'invalid');
           cell.textContent = '🚢';
+        }
+        
+        // Update local board state
+        if (state.battleshipState?.myBoard) {
+          if (!state.battleshipState.myBoard[pos.row]) {
+            state.battleshipState.myBoard[pos.row] = [];
+          }
+          state.battleshipState.myBoard[pos.row][pos.col] = { ship: data.shipIndex };
         }
       });
     }
     
     // Update placed ships state
     if (state.battleshipState) {
-      state.battleshipState.placedShips.push(data.shipIndex);
+      if (!state.battleshipState.placedShips.includes(data.shipIndex)) {
+        state.battleshipState.placedShips.push(data.shipIndex);
+      }
       state.battleshipState.selectedShip = null;
     }
     
@@ -956,6 +1091,14 @@ function updateBattleship(data) {
       }
     }
     
+    // Update local state - myShots is an array of {row, col, hit} objects
+    if (isMyShot && state.battleshipState) {
+      if (!state.battleshipState.myShots) {
+        state.battleshipState.myShots = [];
+      }
+      state.battleshipState.myShots.push({ row, col, hit });
+    }
+    
     if (sunk) {
       showNotification(`${sunk.name} has been sunk! ${sunk.emoji}`, 'info');
     }
@@ -967,25 +1110,27 @@ function updateBattleship(data) {
       statusEl.textContent = data.winner === state.playerId ? '🎉 Victory! You sunk their fleet!' : '💀 Defeat! Your fleet was destroyed!';
       showPlayAgainButton('battleship');
     } else if (data.phase === 'playing') {
-      statusEl.textContent = data.currentPlayer === state.playerId ? '🎯 Tap enemy waters to fire!' : '⏳ Opponent\'s turn...';
+      const isMyTurn = data.currentPlayer === state.playerId;
+      statusEl.textContent = isMyTurn ? '🎯 Tap enemy waters to fire!' : '⏳ Opponent\'s turn...';
+      
+      // Update board labels to show whose turn
+      const enemySection = document.querySelector('.board-section-mobile:last-child');
+      const mySection = document.querySelector('.board-section-mobile:first-child');
+      
+      if (enemySection) {
+        enemySection.classList.toggle('active', isMyTurn);
+        const label = enemySection.querySelector('.board-label');
+        if (label) {
+          label.textContent = isMyTurn ? '🎯 Enemy Waters (TAP TO FIRE!)' : '🎯 Enemy Waters';
+        }
+      }
+      if (mySection) {
+        mySection.classList.toggle('active', !isMyTurn);
+      }
       
       // Re-setup listeners for the new turn
-      if (data.currentPlayer === state.playerId) {
-        document.querySelectorAll('#enemyBoard .board-cell-mobile.unknown, #enemyBoard .board-cell.unknown').forEach(cell => {
-          if (!cell.dataset.listenerAdded) {
-            cell.addEventListener('click', (e) => {
-              e.preventDefault();
-              const r = parseInt(cell.dataset.row);
-              const c = parseInt(cell.dataset.col);
-              if (state.isAIGame) {
-                socket.emit('aiBattleshipFire', { row: r, col: c });
-              } else {
-                socket.emit('battleshipFire', { row: r, col: c });
-              }
-            });
-            cell.dataset.listenerAdded = 'true';
-          }
-        });
+      if (isMyTurn) {
+        setupBattleshipFiringListeners();
       }
     }
   }
