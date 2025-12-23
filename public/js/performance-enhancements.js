@@ -129,36 +129,62 @@
   // ERROR BOUNDARY
   // ============================================
   
+  // Track if page has fully loaded
+  let pageFullyLoaded = false;
+  window.addEventListener('load', () => {
+    // Wait a bit after load to avoid catching initialization errors
+    setTimeout(() => {
+      pageFullyLoaded = true;
+    }, 2000);
+  });
+  
   window.onerror = function(message, source, lineno, colno, error) {
-    console.error('🚨 Global error caught:', { message, source, lineno, colno, error });
+    // Only log errors, don't show toast during page load
+    console.warn('🚨 Global error caught:', { message, source, lineno, colno, error });
     
-    // Don't show error toast for minor issues
+    // Don't show error toast for minor issues or during page load
     const ignoredErrors = [
       'ResizeObserver loop',
       'Script error',
       'Loading chunk',
-      'Network Error'
+      'Network Error',
+      'undefined',
+      'null',
+      'Cannot read',
+      'is not defined',
+      'socket',
+      'Socket',
+      'fetch',
+      'Failed to fetch',
+      'AbortError',
+      'timeout',
+      'cross-origin'
     ];
     
-    if (ignoredErrors.some(ignored => message.includes(ignored))) {
+    // Always suppress during initial load
+    if (!pageFullyLoaded) {
+      return true;
+    }
+    
+    if (message && ignoredErrors.some(ignored => String(message).toLowerCase().includes(ignored.toLowerCase()))) {
       return true; // Suppress
     }
     
-    // Show user-friendly error
-    if (typeof showError === 'function') {
-      showError('Something went wrong. Please refresh if issues persist.');
-    }
+    // Don't show toast - just log to console
+    // The app has its own error handling for user-facing errors
+    // if (typeof showError === 'function') {
+    //   showError('Something went wrong. Please refresh if issues persist.');
+    // }
     
     return false;
   };
   
   window.onunhandledrejection = function(event) {
-    console.error('🚨 Unhandled promise rejection:', event.reason);
-    // Don't show toast for network errors
-    if (event.reason?.message?.includes('fetch') || 
-        event.reason?.message?.includes('network')) {
-      return;
-    }
+    // Just log, don't show any toast - the app handles its own errors
+    console.warn('🚨 Unhandled promise rejection:', event.reason);
+    // Suppress all - let the app's own error handling deal with user-facing errors
+    event.preventDefault();
+    return true;
   };
   
   // ============================================
