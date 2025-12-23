@@ -3727,7 +3727,7 @@ io.on('connection', (socket) => {
     
     io.to(roomId).emit('gameRestarted', {
       gameType,
-      gameState: room.gameState,
+      gameState: serializeGameState(room.gameState, gameType),
       players: room.getPlayerList()
     });
     console.log(`🔄 Game restarted: ${gameType} in room ${roomId}`);
