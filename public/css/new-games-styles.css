@@ -1075,6 +1075,9 @@
 .battleship-container.mobile-friendly {
   padding: 10px;
   gap: 15px;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
 }
 
 .ship-placement-mobile {
@@ -1254,8 +1257,9 @@
 .battleship-boards-mobile {
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 15px;
   width: 100%;
+  box-sizing: border-box;
 }
 
 .board-section-mobile {
@@ -1263,11 +1267,13 @@
   flex-direction: column;
   align-items: center;
   gap: 10px;
-  padding: 15px;
+  padding: 12px;
   background: rgba(0, 0, 0, 0.25);
   border-radius: 14px;
   border: 2px solid transparent;
   transition: all 0.3s ease;
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .board-section-mobile.active {
@@ -1286,40 +1292,42 @@
 
 .mobile-board {
   width: 100%;
-  max-width: 380px;
+  max-width: min(95vw, 450px);
   aspect-ratio: 1 / 1;
-  padding: 8px;
+  padding: 6px;
   background: rgba(30, 58, 138, 0.15);
   border-radius: 10px;
   box-sizing: border-box;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  overflow: hidden;
 }
 
 .board-grid-mobile {
   display: grid;
   grid-template-columns: repeat(10, 1fr);
   grid-template-rows: repeat(10, 1fr);
-  gap: 3px;
+  gap: 2px;
   width: 100%;
   height: 100%;
   box-sizing: border-box;
 }
 
 .board-cell-mobile {
-  aspect-ratio: 1;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
   display: flex;
   align-items: center;
   justify-content: center;
   background: rgba(30, 58, 138, 0.4);
-  border-radius: 4px;
-  font-size: clamp(0.7rem, 3vw, 1.1rem);
+  border-radius: 3px;
+  font-size: clamp(0.5rem, 2.5vw, 0.9rem);
   cursor: pointer;
   transition: all 0.15s ease;
   user-select: none;
   -webkit-tap-highlight-color: transparent;
   border: 1px solid rgba(30, 58, 138, 0.5);
+  overflow: hidden;
 }
 
 .board-cell-mobile:hover:not(.ship):not(.hit):not(.miss) {
@@ -1358,35 +1366,23 @@
 
 /* Ship preview during placement */
 .board-cell-mobile.ship-preview {
-  background: rgba(34, 197, 94, 0.5);
-  border-color: #22c55e;
+  background: rgba(34, 197, 94, 0.6) !important;
+  border-color: #22c55e !important;
   animation: shipPreviewPulse 0.8s ease infinite;
 }
 
-.board-cell-mobile.ship-preview::after {
-  content: '🚢';
-  font-size: clamp(0.6rem, 2.5vw, 1rem);
-  opacity: 0.8;
-}
-
 .board-cell-mobile.ship-preview.invalid {
-  background: rgba(239, 68, 68, 0.5);
-  border-color: #ef4444;
+  background: rgba(239, 68, 68, 0.6) !important;
+  border-color: #ef4444 !important;
   animation: shipPreviewInvalid 0.3s ease infinite;
-}
-
-.board-cell-mobile.ship-preview.invalid::after {
-  content: '❌';
 }
 
 @keyframes shipPreviewPulse {
   0%, 100% { 
     background: rgba(34, 197, 94, 0.5);
-    transform: scale(1);
   }
   50% { 
-    background: rgba(34, 197, 94, 0.7);
-    transform: scale(1.05);
+    background: rgba(34, 197, 94, 0.8);
   }
 }
 
@@ -1395,7 +1391,7 @@
     background: rgba(239, 68, 68, 0.5);
   }
   50% { 
-    background: rgba(239, 68, 68, 0.7);
+    background: rgba(239, 68, 68, 0.8);
   }
 }
 
@@ -1422,48 +1418,120 @@
   font-size: 1.3rem;
 }
 
-/* Mobile responsive adjustments */
-@media (max-width: 480px) {
+/* Mobile responsive adjustments - MOBILE FIRST */
+@media (max-width: 768px) {
   .battleship-container.mobile-friendly {
     padding: 8px;
+    gap: 12px;
+  }
+  
+  .ship-placement-mobile {
+    padding: 10px;
+    gap: 10px;
   }
   
   .ship-btn {
-    padding: 12px 14px;
+    padding: 10px 12px;
+    gap: 10px;
   }
   
   .ship-btn .ship-emoji {
-    font-size: 1.7rem;
+    font-size: 1.5rem;
   }
   
   .ship-btn .ship-name {
-    font-size: 0.95rem;
+    font-size: 0.9rem;
   }
   
   .ship-btn .ship-size {
-    font-size: 0.85rem;
+    font-size: 0.75rem;
+    letter-spacing: -1px;
+  }
+  
+  .placement-controls-mobile {
+    gap: 8px;
   }
   
   .placement-controls-mobile .btn {
-    padding: 14px;
+    padding: 12px 16px;
+    font-size: 0.95rem;
+    flex: 1;
+    min-width: 120px;
+  }
+  
+  .board-section-mobile {
+    padding: 10px;
+    gap: 8px;
+  }
+  
+  .board-section-mobile .board-label {
     font-size: 1rem;
+    padding: 4px 12px;
   }
   
   .mobile-board {
-    max-width: 340px;
+    max-width: min(92vw, 400px);
+    padding: 5px;
+  }
+  
+  .board-grid-mobile {
+    gap: 2px;
   }
   
   .board-cell-mobile {
-    font-size: clamp(0.6rem, 2.5vw, 0.9rem);
-    border-radius: 3px;
+    font-size: clamp(0.45rem, 2.2vw, 0.8rem);
+    border-radius: 2px;
+  }
+  
+  .battleship-legend-mobile {
+    padding: 8px 10px;
+    gap: 10px;
   }
   
   .battleship-legend-mobile .legend-item {
-    font-size: 0.8rem;
+    font-size: 0.75rem;
+    gap: 5px;
   }
   
   .battleship-legend-mobile .cell-icon {
-    font-size: 1.1rem;
+    font-size: 1rem;
+  }
+  
+  .orientation-indicator {
+    padding: 8px 12px;
+    font-size: 0.95rem;
+  }
+  
+  #orientationText {
+    font-size: 1rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .battleship-container.mobile-friendly {
+    padding: 6px;
+    gap: 10px;
+  }
+  
+  .ship-btn {
+    padding: 8px 10px;
+  }
+  
+  .ship-btn .ship-emoji {
+    font-size: 1.3rem;
+  }
+  
+  .mobile-board {
+    max-width: min(94vw, 360px);
+    padding: 4px;
+  }
+  
+  .board-cell-mobile {
+    font-size: clamp(0.4rem, 2vw, 0.7rem);
+  }
+  
+  .battleship-boards-mobile {
+    gap: 12px;
   }
 }
 
@@ -1475,7 +1543,10 @@
 }
 
 .placement-controls-mobile {
+  display: flex;
   flex-wrap: wrap;
+  gap: 10px;
+  justify-content: center;
 }
 
 @media (max-width: 360px) {
@@ -1488,7 +1559,16 @@
   }
   
   .mobile-board {
-    max-width: 300px;
+    max-width: min(96vw, 320px);
+    padding: 3px;
+  }
+  
+  .board-grid-mobile {
+    gap: 1px;
+  }
+  
+  .ship-btn .ship-size {
+    display: none;
   }
 }
 
