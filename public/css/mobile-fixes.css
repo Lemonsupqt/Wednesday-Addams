@@ -651,42 +651,112 @@ input[type="submit"] {
    ============================================ */
 
 @media (max-width: 768px) {
+  /* Game header layout - stacked on mobile */
+  .game-header {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 10px 12px;
+    position: relative;
+  }
+  
+  /* Title bar with score button - row layout */
   .game-title-bar {
     display: flex;
-    flex-wrap: wrap;
+    flex-direction: row;
+    flex-wrap: nowrap;
     align-items: center;
-    gap: 10px;
+    gap: 8px;
     width: 100%;
+    position: relative;
+    order: 1;
   }
   
+  /* Game title - take remaining space */
   .game-title-bar h2 {
-    flex: 1;
+    flex: 1 1 auto;
     min-width: 0;
-    font-size: 1.2rem;
-    margin: 0;
+    font-size: 1.1rem;
+    margin: 0 !important;
+    margin-right: 0 !important;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   
+  /* Score toggle button - fixed size, no overlap */
   .score-toggle-btn {
     position: static !important;
     top: auto !important;
     right: auto !important;
-    margin-left: auto;
-    flex-shrink: 0;
+    margin-left: 0 !important;
+    flex: 0 0 auto;
     min-width: 44px;
     min-height: 44px;
-    padding: 8px 12px;
-    font-size: 0.9rem;
-    display: flex;
+    width: 44px;
+    height: 44px;
+    padding: 0;
+    font-size: 1.2rem;
+    display: flex !important;
     align-items: center;
     justify-content: center;
     z-index: 10;
+    order: 2;
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
   }
   
-  .game-header {
-    display: flex;
+  /* Score board dropdown - positioned below title bar */
+  .game-title-bar .score-board {
+    position: absolute;
+    top: calc(100% + 5px);
+    left: 0;
+    right: 0;
+    z-index: 100;
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    padding: 10px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+    display: none !important;
+  }
+  
+  .game-title-bar .score-board.expanded {
+    display: flex !important;
     flex-direction: column;
-    gap: 10px;
-    padding: 12px 15px;
+    gap: 6px;
+  }
+  
+  /* Now playing display */
+  #nowPlayingDisplay {
+    order: 3;
+    font-size: 0.8rem;
+    text-align: center;
+    padding: 4px 0;
+  }
+  
+  /* End game button - full width at bottom */
+  #backToLobbyBtn {
+    order: 4;
+    width: 100%;
+    margin-top: 4px;
+    min-height: 40px;
+  }
+}
+
+/* Extra small screens */
+@media (max-width: 360px) {
+  .game-title-bar h2 {
+    font-size: 0.95rem;
+  }
+  
+  .score-toggle-btn {
+    min-width: 40px;
+    width: 40px;
+    height: 40px;
+    min-height: 40px;
+    font-size: 1rem;
   }
 }
 
@@ -1027,5 +1097,96 @@ input[type="submit"] {
   .game-chat,
   .chat-input-container {
     padding-bottom: max(15px, env(safe-area-inset-bottom));
+  }
+}
+
+/* ============================================
+   GAME-SPECIFIC SCORE BUTTON FIXES
+   Ensures proper placement for each game type
+   ============================================ */
+
+@media (max-width: 768px) {
+  /* Tic-Tac-Toe specific */
+  .ttt-container ~ .score-board,
+  .ttt-container + .score-board {
+    margin-top: 10px;
+  }
+  
+  /* Chess board - ensure score doesn't overlap */
+  .chess-container .score-board {
+    position: relative !important;
+  }
+  
+  /* Memory game - cards should not be covered */
+  .memory-container + .score-board {
+    margin-bottom: 10px;
+  }
+  
+  /* Battleship - boards need space */
+  .battleship-container ~ .score-board {
+    max-height: 150px;
+    overflow-y: auto;
+  }
+  
+  /* All game containers - ensure no overlap with score */
+  .game-content {
+    position: relative;
+    z-index: 1;
+  }
+  
+  /* Score board items - compact for mobile */
+  .score-board .score-item {
+    padding: 6px 10px;
+    font-size: 0.85rem;
+    gap: 6px;
+  }
+  
+  .score-board .score-header {
+    font-size: 0.75rem;
+    padding: 4px 10px;
+    border-bottom: 1px solid var(--border-color);
+    margin-bottom: 4px;
+  }
+  
+  /* Play again container - ensure visible above score */
+  .play-again-container {
+    position: relative;
+    z-index: 50;
+    margin-top: 15px;
+    padding: 15px;
+    background: rgba(0, 0, 0, 0.4);
+    border-radius: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    align-items: center;
+  }
+  
+  .play-again-container .btn {
+    width: 100%;
+    max-width: 280px;
+  }
+}
+
+/* Landscape mode adjustments */
+@media (max-width: 900px) and (orientation: landscape) {
+  .game-header {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    padding: 8px 15px;
+  }
+  
+  .game-title-bar {
+    flex: 1;
+  }
+  
+  #backToLobbyBtn {
+    width: auto;
+    order: 0;
+  }
+  
+  .score-toggle-btn {
+    margin-left: 10px;
   }
 }

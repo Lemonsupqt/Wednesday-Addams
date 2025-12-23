@@ -2943,8 +2943,8 @@ function showPlayAgainButton(gameType) {
       <button class="btn btn-primary play-again-btn" id="playAgainBtn">
         <span class="btn-icon">🔄</span> Play Again
       </button>
-      <button class="btn btn-secondary back-to-lobby-btn" id="backToLobbyFromGame">
-        <span class="btn-icon">🏠</span> Back to Lobby
+      <button class="btn btn-secondary back-to-room-btn" id="backToRoomFromGame">
+        <span class="btn-icon">🏠</span> Back to Room
       </button>
     `;
     container.appendChild(playAgainDiv);
@@ -2959,7 +2959,7 @@ function showPlayAgainButton(gameType) {
       }
     });
     
-    document.getElementById('backToLobbyFromGame')?.addEventListener('click', () => {
+    document.getElementById('backToRoomFromGame')?.addEventListener('click', () => {
       socket.emit('endGame');
     });
   }
@@ -3902,10 +3902,11 @@ socket.on('roomJoined', (data) => {
 
 socket.on('playerJoined', (data) => {
   updatePlayersList(data.players);
-  addChatMessage({ system: true, message: '👤 A new outcast has arrived!' });
   
-  // Show floating notification for new player (especially for those in-game)
+  // Only show "new outcast" message if there's actually a new player joining
+  // (Not just a player list update from match changes)
   if (data.newPlayer && data.newPlayer.id !== state.playerId) {
+    addChatMessage({ system: true, message: '👤 A new outcast has arrived!' });
     showFloatingNotification(`${data.newPlayer.name} joined the room`);
   }
 });
@@ -4000,6 +4001,9 @@ socket.on('matchUpdate', (data) => {
 // Track pending AI end options timeout so we can cancel it
 let aiEndOptionsTimeout = null;
 
+// Track pending match end options timeout so we can cancel it
+let matchEndOptionsTimeout = null;
+
 socket.on('matchEnded', (data) => {
   console.log('🏁 Match ended:', data);
   const wasMyMatch = state.matchId === data.matchId;
@@ -4012,23 +4016,29 @@ socket.on('matchEnded', (data) => {
   // Remove spectator badge if present
   removeSpectatorBadge();
   
-  // Show results
+  // Show results notification
   if (data.winner) {
     showNotification(`🏆 ${data.winner.name} wins!`, 'success');
   } else if (data.draw) {
     showNotification(`🤝 It's a draw!`, 'info');
   }
   
+  // Cancel any pending timeout
+  if (aiEndOptionsTimeout) {
+    clearTimeout(aiEndOptionsTimeout);
+    aiEndOptionsTimeout = null;
+  }
+  if (matchEndOptionsTimeout) {
+    clearTimeout(matchEndOptionsTimeout);
+    matchEndOptionsTimeout = null;
+  }
+  
   // If this was an AI match, show replay options
   if (wasMyMatch && wasAIGame) {
-    // Cancel any existing timeout
-    if (aiEndOptionsTimeout) {
-      clearTimeout(aiEndOptionsTimeout);
-    }
     // Show options after a brief delay for the win/draw message to display
     aiEndOptionsTimeout = setTimeout(() => {
-      // Only show if still on game screen and still AI game
-      if (state.isAIGame && document.getElementById('gameScreen')?.classList.contains('active')) {
+      // Only show if still on game screen
+      if (document.getElementById('gameScreen')?.classList.contains('active')) {
         showAIMatchEndOptions(currentGame);
       }
       aiEndOptionsTimeout = null;
@@ -4038,10 +4048,14 @@ socket.on('matchEnded', (data) => {
   
   // For challenge matches (not AI), show replay options modal instead of auto-returning
   if (wasMyMatch && !data.autoRotation) {
-    // Show match end options after a brief delay
-    setTimeout(() => {
-      showMatchEndOptions(currentGame, data);
-    }, 1500);
+    // Show match end options after a brief delay to let the win message show
+    matchEndOptionsTimeout = setTimeout(() => {
+      // Only show if still on game screen
+      if (document.getElementById('gameScreen')?.classList.contains('active')) {
+        showMatchEndOptions(currentGame, data);
+      }
+      matchEndOptionsTimeout = null;
+    }, 1000);
   }
 });
 
@@ -4120,11 +4134,25 @@ function showAIMatchEndOptions(gameType) {
 
 // Show end options for challenge matches (multiplayer)
 function showMatchEndOptions(gameType, matchData) {
-  const modal = document.getElementById('votingModal');
-  if (!modal) return;
+  console.log('📋 showMatchEndOptions called:', { gameType, matchData });
   
-  // Prevent showing if modal is already active
+  const modal = document.getElementById('votingModal');
+  if (!modal) {
+    console.warn('Modal not found, showing play again button instead');
+    showPlayAgainButton(gameType === 'tictactoe' ? 'ttt' : gameType);
+    return;
+  }
+  
+  // Ensure we're still on the game screen
+  const gameScreen = document.getElementById('gameScreen');
+  if (!gameScreen || !gameScreen.classList.contains('active')) {
+    console.log('Not on game screen, skipping modal');
+    return;
+  }
+  
+  // Prevent showing if modal is already active with match-end-options
   if (modal.classList.contains('active') && modal.querySelector('.match-end-options')) {
+    console.log('Match end options already showing');
     return;
   }
   
@@ -4165,8 +4193,8 @@ function showMatchEndOptions(gameType, matchData) {
         <button class="btn btn-primary match-end-btn" id="matchRematchBtn">
           <span class="btn-icon">🔄</span> Play Again
         </button>
-        <button class="btn btn-secondary match-end-btn" id="matchBackToLobbyBtn">
-          <span class="btn-icon">🚪</span> Back to Lobby
+        <button class="btn btn-secondary match-end-btn" id="matchBackToRoomBtn">
+          <span class="btn-icon">🏠</span> Back to Room
         </button>
       </div>
       <p class="session-hint">🏆 Most session wins gets +1 Trophy when returning to lobby!</p>
@@ -4186,8 +4214,8 @@ function showMatchEndOptions(gameType, matchData) {
     socket.emit('restartGame', gameType);
   });
   
-  // Back to Lobby - end the game session and award trophy
-  document.getElementById('matchBackToLobbyBtn')?.addEventListener('click', () => {
+  // Back to Room - end the game session and award trophy
+  document.getElementById('matchBackToRoomBtn')?.addEventListener('click', () => {
     modal.classList.remove('active');
     // Emit endGame to properly award trophy to session winner
     socket.emit('endGame');
