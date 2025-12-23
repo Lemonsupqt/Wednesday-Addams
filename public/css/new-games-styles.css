@@ -1545,8 +1545,23 @@
 .placement-controls-mobile {
   display: flex;
   flex-wrap: wrap;
-  gap: 10px;
+  gap: 8px;
   justify-content: center;
+}
+
+.placement-controls-mobile .btn {
+  flex: 1;
+  min-width: 90px;
+  padding: 12px 10px;
+  font-size: 0.9rem;
+}
+
+#setShipBtn {
+  min-width: 100px;
+}
+
+#setShipBtn.ready {
+  animation: successPulse 1s ease-in-out infinite;
 }
 
 @media (max-width: 360px) {

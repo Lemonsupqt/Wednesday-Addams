@@ -575,7 +575,8 @@ function initBattleship(gameState, players) {
     horizontal: true,
     placedShips: placedShips,
     myBoard: myBoard,
-    myShots: myShots
+    myShots: myShots,
+    pendingPlacement: null // {row, col, valid} - position waiting for Set button
   };
   elements.gameTitle.textContent = '🚢 Battleship - Hawkins Naval Warfare';
   
@@ -622,8 +623,9 @@ function renderBattleshipGame(gameState, players) {
             <span id="orientationText">${state.battleshipState.horizontal ? 'Horizontal →' : 'Vertical ↓'}</span>
           </div>
           <div class="placement-controls-mobile">
-            <button class="btn btn-secondary btn-large" id="rotateShip">🔄 Rotate</button>
-            <button class="btn btn-primary btn-large" id="confirmPlacement" ${(state.battleshipState.placedShips?.length || 0) < 5 ? 'disabled' : ''}>⚔️ Ready!</button>
+            <button class="btn btn-secondary" id="rotateShip">🔄 Rotate</button>
+            <button class="btn btn-success" id="setShipBtn" disabled>✓ Set Ship</button>
+            <button class="btn btn-primary" id="confirmPlacement" ${(state.battleshipState.placedShips?.length || 0) < 5 ? 'disabled' : ''}>⚔️ Ready!</button>
           </div>
         </div>
       ` : ''}
@@ -772,17 +774,19 @@ function setupBattleshipMobileListeners(gameState, isPlacement) {
         document.querySelectorAll('.ship-btn').forEach(b => b.classList.remove('selected'));
         btn.classList.add('selected');
         state.battleshipState.selectedShip = parseInt(btn.dataset.ship);
+        state.battleshipState.pendingPlacement = null;
         
         // Update status
         const statusEl = document.getElementById('battleshipStatus');
         if (statusEl) {
           const ship = BATTLESHIP_SHIPS[state.battleshipState.selectedShip];
           const dir = state.battleshipState.horizontal ? '→' : '↓';
-          statusEl.textContent = `📍 Tap the board to place ${ship.emoji} ${ship.name} (${ship.size} cells) ${dir}`;
+          statusEl.textContent = `📍 Tap the board to preview ${ship.emoji} ${ship.name} ${dir}`;
         }
         
-        // Clear any existing preview
+        // Clear any existing preview and disable Set button
         clearShipPreview();
+        updateSetButtonState();
       });
     });
     
@@ -817,41 +821,52 @@ function setupBattleshipMobileListeners(gameState, isPlacement) {
         statusEl.textContent = `📍 ${ship.emoji} ${ship.name} - ${isHorizontal ? 'Horizontal →' : 'Vertical ↓'}`;
       }
       
-      // Update ship preview on board if hovering
-      updateShipPreviewOnBoard();
+      // Update ship preview on board if there's a pending placement
+      if (state.battleshipState.pendingPlacement) {
+        const { row, col } = state.battleshipState.pendingPlacement;
+        const cell = document.querySelector(`#myBoard .board-cell-mobile[data-row="${row}"][data-col="${col}"]`);
+        if (cell) {
+          showShipPreviewAt(cell);
+        }
+      }
       
       console.log('🔄 Rotation toggled:', isHorizontal ? 'Horizontal' : 'Vertical');
     });
     
-    // Board cell hover/touch for preview
+    // Board cell tap for preview (NOT placement)
     document.querySelectorAll('#myBoard .board-cell-mobile').forEach(cell => {
-      // Touch/hover to show preview
-      cell.addEventListener('mouseenter', () => showShipPreviewAt(cell));
-      cell.addEventListener('touchstart', (e) => {
-        e.preventDefault();
-        showShipPreviewAt(cell);
-      }, { passive: false });
-      
-      // Click to place
       cell.addEventListener('click', (e) => {
         e.preventDefault();
         if (state.battleshipState.selectedShip !== null) {
-          const row = parseInt(cell.dataset.row);
-          const col = parseInt(cell.dataset.col);
-          socket.emit('battleshipPlaceShip', { 
-            shipIndex: state.battleshipState.selectedShip, 
-            row, 
-            col, 
-            horizontal: state.battleshipState.horizontal 
-          });
+          showShipPreviewAt(cell);
         } else {
           showNotification('Select a ship first!', 'warning');
         }
       });
+      
+      // Mouse hover for desktop preview
+      cell.addEventListener('mouseenter', () => {
+        if (state.battleshipState.selectedShip !== null) {
+          showShipPreviewAt(cell);
+        }
+      });
     });
     
-    // Clear preview when leaving board
-    document.getElementById('myBoard')?.addEventListener('mouseleave', clearShipPreview);
+    // Set Ship button - confirms placement
+    document.getElementById('setShipBtn')?.addEventListener('click', (e) => {
+      e.preventDefault();
+      const pending = state.battleshipState.pendingPlacement;
+      if (pending && pending.valid && state.battleshipState.selectedShip !== null) {
+        socket.emit('battleshipPlaceShip', { 
+          shipIndex: state.battleshipState.selectedShip, 
+          row: pending.row, 
+          col: pending.col, 
+          horizontal: state.battleshipState.horizontal 
+        });
+        state.battleshipState.pendingPlacement = null;
+        updateSetButtonState();
+      }
+    });
     
     // Ready button
     document.getElementById('confirmPlacement')?.addEventListener('click', (e) => {
@@ -861,6 +876,21 @@ function setupBattleshipMobileListeners(gameState, isPlacement) {
   } else if (gameState.phase === 'playing') {
     // Firing logic - set up for current player's turn
     setupBattleshipFiringListeners();
+  }
+}
+
+// Update Set button enabled/disabled state
+function updateSetButtonState() {
+  const setBtn = document.getElementById('setShipBtn');
+  if (!setBtn) return;
+  
+  const pending = state.battleshipState?.pendingPlacement;
+  if (pending && pending.valid) {
+    setBtn.disabled = false;
+    setBtn.classList.add('ready');
+  } else {
+    setBtn.disabled = true;
+    setBtn.classList.remove('ready');
   }
 }
 
@@ -908,6 +938,22 @@ function showShipPreviewAt(cell) {
   });
   
   state.battleshipState.previewCells = previewCells;
+  
+  // Store pending placement
+  state.battleshipState.pendingPlacement = { row, col, valid: isValid };
+  
+  // Update Set button state
+  updateSetButtonState();
+  
+  // Update status to show if valid
+  const statusEl = document.getElementById('battleshipStatus');
+  if (statusEl) {
+    if (isValid) {
+      statusEl.textContent = `✅ ${ship.emoji} ${ship.name} - Tap "Set Ship" to place!`;
+    } else {
+      statusEl.textContent = `❌ Invalid position - try another spot`;
+    }
+  }
 }
 
 // Clear ship preview
