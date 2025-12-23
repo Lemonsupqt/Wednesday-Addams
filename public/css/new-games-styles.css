@@ -1188,7 +1188,11 @@
 }
 
 #rotateShip {
-  transition: transform 0.3s ease;
+  transition: background 0.2s ease, transform 0.15s ease;
+}
+
+#rotateShip:active {
+  transform: scale(0.95);
 }
 
 .btn-large {

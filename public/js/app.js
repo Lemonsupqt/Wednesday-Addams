@@ -4247,6 +4247,21 @@ socket.on('gameStarted', (data) => {
       case 'drawing':
         initDrawingGuess(gameState, data.players);
         break;
+      case 'poker':
+        if (typeof initPoker === 'function') {
+          initPoker(gameState, data.players);
+        }
+        break;
+      case 'blackjack':
+        if (typeof initBlackjack === 'function') {
+          initBlackjack(gameState, data.players);
+        }
+        break;
+      case 'game24':
+        if (typeof init24Game === 'function') {
+          init24Game(gameState, data.players);
+        }
+        break;
       default:
         console.error('Unknown game type:', gameType);
         elements.gameContent.innerHTML = '<div style="text-align:center;color:red;">Unknown game type: ' + gameType + '</div>';
@@ -4560,6 +4575,21 @@ socket.on('gameRestarted', (data) => {
         break;
       case 'drawing':
         initDrawingGuess(data.gameState, data.players);
+        break;
+      case 'poker':
+        if (typeof initPoker === 'function') {
+          initPoker(data.gameState, data.players);
+        }
+        break;
+      case 'blackjack':
+        if (typeof initBlackjack === 'function') {
+          initBlackjack(data.gameState, data.players);
+        }
+        break;
+      case 'game24':
+        if (typeof init24Game === 'function') {
+          init24Game(data.gameState, data.players);
+        }
         break;
       default:
         console.error('Unknown game type:', data.gameType);

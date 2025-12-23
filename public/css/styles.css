@@ -758,7 +758,8 @@ input[type="password"]::placeholder {
 .game-title-bar {
   display: flex;
   align-items: center;
-  gap: 30px;
+  gap: 15px;
+  flex: 1;
 }
 
 .game-title-bar h2 {
@@ -766,27 +767,32 @@ input[type="password"]::placeholder {
   font-size: 1.5rem;
   color: var(--st-red);
   text-shadow: 0 0 10px var(--st-red-glow);
+  margin-right: auto;
 }
 
 .score-toggle-btn {
   display: none;
   background: var(--bg-card);
   border: 1px solid var(--border-color);
-  border-radius: 6px;
+  border-radius: 8px;
   color: var(--text-primary);
-  font-size: 1rem;
-  padding: 4px 8px;
+  font-size: 1.1rem;
+  padding: 8px 12px;
   cursor: pointer;
   transition: all 0.2s ease;
+  margin-left: auto;
 }
 
 .score-toggle-btn:hover {
   background: var(--bg-secondary);
+  transform: scale(1.05);
 }
 
 @media (max-width: 768px) {
   .score-toggle-btn {
-    display: block;
+    display: flex;
+    align-items: center;
+    justify-content: center;
   }
   
   .score-board {

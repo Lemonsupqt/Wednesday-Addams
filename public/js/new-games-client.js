@@ -787,11 +787,11 @@ function setupBattleshipMobileListeners(gameState, isPlacement) {
         }
       }
       
-      // Add animation effect
-      const btn = document.getElementById('rotateShip');
-      if (btn) {
-        btn.style.transform = 'rotate(180deg)';
-        setTimeout(() => btn.style.transform = '', 300);
+      // Add animation to the preview, not the button
+      const preview = document.getElementById('rotationPreview');
+      if (preview) {
+        preview.style.transform = 'scale(1.2)';
+        setTimeout(() => preview.style.transform = '', 300);
       }
     });
     

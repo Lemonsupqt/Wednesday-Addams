@@ -470,11 +470,14 @@ body {
   }
   
   .score-toggle-btn {
-    display: block;
-    position: absolute;
-    top: 15px;
-    right: 15px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: static;
+    margin-left: 10px;
     z-index: 10;
+    min-width: 44px;
+    min-height: 44px;
   }
 }
 
