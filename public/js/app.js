@@ -4356,6 +4356,7 @@ socket.on('returnToLobby', (data) => {
     state.roomId = null;
     elements.gameContent.innerHTML = '';
     elements.resultsModal.classList.remove('active');
+    elements.closeResultsBtn.classList.remove('hidden');
     document.getElementById('votingModal')?.classList.remove('active');
     showScreen('mainMenu');
     return;
@@ -4382,6 +4383,7 @@ socket.on('returnToLobby', (data) => {
   elements.gameContent.innerHTML = '';
   // Close any open modals
   elements.resultsModal.classList.remove('active');
+  elements.closeResultsBtn.classList.remove('hidden');
   
   // Reset voting UI
   document.querySelectorAll('.game-card').forEach(card => {
@@ -4546,6 +4548,7 @@ socket.on('gameEnded', (data) => {
     </div>
   `;
   elements.resultsModal.classList.add('active');
+  elements.closeResultsBtn.classList.add('hidden');
   state.players = data.players;
   
   // Add play again handler in modal - any player can trigger
@@ -4576,6 +4579,7 @@ socket.on('gameEnded', (data) => {
 socket.on('gameRestarted', (data) => {
   console.log('🔄 Game restarted:', data.gameType, data.gameState);
   elements.resultsModal.classList.remove('active');
+  elements.closeResultsBtn.classList.remove('hidden');
   
   // Close any open modals
   const votingModal = document.getElementById('votingModal');
