@@ -3278,10 +3278,18 @@ function renderChessBoard(board, isWhiteTurn, whiteName, blackName) {
     `<span class="chess-player ${!isWhiteTurn ? 'active' : ''}">⚫ ${escapeHtml(blackName)}</span>` :
     `<span class="chess-player ${isWhiteTurn ? 'active' : ''}">⚪ ${escapeHtml(whiteName)}</span>`;
   
+  // Get captured pieces for display
+  const capturedPieces = state.gameState.capturedPieces || { white: [], black: [] };
+  const whiteCaptured = capturedPieces.white.map(p => CHESS_PIECES[p] || p).join(' ');
+  const blackCaptured = capturedPieces.black.map(p => CHESS_PIECES[p] || p).join(' ');
+  
   elements.gameContent.innerHTML = `
     <div class="chess-container">
       <div class="chess-status" id="chessStatus">${statusText}</div>
-      <div class="chess-player-top">${topPlayer}</div>
+      <div class="chess-player-top">
+        ${topPlayer}
+        <div class="captured-pieces captured-top">${flipBoard ? blackCaptured : whiteCaptured}</div>
+      </div>
       <div class="chess-board-wrapper">
         <div class="chess-coords-col">
           ${flipBoard ? 
@@ -3299,7 +3307,10 @@ function renderChessBoard(board, isWhiteTurn, whiteName, blackName) {
           ['a','b','c','d','e','f','g','h'].map(l => `<span>${l}</span>`).join('')
         }
       </div>
-      <div class="chess-player-bottom">${bottomPlayer}</div>
+      <div class="chess-player-bottom">
+        ${bottomPlayer}
+        <div class="captured-pieces captured-bottom">${flipBoard ? whiteCaptured : blackCaptured}</div>
+      </div>
       <div class="chess-info">
         ${isSpectator ? '👁️ Spectating' : `You are playing as ${chessState.myColor === 'white' ? '⚪ White' : '⚫ Black'}`}
       </div>
@@ -3358,8 +3369,13 @@ function renderChessBoardSquares(board, flipBoard) {
       const isValidMove = chessState.validMoves.some(m => m[0] === row && m[1] === col);
       const isCapture = isValidMove && piece;
       
+      // Check if this square contains the king that is in check
+      const isKingInCheck = state.gameState.inCheck && 
+        ((piece === 'K' && state.gameState.isWhiteTurn) || 
+         (piece === 'k' && !state.gameState.isWhiteTurn));
+      
       html += `
-        <div class="chess-square ${squareClass} ${isSelected ? 'selected' : ''} ${isLastMove ? 'last-move' : ''} ${isValidMove ? 'valid-move' : ''} ${isCapture ? 'capture-move' : ''}" 
+        <div class="chess-square ${squareClass} ${isSelected ? 'selected' : ''} ${isLastMove ? 'last-move' : ''} ${isValidMove ? 'valid-move' : ''} ${isCapture ? 'capture-move' : ''} ${isKingInCheck ? 'in-check' : ''}" 
              data-row="${row}" data-col="${col}">
           ${isValidMove && !piece ? '<div class="move-indicator"></div>' : ''}
           ${isCapture ? '<div class="capture-indicator"></div>' : ''}
@@ -3619,6 +3635,24 @@ function updateChessBoardUI() {
 }
 
 function handleChessUpdate(data) {
+  // Track captured pieces
+  if (data.capturedPiece) {
+    if (!state.gameState.capturedPieces) {
+      state.gameState.capturedPieces = { white: [], black: [] };
+    }
+    const capturedByWhite = data.capturedPiece === data.capturedPiece.toLowerCase();
+    if (capturedByWhite) {
+      state.gameState.capturedPieces.white.push(data.capturedPiece);
+    } else {
+      state.gameState.capturedPieces.black.push(data.capturedPiece);
+    }
+  }
+  
+  // Update captured pieces from server if provided
+  if (data.capturedPieces) {
+    state.gameState.capturedPieces = data.capturedPieces;
+  }
+  
   state.gameState.board = data.board;
   state.gameState.currentPlayer = data.currentPlayer;
   state.gameState.isWhiteTurn = data.isWhiteTurn;

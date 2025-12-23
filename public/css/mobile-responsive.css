@@ -384,16 +384,13 @@ body {
   font-size: clamp(2rem, 8vw, 4rem);
 }
 
-/* Chess */
+/* Chess - Grid handles sizing, don't override */
 .chess-board {
   max-width: min(95vw, 500px);
   margin: 0 auto;
 }
 
-.chess-square {
-  width: calc(100% / 8);
-  padding-bottom: calc(100% / 8);
-}
+/* Removed conflicting width/padding-bottom rules - grid handles sizing */
 
 .chess-piece {
   font-size: clamp(1.5rem, 5vw, 3rem);
