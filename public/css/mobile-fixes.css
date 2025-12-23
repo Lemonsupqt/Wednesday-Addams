@@ -698,15 +698,22 @@ input[type="submit"] {
   .battleship-container {
     padding: 10px;
     max-width: 100%;
+    width: 100%;
+    box-sizing: border-box;
   }
   
   .battleship-container.mobile-friendly {
     padding: 8px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
   }
   
   .ship-placement-mobile {
     gap: 8px;
     padding: 10px;
+    width: 100%;
+    box-sizing: border-box;
   }
   
   .ship-btn {
@@ -726,42 +733,124 @@ input[type="submit"] {
     font-size: 0.75rem;
   }
   
+  /* Fix battleship board aspect ratio */
+  .battleship-boards-mobile {
+    gap: 15px;
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+  
+  .board-section-mobile {
+    padding: 10px;
+    width: 100%;
+    max-width: 380px;
+    box-sizing: border-box;
+  }
+  
+  .mobile-board {
+    width: 100%;
+    max-width: 360px;
+    aspect-ratio: 1 / 1;
+    margin: 0 auto;
+    padding: 6px;
+    box-sizing: border-box;
+  }
+  
   .board-grid-mobile {
     gap: 2px;
+    width: 100%;
+    height: 100%;
+    display: grid;
+    grid-template-columns: repeat(10, 1fr);
+    grid-template-rows: repeat(10, 1fr);
   }
   
   .board-cell-mobile {
-    font-size: clamp(0.8rem, 3vw, 1.2rem);
-    min-width: 28px;
-    min-height: 28px;
+    font-size: clamp(0.7rem, 2.8vw, 1.1rem);
+    aspect-ratio: 1 / 1;
+    width: 100%;
+    height: auto;
+    display: flex;
+    align-items: center;
+    justify-content: center;
   }
   
   .placement-controls-mobile {
-    flex-wrap: wrap;
-    gap: 8px;
+    flex-wrap: nowrap;
+    gap: 10px;
+    width: 100%;
   }
   
   .placement-controls-mobile .btn {
     flex: 1;
-    min-width: 100px;
-    padding: 12px;
+    min-width: 0;
+    padding: 14px 12px;
+  }
+  
+  /* Fix rotation preview display */
+  .orientation-indicator {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    padding: 10px;
+    background: linear-gradient(135deg, rgba(147, 51, 234, 0.2), rgba(229, 9, 20, 0.15));
+    border-radius: 10px;
+    border: 2px solid var(--accent-purple);
   }
   
   .rotation-preview {
-    font-size: 1.5rem;
+    display: inline-flex;
+    gap: 3px;
+    padding: 5px;
+    background: rgba(0, 0, 0, 0.3);
+    border-radius: 6px;
+    transition: all 0.3s ease;
+  }
+  
+  .rotation-preview.horizontal {
+    flex-direction: row;
+  }
+  
+  .rotation-preview.vertical {
+    flex-direction: column;
+  }
+  
+  .rotation-preview span {
+    width: 12px;
+    height: 12px;
+    background: linear-gradient(135deg, var(--accent-purple), #a855f7);
+    border-radius: 3px;
+    box-shadow: 0 0 5px rgba(147, 51, 234, 0.5);
+  }
+  
+  #orientationText {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-weight: bold;
+    color: var(--accent-purple);
+  }
+  
+  /* Rotate button fix - prevent transform issues */
+  #rotateShip {
+    transition: background 0.2s ease;
+    transform: none !important;
+  }
+  
+  #rotateShip:active {
+    background: rgba(147, 51, 234, 0.4);
+    transform: none !important;
   }
   
   .battleship-legend-mobile {
     flex-wrap: wrap;
     gap: 8px;
-  }
-  
-  .battleship-boards-mobile {
-    gap: 15px;
-  }
-  
-  .board-section-mobile {
-    padding: 10px;
+    width: 100%;
+    justify-content: center;
   }
   
   .board-label {
@@ -771,10 +860,13 @@ input[type="submit"] {
 }
 
 @media (max-width: 480px) {
+  .mobile-board {
+    max-width: 320px;
+    padding: 4px;
+  }
+  
   .board-cell-mobile {
-    min-width: 24px;
-    min-height: 24px;
-    font-size: 0.7rem;
+    font-size: clamp(0.6rem, 2.5vw, 0.9rem);
   }
   
   .ship-btn {
@@ -784,6 +876,11 @@ input[type="submit"] {
   
   .ship-emoji {
     font-size: 1.2rem;
+  }
+  
+  .rotation-preview span {
+    width: 10px;
+    height: 10px;
   }
 }
 

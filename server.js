@@ -6583,15 +6583,26 @@ function checkConnect4Win(board, row, col, color, winCondition) {
 function endMatch(room, roomId, match, result) {
   const { winner, draw } = result;
   
+  // Track session win for the winner
+  if (winner) {
+    const winnerId = winner.id || winner;
+    const winnerPlayer = room.players.get(winnerId);
+    if (winnerPlayer) {
+      winnerPlayer.sessionWins = (winnerPlayer.sessionWins || 0) + 1;
+      console.log(`🏅 Session win for ${winnerPlayer.name}: ${winnerPlayer.sessionWins}`);
+    }
+  }
+  
   // Get all match participants
   const allRecipients = [...match.players.map(p => p.id), ...match.spectators];
   
-  // Send match ended event
+  // Send match ended event with session info
   allRecipients.forEach(id => {
     io.to(id).emit('matchEnded', {
       matchId: match.matchId,
       winner: winner ? match.players.find(p => p.id === winner.id || p.id === winner) : null,
-      draw
+      draw,
+      players: room.getPlayerList() // Include updated player list with session wins
     });
   });
   

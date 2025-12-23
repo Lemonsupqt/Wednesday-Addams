@@ -790,13 +790,17 @@ input[type="password"]::placeholder {
   font-size: 1.1rem;
   padding: 8px 12px;
   cursor: pointer;
-  transition: all 0.2s ease;
-  margin-left: auto;
+  transition: background 0.2s ease, border-color 0.2s ease;
+  flex-shrink: 0;
 }
 
 .score-toggle-btn:hover {
   background: var(--bg-secondary);
-  transform: scale(1.05);
+  border-color: var(--accent-purple);
+}
+
+.score-toggle-btn:active {
+  background: rgba(147, 51, 234, 0.3);
 }
 
 @media (max-width: 768px) {
@@ -804,6 +808,11 @@ input[type="password"]::placeholder {
     display: flex;
     align-items: center;
     justify-content: center;
+    position: static;
+    margin-left: auto;
+    min-width: 44px;
+    min-height: 44px;
+    padding: 8px 12px;
   }
   
   .score-board {
@@ -828,6 +837,20 @@ input[type="password"]::placeholder {
   
   .game-title-bar {
     position: relative;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px;
+  }
+  
+  .game-title-bar h2 {
+    flex: 1;
+    min-width: 0;
+    font-size: 1.2rem;
+    margin: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 }
 
@@ -6623,6 +6646,85 @@ input[type="password"]::placeholder {
   font-size: 1.2rem;
 }
 
+/* Challenge Match End Options */
+.match-end-options {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 20px;
+}
+
+.match-end-btn {
+  width: 100%;
+  padding: 12px 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+}
+
+.match-end-btn .btn-icon {
+  font-size: 1.2rem;
+}
+
+.match-result {
+  font-size: 1.3rem;
+  font-weight: bold;
+  color: var(--wed-gold);
+  text-shadow: 0 0 10px rgba(212, 175, 55, 0.5);
+  margin: 15px 0;
+}
+
+.session-hint {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  margin-top: 15px;
+  opacity: 0.8;
+}
+
+/* Session Standings in Match End Modal */
+.session-standings {
+  background: rgba(0, 0, 0, 0.3);
+  border-radius: 10px;
+  padding: 15px;
+  margin: 15px 0;
+  border: 1px solid var(--border-color);
+}
+
+.session-standings h4 {
+  font-family: 'Cinzel', serif;
+  font-size: 1rem;
+  color: var(--wed-gold);
+  margin-bottom: 10px;
+  text-align: center;
+}
+
+.standing-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  margin: 5px 0;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 6px;
+  transition: background 0.2s ease;
+}
+
+.standing-item.is-me {
+  background: rgba(147, 51, 234, 0.2);
+  border: 1px solid var(--accent-purple);
+}
+
+.standing-item .player-name {
+  font-weight: bold;
+  color: var(--text-primary);
+}
+
+.standing-item .session-wins {
+  color: var(--wed-gold);
+  font-weight: bold;
+}
+
 /* Mobile chat improvements */
 @media (max-width: 768px) {
   .chat-hint {
@@ -7111,11 +7213,34 @@ body {
   }
   
   .score-toggle-btn {
-    display: block;
-    position: absolute;
-    top: 15px;
-    right: 15px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: static;
+    margin-left: auto;
+    flex-shrink: 0;
     z-index: 10;
+    min-width: 44px;
+    min-height: 44px;
+  }
+  
+  .game-title-bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    position: relative;
+  }
+  
+  .game-title-bar h2 {
+    flex: 1;
+    min-width: 0;
+    margin: 0;
+    font-size: 1.2rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 }
 

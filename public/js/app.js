@@ -4036,13 +4036,12 @@ socket.on('matchEnded', (data) => {
     return;
   }
   
-  // If no auto-rotation (new match starting), return to lobby
+  // For challenge matches (not AI), show replay options modal instead of auto-returning
   if (wasMyMatch && !data.autoRotation) {
+    // Show match end options after a brief delay
     setTimeout(() => {
-      state.currentGame = null;
-      state.gameState = {};
-      showScreen('lobby');
-    }, 2000);
+      showMatchEndOptions(currentGame, data);
+    }, 1500);
   }
 });
 
@@ -4116,6 +4115,82 @@ function showAIMatchEndOptions(gameType) {
     state.isAIGame = false;
     state.aiDifficulty = null;
     showScreen('lobby');
+  });
+}
+
+// Show end options for challenge matches (multiplayer)
+function showMatchEndOptions(gameType, matchData) {
+  const modal = document.getElementById('votingModal');
+  if (!modal) return;
+  
+  // Prevent showing if modal is already active
+  if (modal.classList.contains('active') && modal.querySelector('.match-end-options')) {
+    return;
+  }
+  
+  const gameNames = {
+    'tictactoe': '⭕❌ Tic-Tac-Toe',
+    'chess': '♟️ Chess',
+    'connect4': '🔴🟡 Connect 4'
+  };
+  
+  const winnerText = matchData.winner 
+    ? `🏆 ${escapeHtml(matchData.winner.name)} wins!`
+    : `🤝 It's a draw!`;
+  
+  // Build session standings if players data is available
+  let sessionStandings = '';
+  if (matchData.players && matchData.players.length > 0) {
+    const sortedPlayers = [...matchData.players].sort((a, b) => (b.sessionWins || 0) - (a.sessionWins || 0));
+    sessionStandings = `
+      <div class="session-standings">
+        <h4>🏅 Session Standings</h4>
+        ${sortedPlayers.map(p => `
+          <div class="standing-item ${p.id === state.playerId ? 'is-me' : ''}">
+            <span class="player-name">${escapeHtml(p.name)}</span>
+            <span class="session-wins">🏅 ${p.sessionWins || 0} wins</span>
+          </div>
+        `).join('')}
+      </div>
+    `;
+  }
+  
+  modal.innerHTML = `
+    <div class="voting-modal-content">
+      <h3>🏁 Match Complete!</h3>
+      <p class="modal-subtitle">${gameNames[gameType] || gameType}</p>
+      <p class="match-result">${winnerText}</p>
+      ${sessionStandings}
+      <div class="match-end-options">
+        <button class="btn btn-primary match-end-btn" id="matchRematchBtn">
+          <span class="btn-icon">🔄</span> Play Again
+        </button>
+        <button class="btn btn-secondary match-end-btn" id="matchBackToLobbyBtn">
+          <span class="btn-icon">🚪</span> Back to Lobby
+        </button>
+      </div>
+      <p class="session-hint">🏆 Most session wins gets +1 Trophy when returning to lobby!</p>
+    </div>
+  `;
+  modal.classList.add('active');
+  
+  // Update state.players with latest data
+  if (matchData.players) {
+    state.players = matchData.players;
+  }
+  
+  // Play Again - restart the same game type
+  document.getElementById('matchRematchBtn')?.addEventListener('click', () => {
+    modal.classList.remove('active');
+    // Emit restartGame to continue the session
+    socket.emit('restartGame', gameType);
+  });
+  
+  // Back to Lobby - end the game session and award trophy
+  document.getElementById('matchBackToLobbyBtn')?.addEventListener('click', () => {
+    modal.classList.remove('active');
+    // Emit endGame to properly award trophy to session winner
+    socket.emit('endGame');
   });
 }
 

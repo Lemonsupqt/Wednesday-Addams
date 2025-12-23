@@ -762,37 +762,47 @@ function setupBattleshipMobileListeners(gameState, isPlacement) {
       });
     });
     
-    // Rotate button
+    // Rotate button - fixed to prevent transform issues
     document.getElementById('rotateShip')?.addEventListener('click', (e) => {
       e.preventDefault();
+      e.stopPropagation();
+      
+      // Toggle horizontal/vertical state
       state.battleshipState.horizontal = !state.battleshipState.horizontal;
+      const isHorizontal = state.battleshipState.horizontal;
+      
       const orientText = document.getElementById('orientationText');
-      const rotationPreview = document.getElementById('rotationPreview');
+      const orientIndicator = document.getElementById('orientationIndicator');
       
       if (orientText) {
-        if (state.battleshipState.horizontal) {
-          orientText.innerHTML = `
-            <span class="rotation-preview horizontal" id="rotationPreview">
+        // Update the orientation text and preview
+        orientText.innerHTML = isHorizontal 
+          ? `<span class="rotation-preview horizontal" id="rotationPreview">
               <span></span><span></span><span></span>
             </span>
-            Horizontal →
-          `;
-        } else {
-          orientText.innerHTML = `
-            <span class="rotation-preview vertical" id="rotationPreview">
+            Horizontal →`
+          : `<span class="rotation-preview vertical" id="rotationPreview">
               <span></span><span></span><span></span>
             </span>
-            Vertical ↓
-          `;
-        }
+            Vertical ↓`;
       }
       
-      // Add animation to the preview, not the button
-      const preview = document.getElementById('rotationPreview');
-      if (preview) {
-        preview.style.transform = 'scale(1.2)';
-        setTimeout(() => preview.style.transform = '', 300);
+      // Visual feedback on the indicator container instead of button
+      if (orientIndicator) {
+        orientIndicator.style.boxShadow = '0 0 15px rgba(147, 51, 234, 0.6)';
+        setTimeout(() => {
+          orientIndicator.style.boxShadow = '';
+        }, 300);
       }
+      
+      // Update status to show current direction
+      const statusEl = document.getElementById('battleshipStatus');
+      if (statusEl && state.battleshipState.selectedShip !== null) {
+        const ship = BATTLESHIP_SHIPS[state.battleshipState.selectedShip];
+        statusEl.textContent = `📍 ${ship.emoji} ${ship.name} - ${isHorizontal ? 'Horizontal →' : 'Vertical ↓'}`;
+      }
+      
+      console.log('🔄 Rotation toggled:', isHorizontal ? 'Horizontal' : 'Vertical');
     });
     
     // Board cell tap for placement
