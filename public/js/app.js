@@ -2871,12 +2871,21 @@ function updateTicTacToe(data) {
   const players = data.players || state.players;
   
   if (data.winner) {
-    status.innerHTML = `🏆 ${escapeHtml(data.winnerName)} wins! 🏆`;
+    // Handle both winnerName (from regular games) and winner ID (from match games)
+    let winnerName = data.winnerName;
+    if (!winnerName && data.winner) {
+      // Try to find winner name from players list
+      const winnerPlayer = players.find(p => p.id === data.winner);
+      winnerName = winnerPlayer?.name || 'Player';
+    }
+    status.innerHTML = `🏆 ${escapeHtml(winnerName)} wins! 🏆`;
     updateScoreBoard(players);
-    if (!state.matchId) showPlayAgainButton('ttt');
+    // Always show play again buttons below the board when game ends
+    showPlayAgainButton('ttt');
   } else if (data.draw) {
     status.innerHTML = "🤝 It's a draw! 🤝";
-    if (!state.matchId) showPlayAgainButton('ttt');
+    // Always show play again buttons below the board when game ends
+    showPlayAgainButton('ttt');
   } else if (data.currentPlayer) {
     // FIX Bug 6: Delay currentPlayer update to prevent race condition
     setTimeout(() => {
@@ -4051,17 +4060,8 @@ socket.on('matchEnded', (data) => {
     return;
   }
   
-  // For challenge matches (not AI), show replay options modal instead of auto-returning
-  if (wasMyMatch && !data.autoRotation) {
-    // Show match end options after a brief delay to let the win message show
-    matchEndOptionsTimeout = setTimeout(() => {
-      // Only show if still on game screen
-      if (document.getElementById('gameScreen')?.classList.contains('active')) {
-        showMatchEndOptions(currentGame, data);
-      }
-      matchEndOptionsTimeout = null;
-    }, 1000);
-  }
+  // For challenge matches (not AI), the play again buttons are already shown
+  // below the board via updateTicTacToe/handleMatchUpdate, so no modal needed
 });
 
 // Show end options for AI matches
