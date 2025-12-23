@@ -4554,9 +4554,12 @@ socket.on('gameEnded', (data) => {
   state.players = data.players;
   
   // Add play again handler in modal - any player can trigger
+  // Use cloneNode to remove all old event listeners
   const modalPlayAgainBtn = document.getElementById('modalPlayAgainBtn');
   if (modalPlayAgainBtn) {
-    modalPlayAgainBtn.addEventListener('click', () => {
+    const newPlayAgainBtn = modalPlayAgainBtn.cloneNode(true);
+    modalPlayAgainBtn.parentNode.replaceChild(newPlayAgainBtn, modalPlayAgainBtn);
+    newPlayAgainBtn.addEventListener('click', () => {
       // For memory and sudoku games, preserve the difficulty
       if (state.currentGame === 'memory' && state.gameState.difficulty) {
         socket.emit('restartGame', { type: 'memory', options: { difficulty: state.gameState.difficulty } });
@@ -4569,9 +4572,12 @@ socket.on('gameEnded', (data) => {
   }
   
   // Add back to lobby handler - any player can trigger
+  // Use cloneNode to remove all old event listeners
   const modalBackToLobbyBtn = document.getElementById('modalBackToLobbyBtn');
   if (modalBackToLobbyBtn) {
-    modalBackToLobbyBtn.addEventListener('click', () => {
+    const newBackToLobbyBtn = modalBackToLobbyBtn.cloneNode(true);
+    modalBackToLobbyBtn.parentNode.replaceChild(newBackToLobbyBtn, modalBackToLobbyBtn);
+    newBackToLobbyBtn.addEventListener('click', () => {
       socket.emit('endGame');
     });
   }

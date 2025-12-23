@@ -594,6 +594,325 @@ input[type="submit"] {
 }
 
 /* ============================================
+   CONNECT 4 MOBILE FIXES
+   ============================================ */
+
+@media (max-width: 768px) {
+  .connect4-container {
+    max-width: 100%;
+    padding: 10px;
+  }
+  
+  .connect4-board {
+    max-width: min(95vw, 380px);
+    margin: 0 auto;
+    padding: 10px;
+    gap: 4px;
+  }
+  
+  .c4-cell {
+    aspect-ratio: 1;
+    font-size: clamp(1.5rem, 8vw, 2.5rem);
+    min-height: 35px;
+  }
+  
+  .connect4-status {
+    font-size: 1.2rem;
+    margin-bottom: 12px;
+  }
+  
+  .connect4-players {
+    flex-wrap: wrap;
+    gap: 15px;
+    margin-bottom: 15px;
+  }
+  
+  .c4-player {
+    padding: 6px 12px;
+    font-size: 0.9rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .connect4-board {
+    max-width: min(92vw, 320px);
+    padding: 8px;
+    gap: 3px;
+  }
+  
+  .c4-cell {
+    font-size: clamp(1.2rem, 7vw, 2rem);
+    min-height: 30px;
+  }
+}
+
+/* ============================================
+   SCORE TOGGLE BUTTON MOBILE FIX
+   ============================================ */
+
+@media (max-width: 768px) {
+  .game-title-bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+  }
+  
+  .game-title-bar h2 {
+    flex: 1;
+    min-width: 0;
+    font-size: 1.2rem;
+    margin: 0;
+  }
+  
+  .score-toggle-btn {
+    position: static !important;
+    top: auto !important;
+    right: auto !important;
+    margin-left: auto;
+    flex-shrink: 0;
+    min-width: 44px;
+    min-height: 44px;
+    padding: 8px 12px;
+    font-size: 0.9rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 10;
+  }
+  
+  .game-header {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 12px 15px;
+  }
+}
+
+/* ============================================
+   BATTLESHIP MOBILE FIXES
+   ============================================ */
+
+@media (max-width: 768px) {
+  .battleship-container {
+    padding: 10px;
+    max-width: 100%;
+  }
+  
+  .battleship-container.mobile-friendly {
+    padding: 8px;
+  }
+  
+  .ship-placement-mobile {
+    gap: 8px;
+    padding: 10px;
+  }
+  
+  .ship-btn {
+    padding: 10px;
+    min-height: 60px;
+  }
+  
+  .ship-emoji {
+    font-size: 1.5rem;
+  }
+  
+  .ship-name {
+    font-size: 0.85rem;
+  }
+  
+  .ship-size {
+    font-size: 0.75rem;
+  }
+  
+  .board-grid-mobile {
+    gap: 2px;
+  }
+  
+  .board-cell-mobile {
+    font-size: clamp(0.8rem, 3vw, 1.2rem);
+    min-width: 28px;
+    min-height: 28px;
+  }
+  
+  .placement-controls-mobile {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  
+  .placement-controls-mobile .btn {
+    flex: 1;
+    min-width: 100px;
+    padding: 12px;
+  }
+  
+  .rotation-preview {
+    font-size: 1.5rem;
+  }
+  
+  .battleship-legend-mobile {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  
+  .battleship-boards-mobile {
+    gap: 15px;
+  }
+  
+  .board-section-mobile {
+    padding: 10px;
+  }
+  
+  .board-label {
+    font-size: 1rem;
+    margin-bottom: 8px;
+  }
+}
+
+@media (max-width: 480px) {
+  .board-cell-mobile {
+    min-width: 24px;
+    min-height: 24px;
+    font-size: 0.7rem;
+  }
+  
+  .ship-btn {
+    padding: 8px;
+    min-height: 50px;
+  }
+  
+  .ship-emoji {
+    font-size: 1.2rem;
+  }
+}
+
+/* ============================================
+   NEW GAMES INPUT BOX FIXES
+   ============================================ */
+
+@media (max-width: 768px) {
+  /* Word Chain Input */
+  .wordchain-input {
+    flex-direction: column;
+    gap: 10px;
+  }
+  
+  .wordchain-input input {
+    width: 100%;
+    min-height: 50px;
+    font-size: 1.1rem;
+    padding: 14px 16px;
+  }
+  
+  .wordchain-input .btn {
+    width: 100%;
+    min-height: 48px;
+    padding: 14px;
+  }
+  
+  /* Word Scramble Input */
+  .scramble-input {
+    flex-direction: column;
+    gap: 10px;
+  }
+  
+  .scramble-input input {
+    width: 100%;
+    min-height: 55px;
+    font-size: 1.3rem;
+    padding: 15px;
+  }
+  
+  .scramble-input .btn {
+    width: 100%;
+    min-height: 50px;
+    padding: 14px;
+  }
+  
+  /* 24 Game Input */
+  .game24-input {
+    flex-direction: column;
+    gap: 10px;
+  }
+  
+  .game24-input input {
+    width: 100%;
+    min-height: 55px;
+    font-size: 1.2rem;
+    padding: 15px;
+  }
+  
+  .game24-input .btn {
+    width: 100%;
+    min-height: 50px;
+    padding: 14px;
+  }
+  
+  /* Hangman Input */
+  .hangman-input {
+    flex-direction: column;
+    gap: 10px;
+  }
+  
+  .hangman-input input {
+    width: 100%;
+    min-height: 50px;
+    font-size: 1.2rem;
+    padding: 14px 16px;
+  }
+  
+  .hangman-input .btn {
+    width: 100%;
+    min-height: 48px;
+    padding: 14px;
+  }
+  
+  /* Poker/Blackjack buttons */
+  .poker-actions,
+  .blackjack-actions {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  
+  .poker-actions .btn,
+  .blackjack-actions .btn {
+    flex: 1;
+    min-width: 80px;
+    min-height: 48px;
+    padding: 12px;
+  }
+  
+  /* Number cards for 24 game */
+  .game24-numbers {
+    gap: 10px;
+  }
+  
+  .number-card {
+    min-width: 60px;
+    min-height: 70px;
+    font-size: 1.5rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .wordchain-input input,
+  .scramble-input input,
+  .game24-input input,
+  .hangman-input input {
+    font-size: 1rem;
+    padding: 12px;
+    min-height: 48px;
+  }
+  
+  .number-card {
+    min-width: 50px;
+    min-height: 60px;
+    font-size: 1.3rem;
+  }
+}
+
+/* ============================================
    SAFE AREA INSETS (iPhone X+)
    ============================================ */
 

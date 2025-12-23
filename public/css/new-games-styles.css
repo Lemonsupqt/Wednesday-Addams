@@ -2297,3 +2297,162 @@
     width: 100%;
   }
 }
+
+/* ============================================
+   24 GAME MOBILE FIXES
+   ============================================ */
+
+@media (max-width: 768px) {
+  .game24-container {
+    padding: 15px;
+    gap: 15px;
+  }
+  
+  .game24-numbers {
+    gap: 12px;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+  
+  .number-card {
+    min-width: 65px;
+    min-height: 80px;
+    font-size: 1.8rem;
+    padding: 15px;
+  }
+  
+  .game24-goal {
+    font-size: 1.1rem;
+    padding: 12px;
+  }
+  
+  .goal-number {
+    font-size: 2rem;
+  }
+  
+  .game24-input {
+    flex-direction: column;
+    gap: 10px;
+  }
+  
+  .game24-input input {
+    width: 100%;
+    min-height: 55px;
+    font-size: 1.2rem;
+    padding: 15px;
+  }
+  
+  .game24-input .btn {
+    width: 100%;
+    min-height: 50px;
+    padding: 14px;
+  }
+  
+  .game24-hint {
+    font-size: 0.9rem;
+    padding: 10px 15px;
+  }
+  
+  .game24-scores {
+    gap: 8px;
+  }
+  
+  .game24-player {
+    padding: 10px 15px;
+    font-size: 0.9rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .number-card {
+    min-width: 55px;
+    min-height: 70px;
+    font-size: 1.5rem;
+    padding: 12px;
+  }
+  
+  .game24-input input {
+    font-size: 1rem;
+    min-height: 50px;
+  }
+}
+
+/* ============================================
+   HANGMAN MOBILE FIXES
+   ============================================ */
+
+@media (max-width: 768px) {
+  .hangman-container {
+    padding: 15px;
+    gap: 15px;
+  }
+  
+  .hangman-word {
+    font-size: 1.8rem;
+    letter-spacing: 8px;
+    padding: 15px;
+  }
+  
+  .hangman-input {
+    flex-direction: column;
+    gap: 10px;
+  }
+  
+  .hangman-input input {
+    width: 100%;
+    min-height: 50px;
+    font-size: 1.2rem;
+    padding: 14px 16px;
+    text-align: center;
+  }
+  
+  .hangman-input .btn {
+    width: 100%;
+    min-height: 48px;
+    padding: 14px;
+  }
+  
+  .hangman-hint {
+    font-size: 0.9rem;
+    padding: 12px;
+  }
+  
+  .hangman-figure {
+    font-size: 3rem;
+  }
+  
+  .hangman-status {
+    font-size: 1rem;
+    padding: 10px 15px;
+  }
+  
+  .guessed-letters {
+    gap: 6px;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+  
+  .guessed-letter {
+    min-width: 35px;
+    min-height: 35px;
+    font-size: 1rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .hangman-word {
+    font-size: 1.5rem;
+    letter-spacing: 6px;
+  }
+  
+  .hangman-input input {
+    font-size: 1rem;
+    min-height: 48px;
+  }
+  
+  .guessed-letter {
+    min-width: 30px;
+    min-height: 30px;
+    font-size: 0.9rem;
+  }
+}
