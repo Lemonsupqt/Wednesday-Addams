@@ -19,11 +19,27 @@ const HANGMAN_WORDS = {
     locations: ['NEVERMORE', 'JERICHO', 'WEATHERVANE', 'PILGRIM', 'CRACKSTONE', 'DORMITORY', 'LIBRARY', 'GREENHOUSE', 'WOODS', 'CAVE', 'CRYPT', 'MANSION'],
     items: ['CELLO', 'TYPEWRITER', 'UMBRELLA', 'POISON', 'SPIDER', 'CRYSTAL', 'CANOE', 'FENCING', 'SWORD', 'BOOK', 'DIARY', 'UNIFORM'],
     quotes: ['TORTURE', 'DARKNESS', 'PSYCHIC', 'OUTCAST', 'NORMIE', 'MONSTER', 'MURDER', 'MYSTERY']
+  },
+  general: {
+    animals: ['ELEPHANT', 'GIRAFFE', 'PENGUIN', 'DOLPHIN', 'BUTTERFLY', 'CROCODILE', 'KANGAROO', 'OCTOPUS', 'SQUIRREL', 'HAMSTER', 'PARROT', 'LEOPARD', 'CHEETAH', 'PANTHER', 'KOALA', 'ZEBRA', 'RABBIT', 'TURTLE', 'FALCON', 'PYTHON'],
+    food: ['HAMBURGER', 'SPAGHETTI', 'CHOCOLATE', 'STRAWBERRY', 'PINEAPPLE', 'MUSHROOM', 'BROCCOLI', 'SANDWICH', 'PANCAKES', 'AVOCADO', 'CUCUMBER', 'LASAGNA', 'BURRITO', 'POPCORN', 'PRETZEL', 'MUFFIN', 'WAFFLE', 'COOKIE', 'PIZZA', 'TACO'],
+    places: ['MOUNTAIN', 'HOSPITAL', 'AIRPORT', 'LIBRARY', 'RESTAURANT', 'STADIUM', 'THEATER', 'MUSEUM', 'AQUARIUM', 'CATHEDRAL', 'CASTLE', 'VILLAGE', 'ISLAND', 'JUNGLE', 'DESERT', 'FOREST', 'VOLCANO', 'WATERFALL', 'PYRAMID', 'LIGHTHOUSE'],
+    objects: ['COMPUTER', 'TELEPHONE', 'UMBRELLA', 'BACKPACK', 'SCISSORS', 'CALENDAR', 'KEYBOARD', 'HEADPHONES', 'SUNGLASSES', 'TELESCOPE', 'MICROSCOPE', 'FLASHLIGHT', 'SCREWDRIVER', 'THERMOMETER', 'CALCULATOR', 'ENVELOPE', 'SUITCASE', 'PILLOW', 'BLANKET', 'PAINTING'],
+    nature: ['RAINBOW', 'THUNDER', 'LIGHTNING', 'TORNADO', 'HURRICANE', 'BLIZZARD', 'WATERFALL', 'GLACIER', 'VOLCANO', 'EARTHQUAKE', 'SUNRISE', 'SUNSET', 'MOONLIGHT', 'STARLIGHT', 'MEADOW', 'CANYON', 'CLIFF', 'RIVER', 'OCEAN', 'FOREST'],
+    sports: ['BASKETBALL', 'FOOTBALL', 'VOLLEYBALL', 'BASEBALL', 'GYMNASTICS', 'SWIMMING', 'WRESTLING', 'ARCHERY', 'BADMINTON', 'BOWLING', 'SURFING', 'SKIING', 'SKATING', 'CYCLING', 'RUNNING', 'BOXING', 'TENNIS', 'CRICKET', 'HOCKEY', 'SOCCER'],
+    science: ['CHEMISTRY', 'BIOLOGY', 'PHYSICS', 'ASTRONOMY', 'GRAVITY', 'MOLECULE', 'ELECTRON', 'NEUTRON', 'PROTON', 'OXYGEN', 'NITROGEN', 'HYDROGEN', 'CARBON', 'PHOTON', 'QUANTUM', 'ELEMENT', 'COMPOUND', 'REACTION', 'ENERGY', 'MAGNET'],
+    music: ['GUITAR', 'PIANO', 'VIOLIN', 'TRUMPET', 'SAXOPHONE', 'HARMONICA', 'ACCORDION', 'CLARINET', 'XYLOPHONE', 'TAMBOURINE', 'ORCHESTRA', 'SYMPHONY', 'MELODY', 'HARMONY', 'RHYTHM', 'CHORUS', 'CONCERT', 'ALBUM', 'LYRICS', 'COMPOSER'],
+    professions: ['DOCTOR', 'TEACHER', 'ENGINEER', 'SCIENTIST', 'ARCHITECT', 'DESIGNER', 'PROGRAMMER', 'ASTRONAUT', 'FIREFIGHTER', 'DETECTIVE', 'JOURNALIST', 'PHOTOGRAPHER', 'MUSICIAN', 'ARTIST', 'CHEF', 'PILOT', 'LAWYER', 'NURSE', 'DENTIST', 'SURGEON'],
+    emotions: ['HAPPINESS', 'EXCITEMENT', 'SURPRISE', 'CURIOUS', 'GRATEFUL', 'PEACEFUL', 'CONFIDENT', 'CREATIVE', 'ENERGETIC', 'HOPEFUL', 'INSPIRED', 'JOYFUL', 'PROUD', 'RELAXED', 'SATISFIED', 'CHEERFUL', 'FRIENDLY', 'GENEROUS', 'PATIENT', 'BRAVE']
   }
 };
 
 function getRandomHangmanWord(category = null) {
-  const allCategories = { ...HANGMAN_WORDS.strangerthings, ...HANGMAN_WORDS.wednesday };
+  const allCategories = { 
+    ...HANGMAN_WORDS.strangerthings, 
+    ...HANGMAN_WORDS.wednesday,
+    ...HANGMAN_WORDS.general
+  };
   let words = [];
   
   if (category && allCategories[category]) {
@@ -68,8 +84,19 @@ function getHangmanHint(word) {
   for (const [show, categories] of Object.entries(HANGMAN_WORDS)) {
     for (const [cat, words] of Object.entries(categories)) {
       if (words.includes(word.toUpperCase())) {
-        const showName = show === 'strangerthings' ? 'Stranger Things' : 'Wednesday';
-        return `${showName} - ${cat.charAt(0).toUpperCase() + cat.slice(1)}`;
+        let showName;
+        if (show === 'strangerthings') {
+          showName = 'Stranger Things';
+        } else if (show === 'wednesday') {
+          showName = 'Wednesday';
+        } else if (show === 'general') {
+          showName = 'General';
+        } else {
+          showName = show;
+        }
+        // Capitalize category name nicely
+        const catName = cat.charAt(0).toUpperCase() + cat.slice(1);
+        return `${showName} - ${catName}`;
       }
     }
   }
@@ -204,102 +231,148 @@ function processWordChainTurn(state, playerId, word) {
 }
 
 // ============================================
-// PATTERN MEMORY GAME 🧠 (Simon Says style)
+// SPEED MATH DUEL 🔢⚡ (Fast-paced math competition)
 // ============================================
 
-// Colors themed around Stranger Things / Wednesday
-const PATTERN_COLORS = [
-  { id: 0, name: 'Eleven Red', color: '#e50914', emoji: '🔴' },
-  { id: 1, name: 'Upside Down Blue', color: '#1e3a8a', emoji: '🔵' },
-  { id: 2, name: 'Wednesday Purple', color: '#9333ea', emoji: '🟣' },
-  { id: 3, name: 'Demogorgon Green', color: '#22c55e', emoji: '🟢' }
-];
+// Operation types for different difficulties
+const MATH_OPERATIONS = {
+  easy: ['+', '-'],
+  medium: ['+', '-', '×'],
+  hard: ['+', '-', '×', '÷']
+};
+
+function generateMathProblem(difficulty = 'medium') {
+  const ops = MATH_OPERATIONS[difficulty] || MATH_OPERATIONS.medium;
+  const op = ops[Math.floor(Math.random() * ops.length)];
+  
+  let num1, num2, answer;
+  
+  switch (op) {
+    case '+':
+      num1 = Math.floor(Math.random() * (difficulty === 'hard' ? 100 : 50)) + 1;
+      num2 = Math.floor(Math.random() * (difficulty === 'hard' ? 100 : 50)) + 1;
+      answer = num1 + num2;
+      break;
+    case '-':
+      num1 = Math.floor(Math.random() * (difficulty === 'hard' ? 100 : 50)) + 10;
+      num2 = Math.floor(Math.random() * num1);
+      answer = num1 - num2;
+      break;
+    case '×':
+      num1 = Math.floor(Math.random() * (difficulty === 'hard' ? 15 : 12)) + 1;
+      num2 = Math.floor(Math.random() * (difficulty === 'hard' ? 15 : 12)) + 1;
+      answer = num1 * num2;
+      break;
+    case '÷':
+      num2 = Math.floor(Math.random() * 10) + 2;
+      answer = Math.floor(Math.random() * 12) + 1;
+      num1 = num2 * answer;
+      break;
+    default:
+      num1 = Math.floor(Math.random() * 20) + 1;
+      num2 = Math.floor(Math.random() * 20) + 1;
+      answer = num1 + num2;
+  }
+  
+  return {
+    num1,
+    num2,
+    operation: op,
+    answer,
+    display: `${num1} ${op} ${num2} = ?`
+  };
+}
 
 function createReactionTestState(roomId, players) {
   const playerIds = Array.from(players.keys()).filter(id => id !== 'AI_PLAYER');
   return {
     round: 1,
     maxRounds: 10,
-    status: 'showing', // showing, input, success, fail, finished
-    pattern: [], // Array of color IDs
-    playerInput: [], // Current player's input
-    currentPlayerIndex: 0,
+    status: 'waiting', // waiting, active, answered, finished
+    currentProblem: null,
+    problemStartTime: null,
     playerOrder: playerIds,
     scores: Object.fromEntries(playerIds.map(id => [id, 0])),
-    highestRound: Object.fromEntries(playerIds.map(id => [id, 0])),
-    showingIndex: 0, // Which pattern element is being shown
-    speed: 800, // ms per pattern element
-    gameType: 'pattern_memory'
+    roundScores: Object.fromEntries(playerIds.map(id => [id, 0])),
+    answeredThisRound: [],
+    firstCorrect: null,
+    difficulty: 'medium',
+    timePerRound: 10, // seconds
+    gameType: 'speed_math'
   };
 }
 
 function startReactionRound(state) {
-  // Add a new random color to the pattern
-  const newColor = Math.floor(Math.random() * PATTERN_COLORS.length);
-  state.pattern.push(newColor);
-  state.playerInput = [];
-  state.status = 'showing';
-  state.showingIndex = 0;
-  
-  // Speed increases as rounds progress
-  state.speed = Math.max(300, 800 - (state.round * 50));
+  state.currentProblem = generateMathProblem(state.difficulty);
+  state.problemStartTime = Date.now();
+  state.status = 'active';
+  state.answeredThisRound = [];
+  state.firstCorrect = null;
+  state.roundScores = Object.fromEntries(state.playerOrder.map(id => [id, 0]));
   
   return state;
 }
 
-function processReactionClick(state, playerId, colorId) {
-  // Check if it's this player's turn
-  if (state.playerOrder[state.currentPlayerIndex] !== playerId) {
-    return { error: 'Not your turn' };
+function processReactionClick(state, playerId, answer) {
+  // Already answered this round?
+  if (state.answeredThisRound.includes(playerId)) {
+    return { error: 'Already answered this round' };
   }
   
-  if (state.status !== 'input') {
-    return { error: 'Wait for the pattern to finish' };
+  if (state.status !== 'active') {
+    return { error: 'Round not active' };
   }
   
-  state.playerInput.push(colorId);
-  const inputIndex = state.playerInput.length - 1;
-  const expectedColor = state.pattern[inputIndex];
+  const isCorrect = parseInt(answer) === state.currentProblem.answer;
+  const responseTime = Date.now() - state.problemStartTime;
   
-  if (colorId !== expectedColor) {
-    // Wrong! Player is out for this round
-    state.status = 'fail';
-    return {
-      correct: false,
-      expectedColor,
-      playerOut: true,
-      pattern: state.pattern
-    };
-  }
+  state.answeredThisRound.push(playerId);
   
-  // Correct so far
-  if (state.playerInput.length === state.pattern.length) {
-    // Completed the pattern!
-    state.scores[playerId] = (state.scores[playerId] || 0) + state.pattern.length;
-    state.highestRound[playerId] = Math.max(state.highestRound[playerId] || 0, state.round);
-    state.status = 'success';
+  if (isCorrect) {
+    // Calculate points based on speed (max 10 points, min 1)
+    const timeBonus = Math.max(1, Math.floor(10 - (responseTime / 1000)));
+    const isFirst = state.firstCorrect === null;
     
-    // Move to next player or next round
-    state.currentPlayerIndex = (state.currentPlayerIndex + 1) % state.playerOrder.length;
+    if (isFirst) {
+      state.firstCorrect = playerId;
+    }
     
-    // If all players completed this round, advance
-    if (state.currentPlayerIndex === 0) {
+    // First correct gets bonus points
+    const points = isFirst ? timeBonus + 3 : timeBonus;
+    state.scores[playerId] = (state.scores[playerId] || 0) + points;
+    state.roundScores[playerId] = points;
+    
+    // Check if all players answered
+    const allAnswered = state.answeredThisRound.length >= state.playerOrder.length;
+    
+    if (allAnswered) {
       state.round++;
       if (state.round > state.maxRounds) {
         state.status = 'finished';
+      } else {
+        state.status = 'waiting';
       }
     }
     
     return {
       correct: true,
-      completed: true,
-      roundComplete: state.currentPlayerIndex === 0,
-      nextRound: state.round,
+      isFirst,
+      points,
+      responseTime,
+      allAnswered,
       gameOver: state.status === 'finished'
     };
+  } else {
+    // Wrong answer - small penalty
+    state.scores[playerId] = Math.max(0, (state.scores[playerId] || 0) - 1);
+    state.roundScores[playerId] = -1;
+    
+    return {
+      correct: false,
+      correctAnswer: state.currentProblem.answer,
+      penalty: -1
+    };
   }
-  
-  return { correct: true, completed: false, inputLength: state.playerInput.length };
 }
 
 function getReactionResults(state) {
@@ -307,8 +380,7 @@ function getReactionResults(state) {
   for (const playerId of state.playerOrder) {
     results.push({
       playerId,
-      score: state.scores[playerId] || 0,
-      highestRound: state.highestRound[playerId] || 0
+      score: state.scores[playerId] || 0
     });
   }
   results.sort((a, b) => b.score - a.score);

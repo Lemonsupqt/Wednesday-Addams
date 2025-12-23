@@ -22,7 +22,7 @@ function escapeHtml(text) {
 function initHangman(gameState, players) {
   console.log('🎯 Initializing Hangman:', gameState);
   state.gameState = gameState;
-  elements.gameTitle.textContent = '🎯 Hangman - Nevermore Edition';
+  elements.gameTitle.textContent = '🎯 Hangman Challenge';
   
   const isMyTurn = gameState.currentGuesser === state.playerId;
   const maskedWord = gameState.maskedWord || '_ '.repeat(gameState.wordLength || 8);
@@ -318,210 +318,209 @@ function updateWordChain(data) {
 }
 
 // ============================================
-// PATTERN MEMORY GAME 🧠 (Simon Says style)
+// SPEED MATH DUEL 🔢⚡ (Fast-paced math competition)
 // ============================================
 
-const PATTERN_COLORS = [
-  { id: 0, name: 'Eleven Red', color: '#e50914', emoji: '🔴', activeColor: '#ff3333' },
-  { id: 1, name: 'Upside Down Blue', color: '#1e3a8a', emoji: '🔵', activeColor: '#3b82f6' },
-  { id: 2, name: 'Wednesday Purple', color: '#9333ea', emoji: '🟣', activeColor: '#a855f7' },
-  { id: 3, name: 'Demogorgon Green', color: '#22c55e', emoji: '🟢', activeColor: '#4ade80' }
-];
+let speedMathState = {
+  canAnswer: true,
+  inputValue: ''
+};
 
 function initReactionTest(gameState, players) {
-  console.log('🧠 Initializing Pattern Memory:', gameState);
+  console.log('🔢 Initializing Speed Math Duel:', gameState);
   state.gameState = gameState;
-  state.patternState = {
-    isShowing: false,
-    canInput: false,
-    inputIndex: 0
+  speedMathState = {
+    canAnswer: true,
+    inputValue: ''
   };
-  elements.gameTitle.textContent = '🧠 Pattern Memory - Upside Down Sequence';
-  
-  const isMyTurn = gameState.playerOrder?.[gameState.currentPlayerIndex] === state.playerId;
+  elements.gameTitle.textContent = '🔢⚡ Speed Math Duel';
   
   elements.gameContent.innerHTML = `
-    <div class="pattern-container">
-      <div class="pattern-info">
-        <div class="pattern-round">Round ${gameState.round || 1}/${gameState.maxRounds || 10}</div>
-        <div class="pattern-score" id="patternScore">Score: ${gameState.scores?.[state.playerId] || 0}</div>
+    <div class="speed-math-container">
+      <div class="speed-math-info">
+        <div class="speed-math-round">Round <span id="mathRound">${gameState.round || 1}</span>/${gameState.maxRounds || 10}</div>
+        <div class="speed-math-timer" id="mathTimer">⏱️ Waiting...</div>
       </div>
       
-      <div class="pattern-status" id="patternStatus">
-        ${isMyTurn ? '👁️ Watch the pattern...' : '⏳ Waiting for other player...'}
+      <div class="speed-math-problem" id="mathProblem">
+        <div class="problem-waiting">🎯 Get Ready!</div>
       </div>
       
-      <div class="pattern-board" id="patternBoard">
-        ${PATTERN_COLORS.map(c => `
-          <button class="pattern-btn" data-color="${c.id}" style="--btn-color: ${c.color}; --btn-active: ${c.activeColor}">
-            <span class="pattern-emoji">${c.emoji}</span>
-          </button>
-        `).join('')}
+      <div class="speed-math-answer">
+        <input type="number" id="mathAnswerInput" placeholder="Your answer..." autocomplete="off" inputmode="numeric" disabled>
+        <button class="btn btn-primary" id="mathSubmitBtn" disabled>
+          <span class="btn-icon">⚡</span> Submit
+        </button>
       </div>
       
-      <div class="pattern-progress" id="patternProgress">
-        <div class="progress-label">Pattern length: <span id="patternLength">${gameState.pattern?.length || 0}</span></div>
-        <div class="progress-dots" id="progressDots"></div>
-      </div>
+      <div class="speed-math-feedback" id="mathFeedback"></div>
       
-      <div class="pattern-players" id="patternPlayers">
+      <div class="speed-math-scores" id="mathScores">
         ${players.map(p => `
-          <div class="pattern-player ${p.id === state.playerId ? 'me' : ''} ${p.id === gameState.playerOrder?.[gameState.currentPlayerIndex] ? 'active' : ''}">
+          <div class="math-player ${p.id === state.playerId ? 'me' : ''}">
             <span class="player-name">${escapeHtml(p.name)}</span>
-            <span class="player-score">${gameState.scores?.[p.id] || 0} pts</span>
+            <span class="player-score" id="score-${p.id}">${gameState.scores?.[p.id] || 0} pts</span>
+            <span class="round-result" id="result-${p.id}"></span>
           </div>
         `).join('')}
+      </div>
+      
+      <div class="speed-math-hint">
+        💡 First correct answer gets +3 bonus points! Speed matters!
       </div>
     </div>
   `;
   
-  setupPatternListeners();
+  setupSpeedMathListeners();
   updateScoreBoard(players);
 }
 
-function setupPatternListeners() {
-  document.querySelectorAll('.pattern-btn').forEach(btn => {
-    btn.addEventListener('click', (e) => {
-      e.preventDefault();
-      handlePatternClick(parseInt(btn.dataset.color));
+function setupSpeedMathListeners() {
+  const input = document.getElementById('mathAnswerInput');
+  const submitBtn = document.getElementById('mathSubmitBtn');
+  
+  if (input && submitBtn) {
+    const submitAnswer = () => {
+      const answer = input.value.trim();
+      if (answer === '' || !speedMathState.canAnswer) return;
+      
+      speedMathState.canAnswer = false;
+      input.disabled = true;
+      submitBtn.disabled = true;
+      
+      if (state.isAIGame) {
+        socket.emit('aiReactionClick', { answer: parseInt(answer) });
+      } else {
+        socket.emit('reactionClick', { answer: parseInt(answer) });
+      }
+    };
+    
+    submitBtn.addEventListener('click', submitAnswer);
+    input.addEventListener('keypress', (e) => {
+      if (e.key === 'Enter') submitAnswer();
     });
-    btn.addEventListener('touchstart', (e) => {
-      e.preventDefault();
-      handlePatternClick(parseInt(btn.dataset.color));
-    }, { passive: false });
-  });
-}
-
-function handlePatternClick(colorId) {
-  if (!state.patternState?.canInput) {
-    return;
-  }
-  
-  // Visual feedback
-  const btn = document.querySelector(`.pattern-btn[data-color="${colorId}"]`);
-  if (btn) {
-    btn.classList.add('pressed');
-    setTimeout(() => btn.classList.remove('pressed'), 200);
-  }
-  
-  if (state.isAIGame) {
-    socket.emit('aiReactionClick', { colorId });
-  } else {
-    socket.emit('reactionClick', { colorId });
-  }
-}
-
-function showPattern(pattern, speed = 800) {
-  state.patternState.isShowing = true;
-  state.patternState.canInput = false;
-  
-  const statusEl = document.getElementById('patternStatus');
-  if (statusEl) statusEl.textContent = '👁️ Watch the pattern...';
-  
-  let i = 0;
-  const showNext = () => {
-    if (i >= pattern.length) {
-      // Done showing, enable input
-      state.patternState.isShowing = false;
-      state.patternState.canInput = true;
-      state.patternState.inputIndex = 0;
-      if (statusEl) statusEl.textContent = '🎯 Your turn! Repeat the pattern!';
-      updateProgressDots(pattern.length, 0);
-      return;
-    }
-    
-    const colorId = pattern[i];
-    const btn = document.querySelector(`.pattern-btn[data-color="${colorId}"]`);
-    if (btn) {
-      btn.classList.add('active');
-      setTimeout(() => btn.classList.remove('active'), speed * 0.7);
-    }
-    
-    i++;
-    setTimeout(showNext, speed);
-  };
-  
-  setTimeout(showNext, 500);
-}
-
-function updateProgressDots(total, completed) {
-  const dotsEl = document.getElementById('progressDots');
-  if (dotsEl) {
-    dotsEl.innerHTML = Array(total).fill(0).map((_, i) => 
-      `<span class="progress-dot ${i < completed ? 'filled' : ''}"></span>`
-    ).join('');
   }
 }
 
 function updateReactionTest(data) {
-  const statusEl = document.getElementById('patternStatus');
+  const problemEl = document.getElementById('mathProblem');
+  const feedbackEl = document.getElementById('mathFeedback');
+  const timerEl = document.getElementById('mathTimer');
+  const input = document.getElementById('mathAnswerInput');
+  const submitBtn = document.getElementById('mathSubmitBtn');
+  const roundEl = document.getElementById('mathRound');
   
-  // Handle pattern showing
-  if (data.status === 'showing' && data.pattern) {
-    state.gameState.status = 'showing';
-    state.gameState.pattern = data.pattern;
-    showPattern(data.pattern, data.speed || 800);
+  // New problem to solve
+  if (data.problem) {
+    speedMathState.canAnswer = true;
+    if (input) {
+      input.value = '';
+      input.disabled = false;
+      input.focus();
+    }
+    if (submitBtn) submitBtn.disabled = false;
+    if (feedbackEl) feedbackEl.innerHTML = '';
+    
+    if (problemEl) {
+      problemEl.innerHTML = `
+        <div class="problem-display animate-pop">
+          <span class="problem-text">${data.problem.display}</span>
+        </div>
+      `;
+    }
+    
+    // Clear previous round results
+    document.querySelectorAll('.round-result').forEach(el => el.innerHTML = '');
   }
   
-  // Handle input mode
-  if (data.status === 'input') {
-    state.gameState.status = 'input';
-    state.patternState.canInput = true;
-    if (statusEl) statusEl.textContent = '🎯 Your turn! Repeat the pattern!';
+  // Round update
+  if (data.round !== undefined && roundEl) {
+    roundEl.textContent = data.round;
   }
   
-  // Handle correct input
-  if (data.correct !== undefined) {
-    if (data.correct) {
-      state.patternState.inputIndex++;
-      updateProgressDots(state.gameState.pattern?.length || 0, state.patternState.inputIndex);
-      
-      if (data.completed) {
-        state.patternState.canInput = false;
-        if (statusEl) statusEl.textContent = '🎉 Perfect! Pattern complete!';
-        
-        // Update score
-        const scoreEl = document.getElementById('patternScore');
-        if (scoreEl && data.score !== undefined) {
-          scoreEl.textContent = `Score: ${data.score}`;
-        }
-      }
+  // Timer update
+  if (data.timeLeft !== undefined && timerEl) {
+    timerEl.textContent = `⏱️ ${data.timeLeft}s`;
+    if (data.timeLeft <= 3) {
+      timerEl.classList.add('urgent');
     } else {
-      // Wrong!
-      state.patternState.canInput = false;
-      if (statusEl) statusEl.innerHTML = `❌ Wrong! The pattern was: ${data.pattern?.map(c => PATTERN_COLORS[c]?.emoji || '❓').join(' ')}`;
-      
-      // Flash the correct button
-      if (data.expectedColor !== undefined) {
-        const correctBtn = document.querySelector(`.pattern-btn[data-color="${data.expectedColor}"]`);
-        if (correctBtn) {
-          correctBtn.classList.add('correct-flash');
-          setTimeout(() => correctBtn.classList.remove('correct-flash'), 1000);
-        }
+      timerEl.classList.remove('urgent');
+    }
+  }
+  
+  // Answer result
+  if (data.correct !== undefined) {
+    const resultEl = document.getElementById(`result-${state.playerId}`);
+    
+    if (data.correct) {
+      if (feedbackEl) {
+        feedbackEl.innerHTML = `
+          <div class="feedback-correct">
+            ✅ Correct! ${data.isFirst ? '🥇 First!' : ''} +${data.points} points
+            <div class="response-time">⚡ ${(data.responseTime / 1000).toFixed(2)}s</div>
+          </div>
+        `;
+      }
+      if (resultEl) resultEl.innerHTML = `<span class="correct">+${data.points}</span>`;
+    } else {
+      if (feedbackEl) {
+        feedbackEl.innerHTML = `
+          <div class="feedback-wrong">
+            ❌ Wrong! The answer was ${data.correctAnswer}
+          </div>
+        `;
+      }
+      if (resultEl) resultEl.innerHTML = `<span class="wrong">-1</span>`;
+    }
+  }
+  
+  // Update scores
+  if (data.scores) {
+    for (const [playerId, score] of Object.entries(data.scores)) {
+      const scoreEl = document.getElementById(`score-${playerId}`);
+      if (scoreEl) scoreEl.textContent = `${score} pts`;
+    }
+  }
+  
+  // Player answered (not you)
+  if (data.playerAnswered && data.playerAnswered !== state.playerId) {
+    const resultEl = document.getElementById(`result-${data.playerAnswered}`);
+    if (resultEl) {
+      if (data.wasCorrect) {
+        resultEl.innerHTML = `<span class="correct">${data.wasFirst ? '🥇' : '✓'}</span>`;
+      } else {
+        resultEl.innerHTML = `<span class="wrong">✗</span>`;
       }
     }
   }
   
-  // Handle round update
-  if (data.round) {
-    const roundEl = document.querySelector('.pattern-round');
-    if (roundEl) roundEl.textContent = `Round ${data.round}/${data.maxRounds || 10}`;
-    
-    const lengthEl = document.getElementById('patternLength');
-    if (lengthEl) lengthEl.textContent = data.round;
+  // Waiting for next round
+  if (data.status === 'waiting' || data.nextRound) {
+    if (problemEl) {
+      problemEl.innerHTML = `<div class="problem-waiting">⏳ Next problem coming...</div>`;
+    }
+    speedMathState.canAnswer = false;
+    if (input) input.disabled = true;
+    if (submitBtn) submitBtn.disabled = true;
   }
   
-  // Handle game over
+  // Game over
   if (data.gameOver || data.status === 'finished') {
-    state.patternState.canInput = false;
-    if (statusEl) statusEl.textContent = '🏆 Game Over!';
+    speedMathState.canAnswer = false;
+    if (input) input.disabled = true;
+    if (submitBtn) submitBtn.disabled = true;
+    
+    if (problemEl) {
+      problemEl.innerHTML = `<div class="problem-waiting">🏆 Game Over!</div>`;
+    }
+    
     showPlayAgainButton('reaction');
     
     if (data.results) {
-      const playersEl = document.getElementById('patternPlayers');
-      if (playersEl) {
-        playersEl.innerHTML = data.results.map((r, i) => `
-          <div class="pattern-player ${r.playerId === state.playerId ? 'me' : ''} ${i === 0 ? 'winner' : ''}">
+      const scoresEl = document.getElementById('mathScores');
+      if (scoresEl) {
+        scoresEl.innerHTML = data.results.map((r, i) => `
+          <div class="math-player ${r.playerId === state.playerId ? 'me' : ''} ${i === 0 ? 'winner' : ''}">
             <span class="rank">${i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `${i+1}.`}</span>
             <span class="player-name">${escapeHtml(r.playerName || 'Player')}</span>
             <span class="player-score">${r.score} pts</span>
@@ -529,12 +528,6 @@ function updateReactionTest(data) {
         `).join('');
       }
     }
-  }
-  
-  // Update current player indicator
-  if (data.currentPlayer !== undefined) {
-    document.querySelectorAll('.pattern-player').forEach(el => el.classList.remove('active'));
-    // Find and highlight current player
   }
   
   updateScoreBoard(data.players);
@@ -565,7 +558,7 @@ function initBattleship(gameState, players) {
       
       ${isPlacement ? `
         <div class="ship-placement-mobile" id="shipPlacement">
-          <div class="placement-header">Select a ship to place:</div>
+          <div class="placement-header">🚢 Select a ship to place:</div>
           <div class="ships-to-place-mobile">
             ${BATTLESHIP_SHIPS.map((ship, i) => `
               <button class="ship-btn ${gameState.placedShips?.includes(i) ? 'placed' : ''} ${state.battleshipState?.selectedShip === i ? 'selected' : ''}" 
@@ -573,17 +566,23 @@ function initBattleship(gameState, players) {
                 <span class="ship-emoji">${ship.emoji}</span>
                 <span class="ship-info">
                   <span class="ship-name">${ship.name}</span>
-                  <span class="ship-size">${'■'.repeat(ship.size)}</span>
+                  <span class="ship-size">${'🟪'.repeat(ship.size)}</span>
                 </span>
               </button>
             `).join('')}
           </div>
-          <div class="placement-controls-mobile">
-            <button class="btn btn-secondary btn-large" id="rotateShip">🔄 Rotate Ship</button>
-            <button class="btn btn-primary btn-large" id="confirmPlacement" ${(gameState.placedShips?.length || 0) < 5 ? 'disabled' : ''}>✅ Ready to Battle!</button>
-          </div>
           <div class="orientation-indicator" id="orientationIndicator">
-            Placing: <span id="orientationText">Horizontal →</span>
+            <span>📐 Direction:</span>
+            <span id="orientationText">
+              <span class="rotation-preview horizontal" id="rotationPreview">
+                <span></span><span></span><span></span>
+              </span>
+              Horizontal →
+            </span>
+          </div>
+          <div class="placement-controls-mobile">
+            <button class="btn btn-secondary btn-large" id="rotateShip">🔄 Rotate</button>
+            <button class="btn btn-primary btn-large" id="confirmPlacement" ${(gameState.placedShips?.length || 0) < 5 ? 'disabled' : ''}>⚔️ Ready!</button>
           </div>
         </div>
       ` : ''}
@@ -747,8 +746,31 @@ function setupBattleshipMobileListeners(gameState, isPlacement) {
       e.preventDefault();
       state.battleshipState.horizontal = !state.battleshipState.horizontal;
       const orientText = document.getElementById('orientationText');
+      const rotationPreview = document.getElementById('rotationPreview');
+      
       if (orientText) {
-        orientText.textContent = state.battleshipState.horizontal ? 'Horizontal →' : 'Vertical ↓';
+        if (state.battleshipState.horizontal) {
+          orientText.innerHTML = `
+            <span class="rotation-preview horizontal" id="rotationPreview">
+              <span></span><span></span><span></span>
+            </span>
+            Horizontal →
+          `;
+        } else {
+          orientText.innerHTML = `
+            <span class="rotation-preview vertical" id="rotationPreview">
+              <span></span><span></span><span></span>
+            </span>
+            Vertical ↓
+          `;
+        }
+      }
+      
+      // Add animation effect
+      const btn = document.getElementById('rotateShip');
+      if (btn) {
+        btn.style.transform = 'rotate(180deg)';
+        setTimeout(() => btn.style.transform = '', 300);
       }
     });
     

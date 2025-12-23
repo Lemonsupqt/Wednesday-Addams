@@ -4186,117 +4186,136 @@ io.on('connection', (socket) => {
   });
 
   // ============================================
-  // REACTION TEST GAME HANDLERS
+  // SPEED MATH DUEL GAME HANDLERS
   // ============================================
-  // Pattern Memory - Color button click
-  socket.on('patternClick', ({ colorId }) => {
+  // Speed Math - Answer submission
+  socket.on('reactionClick', ({ answer }) => {
     const roomId = players.get(socket.id);
     const room = rooms.get(roomId);
     if (!room || room.currentGame !== 'reaction') return;
 
     const state = room.gameState;
-    const result = newGames.processReactionClick(state, socket.id, colorId);
+    const result = newGames.processReactionClick(state, socket.id, answer);
 
     if (result.error) {
-      socket.emit('patternUpdate', { error: result.error });
+      socket.emit('reactionUpdate', { error: result.error });
       return;
     }
 
-    // Send update to all players
-    io.to(roomId).emit('patternUpdate', {
+    const players_list = Array.from(room.players.values());
+    const playerName = players_list.find(p => p.id === socket.id)?.name || 'Player';
+
+    // Send result to the player who answered
+    socket.emit('reactionUpdate', {
       correct: result.correct,
-      inputLength: state.playerInput.length,
-      patternLength: state.pattern.length,
-      status: state.status,
-      scores: state.scores,
-      currentPlayer: state.playerOrder[state.currentPlayerIndex]
+      isFirst: result.isFirst,
+      points: result.points,
+      responseTime: result.responseTime,
+      correctAnswer: result.correctAnswer,
+      penalty: result.penalty,
+      scores: state.scores
     });
 
-    // Check if pattern completed or failed
-    if (result.playerOut) {
-      // Move to next player
-      state.currentPlayerIndex++;
-      
-      if (state.currentPlayerIndex >= state.playerOrder.length) {
-        // All players done, start next round
-        state.round++;
-        if (state.round <= state.maxRounds) {
-          setTimeout(() => {
-            newGames.startReactionRound(state);
-            io.to(roomId).emit('patternUpdate', {
-              status: 'showing',
-              round: state.round,
-              pattern: state.pattern,
-              speed: state.speed
-            });
-          }, 2000);
-        } else {
-          // Game over
+    // Notify other players that someone answered
+    socket.to(roomId).emit('reactionUpdate', {
+      playerAnswered: socket.id,
+      playerName,
+      wasCorrect: result.correct,
+      wasFirst: result.isFirst,
+      scores: state.scores
+    });
+
+    // Check if all players answered or game over
+    if (result.allAnswered) {
+      // Short delay then next round
+      setTimeout(() => {
+        if (result.gameOver) {
           const results = newGames.getReactionResults(state);
-          io.to(roomId).emit('patternUpdate', {
+          results.forEach(r => {
+            const player = players_list.find(p => p.id === r.playerId);
+            r.playerName = player?.name || 'Player';
+          });
+          
+          io.to(roomId).emit('reactionUpdate', {
+            gameOver: true,
             status: 'finished',
             results,
             scores: state.scores
           });
-          setTimeout(() => endGame(room, roomId), 3000);
-        }
-      } else {
-        // Next player's turn
-        state.playerInput = [];
-        state.status = 'input';
-        io.to(roomId).emit('patternUpdate', {
-          status: 'input',
-          currentPlayer: state.playerOrder[state.currentPlayerIndex]
-        });
-      }
-    } else if (result.correct && state.playerInput.length === state.pattern.length) {
-      // Pattern completed successfully
-      setTimeout(() => {
-        state.currentPlayerIndex++;
-        
-        if (state.currentPlayerIndex >= state.playerOrder.length) {
-          // All players done, start next round
-          state.round++;
-          if (state.round <= state.maxRounds) {
-            newGames.startReactionRound(state);
-            io.to(roomId).emit('patternUpdate', {
-              status: 'showing',
-              round: state.round,
-              pattern: state.pattern,
-              speed: state.speed
-            });
-          } else {
-            // Game over
-            const results = newGames.getReactionResults(state);
-            io.to(roomId).emit('patternUpdate', {
-              status: 'finished',
-              results,
-              scores: state.scores
-            });
-            setTimeout(() => endGame(room, roomId), 3000);
-          }
         } else {
-          // Next player's turn
-          state.playerInput = [];
-          state.status = 'input';
-          io.to(roomId).emit('patternUpdate', {
-            status: 'input',
-            currentPlayer: state.playerOrder[state.currentPlayerIndex]
-          });
+          // Start next round
+          startReactionRound(room, roomId);
         }
-      }, 1000);
+      }, 1500);
     }
   });
 
-  // Pattern Memory - Request pattern show (removed old reactionFalseStart)
-  socket.on('requestPatternShow', () => {
+  // AI Speed Math Handler
+  socket.on('aiReactionClick', ({ answer }) => {
     const roomId = players.get(socket.id);
     const room = rooms.get(roomId);
     if (!room || room.currentGame !== 'reaction') return;
 
     const state = room.gameState;
-    state.falseStarts.set(socket.id, (state.falseStarts.get(socket.id) || 0) + 1);
-    socket.emit('reactionUpdate', { falseStart: true, penalty: 500 });
+    const result = newGames.processReactionClick(state, socket.id, answer);
+
+    if (result.error) {
+      socket.emit('reactionUpdate', { error: result.error });
+      return;
+    }
+
+    // Send result to the player
+    socket.emit('reactionUpdate', {
+      correct: result.correct,
+      isFirst: result.isFirst,
+      points: result.points,
+      responseTime: result.responseTime,
+      correctAnswer: result.correctAnswer,
+      penalty: result.penalty,
+      scores: state.scores
+    });
+
+    // Check if game over or need next round
+    if (result.allAnswered || result.correct) {
+      setTimeout(() => {
+        if (state.status === 'finished' || result.gameOver) {
+          const results = newGames.getReactionResults(state);
+          results.forEach(r => {
+            r.playerName = r.playerId === 'AI_PLAYER' ? 'Wednesday AI' : 'Player';
+          });
+          
+          socket.emit('reactionUpdate', {
+            gameOver: true,
+            status: 'finished',
+            results,
+            scores: state.scores
+          });
+        } else {
+          // AI makes a move with slight delay
+          setTimeout(() => {
+            if (room.currentGame === 'reaction' && state.status === 'active') {
+              // AI answers with 70% accuracy
+              const aiAnswer = Math.random() < 0.7 ? 
+                state.currentProblem.answer : 
+                state.currentProblem.answer + Math.floor(Math.random() * 10) - 5;
+              
+              const aiResult = newGames.processReactionClick(state, 'AI_PLAYER', aiAnswer);
+              
+              socket.emit('reactionUpdate', {
+                playerAnswered: 'AI_PLAYER',
+                playerName: 'Wednesday AI',
+                wasCorrect: aiResult.correct,
+                wasFirst: aiResult.isFirst,
+                scores: state.scores
+              });
+            }
+          }, 500 + Math.random() * 2000);
+          
+          // Start next round
+          startReactionRound(room, roomId);
+        }
+      }, 1500);
+    }
   });
 
   // ============================================
@@ -5658,32 +5677,72 @@ function passTurnLudo(room, roomId, changePlayer = true) {
   });
 }
 
-// Start a reaction test round
+// Start a speed math round
 function startReactionRound(room, roomId) {
   const state = room.gameState;
   newGames.startReactionRound(state);
   
-  // Send countdown
+  // Send countdown first
   io.to(roomId).emit('reactionUpdate', {
     status: 'countdown',
     round: state.round,
     maxRounds: state.maxRounds
   });
   
-  // Random delay before showing target (1-4 seconds)
-  const delay = 1000 + Math.random() * 3000;
+  // Show the math problem after a brief countdown
   setTimeout(() => {
     if (room.currentGame !== 'reaction') return;
     
-    state.status = 'react';
-    state.targetAppearTime = Date.now();
+    state.status = 'active';
     
     io.to(roomId).emit('reactionUpdate', {
-      status: 'react',
-      target: state.currentTarget,
-      targetAppearTime: state.targetAppearTime
+      status: 'active',
+      problem: state.currentProblem,
+      round: state.round,
+      scores: state.scores
     });
-  }, delay);
+    
+    // Start timer for the round (10 seconds)
+    let timeLeft = state.timePerRound || 10;
+    const timerInterval = setInterval(() => {
+      if (room.currentGame !== 'reaction' || state.status !== 'active') {
+        clearInterval(timerInterval);
+        return;
+      }
+      
+      timeLeft--;
+      io.to(roomId).emit('reactionUpdate', { timeLeft });
+      
+      if (timeLeft <= 0) {
+        clearInterval(timerInterval);
+        // Time's up - reveal answer and move to next round
+        io.to(roomId).emit('reactionUpdate', {
+          timeUp: true,
+          correctAnswer: state.currentProblem.answer
+        });
+        
+        state.round++;
+        if (state.round <= state.maxRounds) {
+          setTimeout(() => startReactionRound(room, roomId), 2000);
+        } else {
+          // Game over
+          const results = newGames.getReactionResults(state);
+          const players = Array.from(room.players.values());
+          results.forEach(r => {
+            const player = players.find(p => p.id === r.playerId);
+            r.playerName = player?.name || 'Player';
+          });
+          
+          io.to(roomId).emit('reactionUpdate', {
+            gameOver: true,
+            status: 'finished',
+            results,
+            scores: state.scores
+          });
+        }
+      }
+    }, 1000);
+  }, 1500);
 }
 
 function startMoleWhackRound(room, roomId) {
