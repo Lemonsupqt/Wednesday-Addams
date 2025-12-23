@@ -1441,20 +1441,20 @@
 
 
 /* ============================================
-   SPEED MATH DUEL 🔢⚡
+   WORD SCRAMBLE 🔀
    ============================================ */
 
-.speed-math-container {
+.word-scramble-container {
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 20px;
   padding: 20px;
-  max-width: 500px;
+  max-width: 550px;
   margin: 0 auto;
 }
 
-.speed-math-info {
+.scramble-info {
   display: flex;
   justify-content: space-between;
   width: 100%;
@@ -1463,19 +1463,19 @@
   border-radius: 12px;
 }
 
-.speed-math-round {
+.scramble-round {
   font-size: 1.1rem;
   color: var(--text-secondary);
   font-weight: 500;
 }
 
-.speed-math-timer {
+.scramble-timer {
   font-size: 1.1rem;
   color: var(--accent-purple);
   font-weight: bold;
 }
 
-.speed-math-timer.urgent {
+.scramble-timer.urgent {
   color: var(--accent-red);
   animation: timerPulse 0.5s ease-in-out infinite;
 }
@@ -1485,32 +1485,71 @@
   50% { transform: scale(1.1); }
 }
 
-.speed-math-problem {
+.scramble-word-display {
   width: 100%;
-  min-height: 120px;
+  min-height: 140px;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
   background: linear-gradient(135deg, rgba(147, 51, 234, 0.2), rgba(229, 9, 20, 0.2));
   border-radius: 20px;
   border: 2px solid var(--accent-purple);
-  padding: 30px;
+  padding: 25px;
+  gap: 15px;
 }
 
-.problem-display {
-  text-align: center;
+.scrambled-letters {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
 }
 
-.problem-text {
-  font-size: 2.5rem;
+.scramble-letter {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 45px;
+  height: 50px;
+  background: linear-gradient(135deg, var(--accent-purple), #7c3aed);
+  border-radius: 10px;
+  font-size: 1.8rem;
   font-weight: bold;
-  color: var(--text-primary);
-  text-shadow: 0 0 20px var(--accent-purple);
-  font-family: 'Courier New', monospace;
+  color: white;
+  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+  box-shadow: 0 4px 0 rgba(0, 0, 0, 0.3), 0 6px 15px rgba(147, 51, 234, 0.3);
+  animation: letterBounce 0.5s ease forwards;
+  animation-delay: calc(var(--i, 0) * 0.05s);
 }
 
-.problem-waiting {
-  font-size: 1.5rem;
+.scramble-letter:nth-child(1) { --i: 0; }
+.scramble-letter:nth-child(2) { --i: 1; }
+.scramble-letter:nth-child(3) { --i: 2; }
+.scramble-letter:nth-child(4) { --i: 3; }
+.scramble-letter:nth-child(5) { --i: 4; }
+.scramble-letter:nth-child(6) { --i: 5; }
+.scramble-letter:nth-child(7) { --i: 6; }
+.scramble-letter:nth-child(8) { --i: 7; }
+.scramble-letter:nth-child(9) { --i: 8; }
+.scramble-letter:nth-child(10) { --i: 9; }
+
+@keyframes letterBounce {
+  0% { transform: translateY(-20px) scale(0); opacity: 0; }
+  60% { transform: translateY(5px) scale(1.1); }
+  100% { transform: translateY(0) scale(1); opacity: 1; }
+}
+
+.letter-count {
+  font-size: 0.95rem;
+  color: var(--text-secondary);
+  background: rgba(0, 0, 0, 0.3);
+  padding: 5px 15px;
+  border-radius: 15px;
+}
+
+.scramble-waiting {
+  font-size: 1.4rem;
   color: var(--text-secondary);
 }
 
@@ -1520,45 +1559,47 @@
 
 @keyframes popIn {
   0% { transform: scale(0.5); opacity: 0; }
-  70% { transform: scale(1.1); }
+  70% { transform: scale(1.05); }
   100% { transform: scale(1); opacity: 1; }
 }
 
-.speed-math-answer {
+.scramble-input {
   display: flex;
   gap: 12px;
   width: 100%;
 }
 
-.speed-math-answer input {
+.scramble-input input {
   flex: 1;
   padding: 15px 20px;
-  font-size: 1.5rem;
+  font-size: 1.4rem;
   background: var(--card-bg);
   border: 2px solid var(--border-color);
   border-radius: 12px;
   color: var(--text-primary);
   text-align: center;
-  font-family: 'Courier New', monospace;
+  text-transform: uppercase;
+  letter-spacing: 3px;
+  font-weight: 600;
 }
 
-.speed-math-answer input:focus {
+.scramble-input input:focus {
   border-color: var(--accent-purple);
   outline: none;
   box-shadow: 0 0 15px rgba(147, 51, 234, 0.3);
 }
 
-.speed-math-answer input:disabled {
+.scramble-input input:disabled {
   opacity: 0.5;
   cursor: not-allowed;
 }
 
-.speed-math-answer .btn {
+.scramble-input .btn {
   padding: 15px 25px;
   font-size: 1.1rem;
 }
 
-.speed-math-feedback {
+.scramble-feedback {
   min-height: 50px;
   width: 100%;
 }
@@ -1590,14 +1631,29 @@
   font-size: 1.1rem;
 }
 
-.speed-math-scores {
+.feedback-timeout {
+  background: rgba(251, 191, 36, 0.2);
+  border: 1px solid #fbbf24;
+  border-radius: 12px;
+  padding: 15px;
+  text-align: center;
+  color: #fbbf24;
+  font-size: 1.1rem;
+}
+
+.feedback-timeout strong {
+  color: var(--text-primary);
+  font-size: 1.2rem;
+}
+
+.scramble-scores {
   width: 100%;
   display: flex;
   flex-direction: column;
   gap: 8px;
 }
 
-.math-player {
+.scramble-player {
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -1608,48 +1664,43 @@
   transition: all 0.2s ease;
 }
 
-.math-player.me {
+.scramble-player.me {
   border-color: var(--accent-purple);
 }
 
-.math-player.winner {
+.scramble-player.winner {
   background: rgba(34, 197, 94, 0.2);
   border-color: #22c55e;
 }
 
-.math-player .rank {
+.scramble-player .rank {
   font-size: 1.2rem;
   margin-right: 10px;
 }
 
-.math-player .player-name {
+.scramble-player .player-name {
   flex: 1;
   color: var(--text-primary);
   font-weight: 500;
 }
 
-.math-player .player-score {
+.scramble-player .player-score {
   color: var(--accent-purple);
   font-weight: bold;
   margin-right: 10px;
 }
 
-.math-player .round-result {
+.scramble-player .round-result {
   min-width: 50px;
   text-align: center;
 }
 
-.math-player .round-result .correct {
+.scramble-player .round-result .correct {
   color: #22c55e;
   font-weight: bold;
 }
 
-.math-player .round-result .wrong {
-  color: #ef4444;
-  font-weight: bold;
-}
-
-.speed-math-hint {
+.scramble-hint {
   font-size: 0.9rem;
   color: var(--text-secondary);
   text-align: center;
@@ -1658,29 +1709,38 @@
   border-radius: 10px;
 }
 
-/* Mobile optimizations for Speed Math */
+/* Mobile optimizations for Word Scramble */
 @media (max-width: 480px) {
-  .speed-math-container {
+  .word-scramble-container {
     padding: 15px;
     gap: 15px;
   }
   
-  .problem-text {
-    font-size: 2rem;
+  .scramble-letter {
+    width: 38px;
+    height: 42px;
+    font-size: 1.5rem;
   }
   
-  .speed-math-answer {
+  .scramble-input {
     flex-direction: column;
   }
   
-  .speed-math-answer input {
-    font-size: 1.3rem;
+  .scramble-input input {
+    font-size: 1.2rem;
     padding: 12px 15px;
+  }
+  
+  .scramble-input .btn {
+    width: 100%;
   }
 }
 
 @media (max-width: 360px) {
-  .problem-text {
-    font-size: 1.7rem;
+  .scramble-letter {
+    width: 32px;
+    height: 38px;
+    font-size: 1.3rem;
+    gap: 5px;
   }
 }

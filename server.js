@@ -4250,7 +4250,7 @@ io.on('connection', (socket) => {
     }
   });
 
-  // AI Speed Math Handler
+  // AI Word Scramble Handler
   socket.on('aiReactionClick', ({ answer }) => {
     const roomId = players.get(socket.id);
     const room = rooms.get(roomId);
@@ -4270,8 +4270,9 @@ io.on('connection', (socket) => {
       isFirst: result.isFirst,
       points: result.points,
       responseTime: result.responseTime,
-      correctAnswer: result.correctAnswer,
-      penalty: result.penalty,
+      word: result.word,
+      guess: result.guess,
+      hint: result.hint,
       scores: state.scores
     });
 
@@ -4294,27 +4295,25 @@ io.on('connection', (socket) => {
           // AI makes a move with slight delay
           setTimeout(() => {
             if (room.currentGame === 'reaction' && state.status === 'active') {
-              // AI answers with 70% accuracy
-              const aiAnswer = Math.random() < 0.7 ? 
-                state.currentProblem.answer : 
-                state.currentProblem.answer + Math.floor(Math.random() * 10) - 5;
-              
-              const aiResult = newGames.processReactionClick(state, 'AI_PLAYER', aiAnswer);
-              
-              socket.emit('reactionUpdate', {
-                playerAnswered: 'AI_PLAYER',
-                playerName: 'Wednesday AI',
-                wasCorrect: aiResult.correct,
-                wasFirst: aiResult.isFirst,
-                scores: state.scores
-              });
+              // AI guesses with 60% accuracy after some delay
+              if (Math.random() < 0.6) {
+                const aiResult = newGames.processReactionClick(state, 'AI_PLAYER', state.currentWord);
+                
+                socket.emit('reactionUpdate', {
+                  playerAnswered: 'AI_PLAYER',
+                  playerName: 'Wednesday AI',
+                  wasCorrect: aiResult.correct,
+                  wasFirst: aiResult.isFirst,
+                  scores: state.scores
+                });
+              }
             }
-          }, 500 + Math.random() * 2000);
+          }, 3000 + Math.random() * 5000);
           
           // Start next round
           startReactionRound(room, roomId);
         }
-      }, 1500);
+      }, 2000);
     }
   });
 
@@ -5677,7 +5676,7 @@ function passTurnLudo(room, roomId, changePlayer = true) {
   });
 }
 
-// Start a speed math round
+// Start a word scramble round
 function startReactionRound(room, roomId) {
   const state = room.gameState;
   newGames.startReactionRound(state);
@@ -5689,7 +5688,7 @@ function startReactionRound(room, roomId) {
     maxRounds: state.maxRounds
   });
   
-  // Show the math problem after a brief countdown
+  // Show the scrambled word after a brief countdown
   setTimeout(() => {
     if (room.currentGame !== 'reaction') return;
     
@@ -5697,13 +5696,14 @@ function startReactionRound(room, roomId) {
     
     io.to(roomId).emit('reactionUpdate', {
       status: 'active',
-      problem: state.currentProblem,
+      scrambledWord: state.scrambledWord,
+      letterCount: state.currentWord.length,
       round: state.round,
       scores: state.scores
     });
     
-    // Start timer for the round (10 seconds)
-    let timeLeft = state.timePerRound || 10;
+    // Start timer for the round (20 seconds)
+    let timeLeft = state.timePerRound || 20;
     const timerInterval = setInterval(() => {
       if (room.currentGame !== 'reaction' || state.status !== 'active') {
         clearInterval(timerInterval);
@@ -5718,12 +5718,12 @@ function startReactionRound(room, roomId) {
         // Time's up - reveal answer and move to next round
         io.to(roomId).emit('reactionUpdate', {
           timeUp: true,
-          correctAnswer: state.currentProblem.answer
+          correctWord: state.currentWord
         });
         
         state.round++;
         if (state.round <= state.maxRounds) {
-          setTimeout(() => startReactionRound(room, roomId), 2000);
+          setTimeout(() => startReactionRound(room, roomId), 3000);
         } else {
           // Game over
           const results = newGames.getReactionResults(state);

@@ -1503,8 +1503,8 @@ function updatePlayersList(players) {
         <span class="new-badge">NEW</span>
       </button>
       <button class="game-card new-game" data-game="reaction">
-        <span class="game-icon">🔢⚡</span>
-        <span class="game-name">Speed Math<br>Duel</span>
+        <span class="game-icon">🔀✨</span>
+        <span class="game-name">Word<br>Scramble</span>
         <span class="game-players">2+ players</span>
         <span class="new-badge">NEW</span>
       </button>

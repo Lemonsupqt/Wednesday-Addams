@@ -231,106 +231,105 @@ function processWordChainTurn(state, playerId, word) {
 }
 
 // ============================================
-// SPEED MATH DUEL 🔢⚡ (Fast-paced math competition)
+// WORD SCRAMBLE 🔀 (Unscramble words race)
 // ============================================
 
-// Operation types for different difficulties
-const MATH_OPERATIONS = {
-  easy: ['+', '-'],
-  medium: ['+', '-', '×'],
-  hard: ['+', '-', '×', '÷']
+// Word lists for scrambling
+const SCRAMBLE_WORDS = {
+  easy: [
+    'APPLE', 'BEACH', 'CANDY', 'DANCE', 'EAGLE', 'FLAME', 'GRAPE', 'HAPPY', 'IMAGE', 'JUICE',
+    'KITE', 'LEMON', 'MAGIC', 'NIGHT', 'OCEAN', 'PIANO', 'QUEEN', 'RIVER', 'STORM', 'TIGER',
+    'UNCLE', 'VOICE', 'WATER', 'YOUTH', 'ZEBRA', 'BREAD', 'CHAIR', 'DREAM', 'EARTH', 'FROST'
+  ],
+  medium: [
+    'BUTTERFLY', 'CHOCOLATE', 'DOLPHIN', 'ELEPHANT', 'FESTIVAL', 'GIRAFFE', 'HARMONY', 
+    'INVENTOR', 'JOURNEY', 'KITCHEN', 'LANTERN', 'MOUNTAIN', 'NOTEBOOK', 'OPPOSITE',
+    'PARADISE', 'QUESTION', 'RAINBOW', 'SUNSHINE', 'TREASURE', 'UMBRELLA', 'VACATION',
+    'WHISPER', 'ADVENTURE', 'BIRTHDAY', 'CHAMPION', 'DIAMOND', 'ENORMOUS', 'FANTASTIC'
+  ],
+  hard: [
+    'MYSTERIOUS', 'ADVENTURE', 'BEAUTIFUL', 'CELEBRATE', 'DANGEROUS', 'EXCITEMENT',
+    'FRIENDSHIP', 'GENERATION', 'HAPPINESS', 'IMPOSSIBLE', 'JOURNALISM', 'KNOWLEDGE',
+    'LABORATORY', 'MAGNIFICENT', 'NEIGHBORHOOD', 'OPPORTUNITY', 'PHOTOGRAPHY', 'RESTAURANT',
+    'SKATEBOARD', 'TECHNOLOGY', 'UNDERSTAND', 'VOLLEYBALL', 'WEDNESDAY', 'XYLOPHONE'
+  ]
 };
 
-function generateMathProblem(difficulty = 'medium') {
-  const ops = MATH_OPERATIONS[difficulty] || MATH_OPERATIONS.medium;
-  const op = ops[Math.floor(Math.random() * ops.length)];
+function scrambleWord(word) {
+  const letters = word.split('');
+  let scrambled = word;
   
-  let num1, num2, answer;
-  
-  switch (op) {
-    case '+':
-      num1 = Math.floor(Math.random() * (difficulty === 'hard' ? 100 : 50)) + 1;
-      num2 = Math.floor(Math.random() * (difficulty === 'hard' ? 100 : 50)) + 1;
-      answer = num1 + num2;
-      break;
-    case '-':
-      num1 = Math.floor(Math.random() * (difficulty === 'hard' ? 100 : 50)) + 10;
-      num2 = Math.floor(Math.random() * num1);
-      answer = num1 - num2;
-      break;
-    case '×':
-      num1 = Math.floor(Math.random() * (difficulty === 'hard' ? 15 : 12)) + 1;
-      num2 = Math.floor(Math.random() * (difficulty === 'hard' ? 15 : 12)) + 1;
-      answer = num1 * num2;
-      break;
-    case '÷':
-      num2 = Math.floor(Math.random() * 10) + 2;
-      answer = Math.floor(Math.random() * 12) + 1;
-      num1 = num2 * answer;
-      break;
-    default:
-      num1 = Math.floor(Math.random() * 20) + 1;
-      num2 = Math.floor(Math.random() * 20) + 1;
-      answer = num1 + num2;
+  // Keep scrambling until it's different from original
+  let attempts = 0;
+  while (scrambled === word && attempts < 20) {
+    for (let i = letters.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [letters[i], letters[j]] = [letters[j], letters[i]];
+    }
+    scrambled = letters.join('');
+    attempts++;
   }
   
-  return {
-    num1,
-    num2,
-    operation: op,
-    answer,
-    display: `${num1} ${op} ${num2} = ?`
-  };
+  return scrambled;
+}
+
+function getRandomScrambleWord(difficulty = 'medium') {
+  const words = SCRAMBLE_WORDS[difficulty] || SCRAMBLE_WORDS.medium;
+  return words[Math.floor(Math.random() * words.length)];
 }
 
 function createReactionTestState(roomId, players) {
   const playerIds = Array.from(players.keys()).filter(id => id !== 'AI_PLAYER');
   return {
     round: 1,
-    maxRounds: 10,
+    maxRounds: 8,
     status: 'waiting', // waiting, active, answered, finished
-    currentProblem: null,
-    problemStartTime: null,
+    currentWord: null,
+    scrambledWord: null,
+    wordStartTime: null,
     playerOrder: playerIds,
     scores: Object.fromEntries(playerIds.map(id => [id, 0])),
-    roundScores: Object.fromEntries(playerIds.map(id => [id, 0])),
     answeredThisRound: [],
     firstCorrect: null,
     difficulty: 'medium',
-    timePerRound: 10, // seconds
-    gameType: 'speed_math'
+    timePerRound: 20, // seconds
+    hintsUsed: Object.fromEntries(playerIds.map(id => [id, 0])),
+    gameType: 'word_scramble'
   };
 }
 
 function startReactionRound(state) {
-  state.currentProblem = generateMathProblem(state.difficulty);
-  state.problemStartTime = Date.now();
+  const word = getRandomScrambleWord(state.difficulty);
+  state.currentWord = word;
+  state.scrambledWord = scrambleWord(word);
+  state.wordStartTime = Date.now();
   state.status = 'active';
   state.answeredThisRound = [];
   state.firstCorrect = null;
-  state.roundScores = Object.fromEntries(state.playerOrder.map(id => [id, 0]));
   
   return state;
 }
 
 function processReactionClick(state, playerId, answer) {
-  // Already answered this round?
+  // Already answered correctly this round?
   if (state.answeredThisRound.includes(playerId)) {
-    return { error: 'Already answered this round' };
+    return { error: 'Already solved this round' };
   }
   
   if (state.status !== 'active') {
     return { error: 'Round not active' };
   }
   
-  const isCorrect = parseInt(answer) === state.currentProblem.answer;
-  const responseTime = Date.now() - state.problemStartTime;
-  
-  state.answeredThisRound.push(playerId);
+  const guess = (answer + '').toUpperCase().trim();
+  const isCorrect = guess === state.currentWord;
+  const responseTime = Date.now() - state.wordStartTime;
   
   if (isCorrect) {
-    // Calculate points based on speed (max 10 points, min 1)
-    const timeBonus = Math.max(1, Math.floor(10 - (responseTime / 1000)));
+    state.answeredThisRound.push(playerId);
+    
+    // Calculate points based on speed and word length
+    const wordBonus = Math.floor(state.currentWord.length / 2);
+    const timeBonus = Math.max(1, Math.floor(15 - (responseTime / 1000)));
     const isFirst = state.firstCorrect === null;
     
     if (isFirst) {
@@ -338,9 +337,8 @@ function processReactionClick(state, playerId, answer) {
     }
     
     // First correct gets bonus points
-    const points = isFirst ? timeBonus + 3 : timeBonus;
+    const points = isFirst ? timeBonus + wordBonus + 5 : timeBonus + wordBonus;
     state.scores[playerId] = (state.scores[playerId] || 0) + points;
-    state.roundScores[playerId] = points;
     
     // Check if all players answered
     const allAnswered = state.answeredThisRound.length >= state.playerOrder.length;
@@ -360,17 +358,15 @@ function processReactionClick(state, playerId, answer) {
       points,
       responseTime,
       allAnswered,
+      word: state.currentWord,
       gameOver: state.status === 'finished'
     };
   } else {
-    // Wrong answer - small penalty
-    state.scores[playerId] = Math.max(0, (state.scores[playerId] || 0) - 1);
-    state.roundScores[playerId] = -1;
-    
+    // Wrong guess - no penalty, just feedback
     return {
       correct: false,
-      correctAnswer: state.currentProblem.answer,
-      penalty: -1
+      guess: guess,
+      hint: `Try again! The word has ${state.currentWord.length} letters.`
     };
   }
 }

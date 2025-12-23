@@ -318,46 +318,46 @@ function updateWordChain(data) {
 }
 
 // ============================================
-// SPEED MATH DUEL 🔢⚡ (Fast-paced math competition)
+// WORD SCRAMBLE 🔀 (Unscramble words race)
 // ============================================
 
-let speedMathState = {
+let wordScrambleState = {
   canAnswer: true,
-  inputValue: ''
+  currentWord: null
 };
 
 function initReactionTest(gameState, players) {
-  console.log('🔢 Initializing Speed Math Duel:', gameState);
+  console.log('🔀 Initializing Word Scramble:', gameState);
   state.gameState = gameState;
-  speedMathState = {
+  wordScrambleState = {
     canAnswer: true,
-    inputValue: ''
+    currentWord: null
   };
-  elements.gameTitle.textContent = '🔢⚡ Speed Math Duel';
+  elements.gameTitle.textContent = '🔀 Word Scramble Race';
   
   elements.gameContent.innerHTML = `
-    <div class="speed-math-container">
-      <div class="speed-math-info">
-        <div class="speed-math-round">Round <span id="mathRound">${gameState.round || 1}</span>/${gameState.maxRounds || 10}</div>
-        <div class="speed-math-timer" id="mathTimer">⏱️ Waiting...</div>
+    <div class="word-scramble-container">
+      <div class="scramble-info">
+        <div class="scramble-round">Round <span id="scrambleRound">${gameState.round || 1}</span>/${gameState.maxRounds || 8}</div>
+        <div class="scramble-timer" id="scrambleTimer">⏱️ Waiting...</div>
       </div>
       
-      <div class="speed-math-problem" id="mathProblem">
-        <div class="problem-waiting">🎯 Get Ready!</div>
+      <div class="scramble-word-display" id="scrambleWord">
+        <div class="scramble-waiting">🎯 Get Ready to Unscramble!</div>
       </div>
       
-      <div class="speed-math-answer">
-        <input type="number" id="mathAnswerInput" placeholder="Your answer..." autocomplete="off" inputmode="numeric" disabled>
-        <button class="btn btn-primary" id="mathSubmitBtn" disabled>
-          <span class="btn-icon">⚡</span> Submit
+      <div class="scramble-input">
+        <input type="text" id="scrambleInput" placeholder="Type the word..." autocomplete="off" maxlength="20" disabled>
+        <button class="btn btn-primary" id="scrambleSubmitBtn" disabled>
+          <span class="btn-icon">✨</span> Guess
         </button>
       </div>
       
-      <div class="speed-math-feedback" id="mathFeedback"></div>
+      <div class="scramble-feedback" id="scrambleFeedback"></div>
       
-      <div class="speed-math-scores" id="mathScores">
+      <div class="scramble-scores" id="scrambleScores">
         ${players.map(p => `
-          <div class="math-player ${p.id === state.playerId ? 'me' : ''}">
+          <div class="scramble-player ${p.id === state.playerId ? 'me' : ''}">
             <span class="player-name">${escapeHtml(p.name)}</span>
             <span class="player-score" id="score-${p.id}">${gameState.scores?.[p.id] || 0} pts</span>
             <span class="round-result" id="result-${p.id}"></span>
@@ -365,33 +365,29 @@ function initReactionTest(gameState, players) {
         `).join('')}
       </div>
       
-      <div class="speed-math-hint">
-        💡 First correct answer gets +3 bonus points! Speed matters!
+      <div class="scramble-hint">
+        💡 First to unscramble gets +5 bonus! Longer words = more points!
       </div>
     </div>
   `;
   
-  setupSpeedMathListeners();
+  setupWordScrambleListeners();
   updateScoreBoard(players);
 }
 
-function setupSpeedMathListeners() {
-  const input = document.getElementById('mathAnswerInput');
-  const submitBtn = document.getElementById('mathSubmitBtn');
+function setupWordScrambleListeners() {
+  const input = document.getElementById('scrambleInput');
+  const submitBtn = document.getElementById('scrambleSubmitBtn');
   
   if (input && submitBtn) {
     const submitAnswer = () => {
       const answer = input.value.trim();
-      if (answer === '' || !speedMathState.canAnswer) return;
-      
-      speedMathState.canAnswer = false;
-      input.disabled = true;
-      submitBtn.disabled = true;
+      if (answer === '' || !wordScrambleState.canAnswer) return;
       
       if (state.isAIGame) {
-        socket.emit('aiReactionClick', { answer: parseInt(answer) });
+        socket.emit('aiReactionClick', { answer: answer });
       } else {
-        socket.emit('reactionClick', { answer: parseInt(answer) });
+        socket.emit('reactionClick', { answer: answer });
       }
     };
     
@@ -403,16 +399,17 @@ function setupSpeedMathListeners() {
 }
 
 function updateReactionTest(data) {
-  const problemEl = document.getElementById('mathProblem');
-  const feedbackEl = document.getElementById('mathFeedback');
-  const timerEl = document.getElementById('mathTimer');
-  const input = document.getElementById('mathAnswerInput');
-  const submitBtn = document.getElementById('mathSubmitBtn');
-  const roundEl = document.getElementById('mathRound');
+  const wordEl = document.getElementById('scrambleWord');
+  const feedbackEl = document.getElementById('scrambleFeedback');
+  const timerEl = document.getElementById('scrambleTimer');
+  const input = document.getElementById('scrambleInput');
+  const submitBtn = document.getElementById('scrambleSubmitBtn');
+  const roundEl = document.getElementById('scrambleRound');
   
-  // New problem to solve
-  if (data.problem) {
-    speedMathState.canAnswer = true;
+  // New scrambled word
+  if (data.scrambledWord) {
+    wordScrambleState.canAnswer = true;
+    wordScrambleState.currentWord = data.scrambledWord;
     if (input) {
       input.value = '';
       input.disabled = false;
@@ -421,11 +418,14 @@ function updateReactionTest(data) {
     if (submitBtn) submitBtn.disabled = false;
     if (feedbackEl) feedbackEl.innerHTML = '';
     
-    if (problemEl) {
-      problemEl.innerHTML = `
-        <div class="problem-display animate-pop">
-          <span class="problem-text">${data.problem.display}</span>
+    if (wordEl) {
+      wordEl.innerHTML = `
+        <div class="scrambled-letters animate-pop">
+          ${data.scrambledWord.split('').map(letter => `
+            <span class="scramble-letter">${letter}</span>
+          `).join('')}
         </div>
+        <div class="letter-count">${data.scrambledWord.length} letters</div>
       `;
     }
     
@@ -441,7 +441,7 @@ function updateReactionTest(data) {
   // Timer update
   if (data.timeLeft !== undefined && timerEl) {
     timerEl.textContent = `⏱️ ${data.timeLeft}s`;
-    if (data.timeLeft <= 3) {
+    if (data.timeLeft <= 5) {
       timerEl.classList.add('urgent');
     } else {
       timerEl.classList.remove('urgent');
@@ -453,10 +453,14 @@ function updateReactionTest(data) {
     const resultEl = document.getElementById(`result-${state.playerId}`);
     
     if (data.correct) {
+      wordScrambleState.canAnswer = false;
+      if (input) input.disabled = true;
+      if (submitBtn) submitBtn.disabled = true;
+      
       if (feedbackEl) {
         feedbackEl.innerHTML = `
           <div class="feedback-correct">
-            ✅ Correct! ${data.isFirst ? '🥇 First!' : ''} +${data.points} points
+            ✅ "${data.word}" is correct! ${data.isFirst ? '🥇 First!' : ''} +${data.points} points
             <div class="response-time">⚡ ${(data.responseTime / 1000).toFixed(2)}s</div>
           </div>
         `;
@@ -466,11 +470,15 @@ function updateReactionTest(data) {
       if (feedbackEl) {
         feedbackEl.innerHTML = `
           <div class="feedback-wrong">
-            ❌ Wrong! The answer was ${data.correctAnswer}
+            ❌ "${data.guess}" is not correct. ${data.hint || 'Keep trying!'}
           </div>
         `;
       }
-      if (resultEl) resultEl.innerHTML = `<span class="wrong">-1</span>`;
+      // Allow trying again
+      if (input) {
+        input.value = '';
+        input.focus();
+      }
     }
   }
   
@@ -482,45 +490,58 @@ function updateReactionTest(data) {
     }
   }
   
-  // Player answered (not you)
+  // Player solved (not you)
   if (data.playerAnswered && data.playerAnswered !== state.playerId) {
     const resultEl = document.getElementById(`result-${data.playerAnswered}`);
     if (resultEl) {
       if (data.wasCorrect) {
         resultEl.innerHTML = `<span class="correct">${data.wasFirst ? '🥇' : '✓'}</span>`;
-      } else {
-        resultEl.innerHTML = `<span class="wrong">✗</span>`;
       }
+    }
+  }
+  
+  // Time up - reveal answer
+  if (data.timeUp) {
+    wordScrambleState.canAnswer = false;
+    if (input) input.disabled = true;
+    if (submitBtn) submitBtn.disabled = true;
+    
+    if (feedbackEl) {
+      feedbackEl.innerHTML = `
+        <div class="feedback-timeout">
+          ⏰ Time's up! The word was: <strong>${data.correctWord}</strong>
+        </div>
+      `;
     }
   }
   
   // Waiting for next round
   if (data.status === 'waiting' || data.nextRound) {
-    if (problemEl) {
-      problemEl.innerHTML = `<div class="problem-waiting">⏳ Next problem coming...</div>`;
+    if (wordEl) {
+      wordEl.innerHTML = `<div class="scramble-waiting">⏳ Next word coming...</div>`;
     }
-    speedMathState.canAnswer = false;
+    wordScrambleState.canAnswer = false;
     if (input) input.disabled = true;
     if (submitBtn) submitBtn.disabled = true;
   }
   
   // Game over
   if (data.gameOver || data.status === 'finished') {
-    speedMathState.canAnswer = false;
+    wordScrambleState.canAnswer = false;
     if (input) input.disabled = true;
     if (submitBtn) submitBtn.disabled = true;
     
-    if (problemEl) {
-      problemEl.innerHTML = `<div class="problem-waiting">🏆 Game Over!</div>`;
+    if (wordEl) {
+      wordEl.innerHTML = `<div class="scramble-waiting">🏆 Game Over!</div>`;
     }
     
     showPlayAgainButton('reaction');
     
     if (data.results) {
-      const scoresEl = document.getElementById('mathScores');
+      const scoresEl = document.getElementById('scrambleScores');
       if (scoresEl) {
         scoresEl.innerHTML = data.results.map((r, i) => `
-          <div class="math-player ${r.playerId === state.playerId ? 'me' : ''} ${i === 0 ? 'winner' : ''}">
+          <div class="scramble-player ${r.playerId === state.playerId ? 'me' : ''} ${i === 0 ? 'winner' : ''}">
             <span class="rank">${i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `${i+1}.`}</span>
             <span class="player-name">${escapeHtml(r.playerName || 'Player')}</span>
             <span class="player-score">${r.score} pts</span>
