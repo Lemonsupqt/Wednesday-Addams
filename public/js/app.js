@@ -2895,19 +2895,19 @@ function updateTicTacToe(data) {
   }
 }
 
-// Play Again button handler - shows modal popup for game end options
+// Play Again button handler - shows buttons below the game board when game ends
 function showPlayAgainButton(gameType) {
-  // For AI games, use inline buttons in the game container
+  const container = document.querySelector(`.${gameType}-container`) || elements.gameContent;
+  
+  // Remove existing play again button if any
+  const existingBtn = container.querySelector('.play-again-container');
+  if (existingBtn) existingBtn.remove();
+  
+  const playAgainDiv = document.createElement('div');
+  playAgainDiv.className = 'play-again-container';
+  
+  // Different buttons for AI mode vs room mode
   if (state.isAIGame) {
-    const container = document.querySelector(`.${gameType}-container`) || elements.gameContent;
-    
-    // Remove existing play again button if any
-    const existingBtn = container.querySelector('.play-again-container');
-    if (existingBtn) existingBtn.remove();
-    
-    const playAgainDiv = document.createElement('div');
-    playAgainDiv.className = 'play-again-container';
-    
     playAgainDiv.innerHTML = `
       <button class="btn btn-primary play-again-btn" id="playAgainBtn">
         <span class="btn-icon">🔄</span> Play Again
@@ -2939,64 +2939,35 @@ function showPlayAgainButton(gameType) {
       endGame();
     });
   } else {
-    // For room games (non-AI), show a modal popup like match games
-    showRoomGameEndModal(gameType);
-  }
-}
-
-// Show end options modal for room games (non-match, non-AI)
-function showRoomGameEndModal(gameType) {
-  const modal = document.getElementById('votingModal');
-  if (!modal) return;
-  
-  const gameNames = {
-    'ttt': '⭕❌ Tic-Tac-Toe',
-    'tictactoe': '⭕❌ Tic-Tac-Toe',
-    'chess': '♟️ Chess',
-    'connect4': '🔴🟡 Connect 4',
-    'memory': '🃏 Memory Match',
-    'sudoku': '🔢 Sudoku',
-    'trivia': '🧠 Trivia',
-    'molewhack': '🔨 Whack-a-Mole',
-    'hangman': '🎯 Hangman',
-    'wordchain': '⛓️ Word Chain',
-    'reaction': '🔀 Word Scramble',
-    'battleship': '🚢 Battleship',
-    'drawing': '🎨 Drawing Guess'
-  };
-  
-  modal.innerHTML = `
-    <div class="voting-modal-content">
-      <h3>🏁 Game Over!</h3>
-      <p class="modal-subtitle">${gameNames[gameType] || gameType}</p>
-      <div class="match-end-options">
-        <button class="btn btn-primary match-end-btn" id="roomPlayAgainBtn">
-          <span class="btn-icon">🔄</span> Play Again
-        </button>
-        <button class="btn btn-secondary match-end-btn" id="roomBackToRoomBtn">
-          <span class="btn-icon">🏠</span> Back to Room
-        </button>
-      </div>
+    // For room games - show Play Again and Back to Room below the board
+    playAgainDiv.innerHTML = `
+      <button class="btn btn-primary play-again-btn" id="playAgainBtn">
+        <span class="btn-icon">🔄</span> Play Again
+      </button>
+      <button class="btn btn-secondary" id="backToRoomBtn">
+        <span class="btn-icon">🏠</span> Back to Room
+      </button>
       <p class="session-hint">🏆 Most session wins gets +1 Trophy when returning to room!</p>
-    </div>
-  `;
-  modal.classList.add('active');
-  
-  document.getElementById('roomPlayAgainBtn')?.addEventListener('click', () => {
-    modal.classList.remove('active');
-    if (state.currentGame === 'memory' && state.gameState?.difficulty) {
-      socket.emit('restartGame', { type: 'memory', options: { difficulty: state.gameState.difficulty } });
-    } else if (state.currentGame === 'sudoku' && state.gameState?.difficulty) {
-      socket.emit('restartGame', { type: 'sudoku', options: { difficulty: state.gameState.difficulty } });
-    } else {
-      socket.emit('restartGame', state.currentGame);
-    }
-  });
-  
-  document.getElementById('roomBackToRoomBtn')?.addEventListener('click', () => {
-    modal.classList.remove('active');
-    socket.emit('endGame');
-  });
+    `;
+    container.appendChild(playAgainDiv);
+    
+    document.getElementById('playAgainBtn')?.addEventListener('click', () => {
+      // Remove the buttons
+      playAgainDiv.remove();
+      
+      if (state.currentGame === 'memory' && state.gameState?.difficulty) {
+        socket.emit('restartGame', { type: 'memory', options: { difficulty: state.gameState.difficulty } });
+      } else if (state.currentGame === 'sudoku' && state.gameState?.difficulty) {
+        socket.emit('restartGame', { type: 'sudoku', options: { difficulty: state.gameState.difficulty } });
+      } else {
+        socket.emit('restartGame', state.currentGame);
+      }
+    });
+    
+    document.getElementById('backToRoomBtn')?.addEventListener('click', () => {
+      socket.emit('endGame');
+    });
+  }
 }
 
 // ============================================
