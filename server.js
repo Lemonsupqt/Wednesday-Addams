@@ -16,7 +16,16 @@ const newGames = require('./new-games-server');
 // ============================================
 // AI API CONFIGURATION FOR WEDNESDAY AI CHATBOT
 // ============================================
-// Groq API (FREE, FAST, RECOMMENDED) - Get key at https://console.groq.com/keys
+// MegaLLM API (PRIMARY - 70+ models, OpenAI-compatible) - Get key at https://megallm.io
+const MEGALLM_API_KEY = process.env.MEGALLM_API_KEY;
+const MEGALLM_BASE_URL = process.env.MEGALLM_BASE_URL || 'https://ai.megallm.io/v1';
+// MegaLLM model config: primary model + comma-separated fallback models
+// Example: MEGALLM_MODEL=claude-sonnet-4-20250514  MEGALLM_FALLBACK_MODELS=gpt-4.1-mini,gemini-2.5-flash
+const MEGALLM_MODEL = process.env.MEGALLM_MODEL || 'claude-sonnet-4-20250514';
+const MEGALLM_FALLBACK_MODELS = process.env.MEGALLM_FALLBACK_MODELS
+  ? process.env.MEGALLM_FALLBACK_MODELS.split(',').map(m => m.trim()).filter(Boolean)
+  : ['gpt-4.1-mini', 'gemini-2.5-flash'];
+// Groq API (FREE, FAST fallback) - Get key at https://console.groq.com/keys
 const GROQ_API_KEY = process.env.GROQ_API_KEY;
 // OpenAI API (Paid fallback)
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
@@ -1738,10 +1747,33 @@ io.on('connection', (socket) => {
       aiChatRateLimit.set(roomId, rateData);
     }
     
-    // Try Groq API first (FREE and FAST!)
+    // Fallback chain: MegaLLM (primary + fallback models) → Groq → OpenAI → Static
     console.log(`💬 Wednesday AI request: "${userMessage.substring(0, 50)}..."`);
-    console.log(`   GROQ_API_KEY available: ${!!GROQ_API_KEY}`);
+    console.log(`   MEGALLM_API_KEY: ${!!MEGALLM_API_KEY} | GROQ_API_KEY: ${!!GROQ_API_KEY} | OPENAI_API_KEY: ${!!OPENAI_API_KEY}`);
     
+    // 1. Try MegaLLM API (primary model, then fallback models)
+    if (MEGALLM_API_KEY) {
+      // Try primary model first
+      const allModels = [MEGALLM_MODEL, ...MEGALLM_FALLBACK_MODELS];
+      for (const model of allModels) {
+        try {
+          console.log(`   ➡️ Attempting MegaLLM [${model}]...`);
+          const aiResponse = await callMegaLLM(userMessage, isReply, model);
+          if (aiResponse) {
+            console.log(`✅ Wednesday response from MegaLLM [${model}]:`, aiResponse.substring(0, 50) + '...');
+            return aiResponse;
+          }
+        } catch (error) {
+          console.error(`❌ MegaLLM [${model}] error:`, error.message);
+          // Try next fallback model
+        }
+      }
+      console.log('   ⚠️ All MegaLLM models failed, trying Groq...');
+    } else {
+      console.log('   ⚠️ MEGALLM_API_KEY not set, skipping MegaLLM');
+    }
+    
+    // 2. Try Groq API (free fallback)
     if (GROQ_API_KEY) {
       try {
         console.log('   ➡️ Attempting Groq API call...');
@@ -1752,32 +1784,67 @@ io.on('connection', (socket) => {
         }
       } catch (error) {
         console.error('❌ Groq API error:', error.message);
-        // Fall through to OpenAI
       }
     } else {
       console.log('   ⚠️ GROQ_API_KEY not set, skipping Groq');
     }
     
-    // Try OpenAI API as fallback
+    // 3. Try OpenAI API (paid fallback)
     if (OPENAI_API_KEY) {
       try {
+        console.log('   ➡️ Attempting OpenAI API call...');
         const aiResponse = await callOpenAI(userMessage, isReply);
         if (aiResponse) {
           console.log('✅ Wednesday response from OpenAI API');
           return aiResponse;
         }
       } catch (error) {
-        console.error('OpenAI API error:', error.message);
-        // Fall through to static responses
+        console.error('❌ OpenAI API error:', error.message);
       }
     }
     
-    // Fallback to enhanced static responses
+    // 4. Fallback to enhanced static responses
     console.log('📝 Wednesday response from static fallback');
     return getFallbackResponse(msg, isReply);
   }
   
-  // Call Groq API for Wednesday responses (FREE, FAST, RECOMMENDED!)
+  // Call MegaLLM API for Wednesday responses (PRIMARY - 70+ models via OpenAI-compatible API)
+  async function callMegaLLM(userMessage, isReply, model) {
+    const messages = [
+      { role: 'system', content: WEDNESDAY_SYSTEM_PROMPT },
+      { 
+        role: 'user', 
+        content: isReply 
+          ? `[Continuing conversation] ${userMessage}` 
+          : userMessage.replace(/@wednesday/gi, '').trim() || userMessage
+      }
+    ];
+    
+    const response = await fetch(`${MEGALLM_BASE_URL}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${MEGALLM_API_KEY}`
+      },
+      body: JSON.stringify({
+        model: model,
+        messages: messages,
+        max_tokens: 150,
+        temperature: 0.9,
+        top_p: 0.9
+      })
+    });
+    
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`MegaLLM [${model}] returned ${response.status}: ${errorText.substring(0, 200)}`);
+    }
+    
+    const data = await response.json();
+    return data.choices?.[0]?.message?.content?.trim() || null;
+  }
+  
+  // Call Groq API for Wednesday responses (FREE, FAST fallback)
   async function callGroqAPI(userMessage, isReply) {
     const messages = [
       { role: 'system', content: WEDNESDAY_SYSTEM_PROMPT },
@@ -6809,22 +6876,37 @@ server.listen(PORT, () => {
   let aiStatus;
   // Debug: Log which API keys are available
   console.log('🔑 API Key Status:');
+  console.log(`   MEGALLM_API_KEY: ${MEGALLM_API_KEY ? 'SET (✓)' : 'NOT SET'}`);
+  console.log(`   MEGALLM_MODEL: ${MEGALLM_MODEL}`);
+  console.log(`   MEGALLM_FALLBACK_MODELS: ${MEGALLM_FALLBACK_MODELS.join(', ') || 'none'}`);
   console.log(`   GROQ_API_KEY: ${GROQ_API_KEY ? 'SET (✓)' : 'NOT SET'}`);
   console.log(`   OPENAI_API_KEY: ${OPENAI_API_KEY ? 'SET (✓)' : 'NOT SET'}`);
   
-  if (GROQ_API_KEY) {
+  if (MEGALLM_API_KEY) {
+    aiStatus = `🤖 Wednesday AI: ENABLED (MegaLLM → ${MEGALLM_MODEL})`;
+  } else if (GROQ_API_KEY) {
     aiStatus = '🤖 Wednesday AI: ENABLED (Groq - FREE & FAST!)';
   } else if (OPENAI_API_KEY) {
     aiStatus = '🤖 Wednesday AI: ENABLED (OpenAI)';
   } else {
     aiStatus = '🤖 Wednesday AI: Fallback mode (static responses)';
   }
+  
+  const fallbackChain = [
+    MEGALLM_API_KEY ? `MegaLLM[${MEGALLM_MODEL}]` : null,
+    MEGALLM_API_KEY && MEGALLM_FALLBACK_MODELS.length ? `MegaLLM[${MEGALLM_FALLBACK_MODELS.join(',')}]` : null,
+    GROQ_API_KEY ? 'Groq[llama-3.3-70b]' : null,
+    OPENAI_API_KEY ? 'OpenAI[gpt-4o-mini]' : null,
+    'Static'
+  ].filter(Boolean).join(' → ');
+  
   console.log(`
   ⚡️ THE UPSIDE DOWN NEVERMORE GAMES ⚡️
   =====================================
   🎮 Server running on port ${PORT}
   🌐 Open http://localhost:${PORT}
   ${aiStatus}
+  🔗 Fallback chain: ${fallbackChain}
   =====================================
   `);
 });
