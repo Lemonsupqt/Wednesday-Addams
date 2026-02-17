@@ -1431,7 +1431,99 @@ io.on('connection', (socket) => {
     }
     socket.emit('loggedOut');
   });
-  
+
+  // ============================================
+  // TELEGRAM AUTO-LOGIN (StarzAI Bot Integration)
+  // ============================================
+  socket.on('telegramAutoLogin', async ({ telegramId, displayName }) => {
+    if (!telegramId) {
+      socket.emit('authError', { message: 'Telegram ID required' });
+      return;
+    }
+
+    // Sanitize inputs
+    const tgId = String(telegramId).trim();
+    const tgUsername = ('tg_' + tgId).toLowerCase();
+    const tgDisplayName = (displayName || 'Telegram User').substring(0, 20).trim();
+
+    // Check if a Telegram-linked account already exists
+    let user = userAccounts[tgUsername];
+
+    if (user) {
+      // Existing Telegram account — auto-login
+      // Update display name if changed
+      if (tgDisplayName && tgDisplayName !== user.displayName) {
+        user.displayName = tgDisplayName;
+      }
+
+      // Kick existing session if logged in elsewhere
+      const existingSocketId = usernameToSocket.get(tgUsername);
+      if (existingSocketId && existingSocketId !== socket.id) {
+        const existingSocket = io.sockets.sockets.get(existingSocketId);
+        if (existingSocket && existingSocket.connected) {
+          existingSocket.emit('forcedLogout', {
+            message: 'Your account was logged in from another device'
+          });
+          authenticatedSockets.delete(existingSocketId);
+        } else {
+          authenticatedSockets.delete(existingSocketId);
+        }
+      }
+
+      authenticatedSockets.set(socket.id, tgUsername);
+      usernameToSocket.set(tgUsername, socket.id);
+
+      socket.emit('authSuccess', {
+        username: tgUsername,
+        displayName: user.displayName,
+        trophies: user.trophies || 0,
+        totalWins: user.totalWins || 0,
+        gamesPlayed: user.gamesPlayed || 0,
+        title: getUserTitle(user.trophies || 0),
+        telegramLinked: true
+      });
+
+      console.log(`🤖 Telegram auto-login: ${tgUsername} (tg:${tgId})`);
+    } else {
+      // No account yet — auto-register with Telegram ID
+      const newUser = {
+        username: tgUsername,
+        displayName: tgDisplayName,
+        passwordHash: hashPassword('tg_auto_' + tgId + '_' + Date.now()),
+        telegramId: tgId,
+        trophies: 0,
+        totalWins: 0,
+        gamesPlayed: 0,
+        createdAt: Date.now(),
+        lastPlayed: null
+      };
+
+      userAccounts[tgUsername] = newUser;
+
+      // Persist to database
+      saveUser(newUser).then(() => {
+        console.log(`💾 Telegram user ${tgUsername} saved to database`);
+      }).catch(err => {
+        console.error('Error saving Telegram user:', err);
+      });
+
+      authenticatedSockets.set(socket.id, tgUsername);
+      usernameToSocket.set(tgUsername, socket.id);
+
+      socket.emit('authSuccess', {
+        username: tgUsername,
+        displayName: tgDisplayName,
+        trophies: 0,
+        totalWins: 0,
+        gamesPlayed: 0,
+        title: getUserTitle(0),
+        telegramLinked: true
+      });
+
+      console.log(`🤖 Telegram auto-register: ${tgUsername} (tg:${tgId}, name:${tgDisplayName})`);
+    }
+  });
+
   socket.on('getLeaderboard', () => {
     socket.emit('leaderboardData', getLeaderboard());
   });

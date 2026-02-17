@@ -212,6 +212,84 @@ document.addEventListener('DOMContentLoaded', () => {
     elements.roomCode.value = savedRoomCode;
   }
   
+  // ============================================
+  // TELEGRAM AUTO-LOGIN (StarzAI Bot Integration)
+  // ============================================
+  const urlParams = new URLSearchParams(window.location.search);
+  const tgId = urlParams.get('tg_id');
+  const tgName = urlParams.get('tg_name');
+
+  if (tgId) {
+    // Opened from Telegram bot — auto-login with Telegram ID
+    console.log(`🤖 Telegram auto-login detected: tg_id=${tgId}, name=${tgName}`);
+    showScreen('authScreen');
+
+    // Show loading state on login button
+    const loginBtn = document.getElementById('loginBtn');
+    if (loginBtn) {
+      loginBtn.textContent = '🤖 Connecting via Telegram...';
+      loginBtn.disabled = true;
+    }
+
+    // Clean URL params so they don't persist on refresh
+    const cleanUrl = window.location.origin + window.location.pathname;
+    window.history.replaceState({}, document.title, cleanUrl);
+
+    // Save Telegram session for future auto-login
+    localStorage.setItem('telegramSession', JSON.stringify({ tgId, tgName: tgName || 'Telegram User' }));
+    // Clear any old guest/password sessions
+    localStorage.removeItem('guestSession');
+    localStorage.removeItem('authSession');
+
+    function doTelegramLogin() {
+      socket.emit('telegramAutoLogin', {
+        telegramId: tgId,
+        displayName: tgName || 'Telegram User'
+      });
+    }
+
+    if (socket.connected) {
+      doTelegramLogin();
+    } else {
+      socket.once('connect', doTelegramLogin);
+    }
+  } else {
+
+  // Check for saved Telegram session (returning Telegram user)
+  const savedTelegramSession = localStorage.getItem('telegramSession');
+
+  if (savedTelegramSession) {
+    try {
+      const tgSession = JSON.parse(savedTelegramSession);
+      if (tgSession.tgId) {
+        console.log(`🤖 Restoring Telegram session: tg_id=${tgSession.tgId}`);
+        showScreen('authScreen');
+
+        const loginBtn = document.getElementById('loginBtn');
+        if (loginBtn) {
+          loginBtn.textContent = '🤖 Connecting via Telegram...';
+          loginBtn.disabled = true;
+        }
+
+        function doTelegramRestore() {
+          socket.emit('telegramAutoLogin', {
+            telegramId: tgSession.tgId,
+            displayName: tgSession.tgName || 'Telegram User'
+          });
+        }
+
+        if (socket.connected) {
+          doTelegramRestore();
+        } else {
+          socket.once('connect', doTelegramRestore);
+        }
+      }
+    } catch (e) {
+      console.error('Failed to parse Telegram session:', e);
+      localStorage.removeItem('telegramSession');
+    }
+  } else {
+
   // Check for saved session and attempt auto-login
   const savedAuth = localStorage.getItem('authSession');
   const savedGuestSession = localStorage.getItem('guestSession');
@@ -263,6 +341,9 @@ document.addEventListener('DOMContentLoaded', () => {
     // No saved session - show auth screen
     showScreen('authScreen');
   }
+
+  } // end: savedTelegramSession else
+  } // end: tgId else
 });
 
 // ============================================
@@ -547,7 +628,18 @@ socket.on('authSuccess', (data) => {
   
   showScreen('mainMenu');
   updateUserInfoDisplay();
-  const welcomeMsg = data.gamesPlayed === 0 ? `Welcome to Nevermore, ${data.displayName}! ${data.title}` : `Welcome back, ${data.displayName}! ${data.title}`;
+  
+  // Telegram-linked accounts get a special welcome
+  let welcomeMsg;
+  if (data.telegramLinked) {
+    welcomeMsg = data.gamesPlayed === 0 
+      ? `🤖 Welcome to Nevermore, ${data.displayName}! Linked via Telegram. ${data.title}` 
+      : `🤖 Welcome back, ${data.displayName}! ${data.title}`;
+  } else {
+    welcomeMsg = data.gamesPlayed === 0 
+      ? `Welcome to Nevermore, ${data.displayName}! ${data.title}` 
+      : `Welcome back, ${data.displayName}! ${data.title}`;
+  }
   showNotification(welcomeMsg, 'success');
   
   // Check for pending room link from URL
@@ -597,6 +689,7 @@ socket.on('loggedOut', () => {
   state.isAuthenticated = false;
   state.username = null;
   state.userStats = null;
+  localStorage.removeItem('telegramSession');
   showScreen('authScreen');
 });
 
